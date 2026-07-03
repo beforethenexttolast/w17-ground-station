@@ -7,16 +7,18 @@ const { TelemetrySource } = require('./telemetry.js');
 
 // A built-in ~20s loop: spin up, a fast lap with ERS deploy/harvest, a
 // battery sag, then a scripted link loss + recovery. Times are ms into loop.
+// driveMode (0=Training 1=Race 2=ERS) steps like armed/failsafe -- it's an enum,
+// not an interpolated quantity. Scripted so the demo cycles through all three.
 const DEMO_TIMELINE = [
-  { t: 0, speedKmh: 0, batteryV: 8.3, batteryPct: 95, armed: false, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 100 },
-  { t: 1500, speedKmh: 0, batteryV: 8.3, batteryPct: 95, armed: true, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 100 },
-  { t: 6000, speedKmh: 180, batteryV: 7.6, batteryPct: 70, armed: true, failsafe: false, linkQualityPct: 98, gear: 6, ersPct: 40 },
-  { t: 9000, speedKmh: 90, batteryV: 7.9, batteryPct: 66, armed: true, failsafe: false, linkQualityPct: 96, gear: 3, ersPct: 75 },
-  { t: 12000, speedKmh: 210, batteryV: 7.2, batteryPct: 55, armed: true, failsafe: false, linkQualityPct: 92, gear: 7, ersPct: 20 },
-  { t: 14000, speedKmh: 0, batteryV: 7.2, batteryPct: 55, armed: false, failsafe: true, linkQualityPct: 0, gear: 7, ersPct: 20 },
-  { t: 16000, speedKmh: 0, batteryV: 7.2, batteryPct: 54, armed: false, failsafe: true, linkQualityPct: 0, gear: 7, ersPct: 20 },
-  { t: 17000, speedKmh: 60, batteryV: 7.4, batteryPct: 53, armed: true, failsafe: false, linkQualityPct: 90, gear: 2, ersPct: 30 },
-  { t: 20000, speedKmh: 0, batteryV: 7.5, batteryPct: 52, armed: false, failsafe: false, linkQualityPct: 96, gear: 1, ersPct: 45 },
+  { t: 0, speedKmh: 0, batteryV: 8.3, batteryPct: 95, armed: false, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 100, driveMode: 0 },
+  { t: 1500, speedKmh: 0, batteryV: 8.3, batteryPct: 95, armed: true, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 100, driveMode: 1 },
+  { t: 6000, speedKmh: 180, batteryV: 7.6, batteryPct: 70, armed: true, failsafe: false, linkQualityPct: 98, gear: 6, ersPct: 40, driveMode: 2 },
+  { t: 9000, speedKmh: 90, batteryV: 7.9, batteryPct: 66, armed: true, failsafe: false, linkQualityPct: 96, gear: 3, ersPct: 75, driveMode: 1 },
+  { t: 12000, speedKmh: 210, batteryV: 7.2, batteryPct: 55, armed: true, failsafe: false, linkQualityPct: 92, gear: 7, ersPct: 20, driveMode: 2 },
+  { t: 14000, speedKmh: 0, batteryV: 7.2, batteryPct: 55, armed: false, failsafe: true, linkQualityPct: 0, gear: 7, ersPct: 20, driveMode: 2 },
+  { t: 16000, speedKmh: 0, batteryV: 7.2, batteryPct: 54, armed: false, failsafe: true, linkQualityPct: 0, gear: 7, ersPct: 20, driveMode: 1 },
+  { t: 17000, speedKmh: 60, batteryV: 7.4, batteryPct: 53, armed: true, failsafe: false, linkQualityPct: 90, gear: 2, ersPct: 30, driveMode: 1 },
+  { t: 20000, speedKmh: 0, batteryV: 7.5, batteryPct: 52, armed: false, failsafe: false, linkQualityPct: 96, gear: 1, ersPct: 45, driveMode: 0 },
 ];
 
 const NUMERIC_FIELDS = ['speedKmh', 'batteryV', 'batteryPct', 'linkQualityPct', 'gear', 'ersPct'];
@@ -49,6 +51,7 @@ function sampleTimeline(timeline, ms) {
   }
   out.armed = lo.armed;
   out.failsafe = lo.failsafe;
+  if (typeof lo.driveMode === 'number') out.driveMode = lo.driveMode; // stepped enum
   return out;
 }
 

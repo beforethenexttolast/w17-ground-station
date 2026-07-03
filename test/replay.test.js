@@ -28,6 +28,13 @@ describe('sampleTimeline', () => {
     expect(s.linkQualityPct).toBe(0);
   });
 
+  it('steps driveMode as an enum (never interpolates to a fractional mode)', () => {
+    // Between t=6000 (mode 2) and t=9000 (mode 1) it must hold 2, not 1.5.
+    const s = sampleTimeline(DEMO_TIMELINE, 7500);
+    expect(s.driveMode).toBe(2);
+    expect(Number.isInteger(s.driveMode)).toBe(true);
+  });
+
   it('loops (wraps modulo the timeline period)', () => {
     const period = DEMO_TIMELINE[DEMO_TIMELINE.length - 1].t;
     const a = sampleTimeline(DEMO_TIMELINE, 500);

@@ -12,12 +12,20 @@ import { startWhep } from './whep.js';
 
 const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
-  gearEl = el('gear'), thrEl = el('thr'), brkEl = el('brk'), steerEl = el('steer'),
+  gearEl = el('gear'), driveModeEl = el('driveMode'), thrEl = el('thr'), brkEl = el('brk'), steerEl = el('steer'),
   ersEl = el('ers'), ersPctEl = el('ersPct'), battVEl = el('battV'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
   gate = el('gate'), gateStatus = el('gateStatus'), startBtn = el('startBtn'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote');
+
+// Drive modes, indexed by the car's driveMode field (firmware ChannelDecoder:
+// 0=Training, 1=Race, 2=ERS). Shown only when live telemetry supplies it.
+const DRIVE_MODES = [
+  { label: 'TRAINING', cls: 'm-train' },
+  { label: 'RACE', cls: 'm-race' },
+  { label: 'ERS', cls: 'm-ers' },
+];
 
 const REV_LIGHTS = 12;
 for (let i = 0; i < REV_LIGHTS; i++) revEl.appendChild(document.createElement('i'));
@@ -162,6 +170,12 @@ function render() {
   gearEl.textContent = showSpeed < 1 && showGear === 1 ? 'N' : showGear;
   const shifting = S.rpm > 0.96 && S.gear < FEEL.gears && !live;
   gearEl.classList.toggle('shift', shifting);
+
+  // Drive mode: car-authoritative only (the HUD has no local mode state -- the
+  // mode is chosen upstream in elrs-joystick-control). Blank unless live.
+  const mode = live && typeof telem.driveMode === 'number' ? DRIVE_MODES[telem.driveMode] : null;
+  driveModeEl.textContent = mode ? mode.label : '';
+  driveModeEl.className = mode ? `drivemode ${mode.cls}` : 'drivemode';
 
   const lit = Math.round(S.rpm * REV_LIGHTS), third = REV_LIGHTS / 3;
   revs.forEach((r, i) => { r.className = ''; if (i < lit) r.classList.add(i < third ? 'g' : i < third * 2 ? 'r' : 'v'); });

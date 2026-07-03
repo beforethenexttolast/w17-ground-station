@@ -87,6 +87,11 @@ body{background:#000;color:var(--silver);
 .gear{font-style:italic;font-weight:800;line-height:.8;font-size:clamp(96px,17vw,210px);color:var(--silver);transform:skewX(-6deg);
   text-shadow:0 0 28px rgba(0,210,190,.55),0 0 6px rgba(0,210,190,.7);transition:color .1s;}
 .gear.shift{color:var(--violet);text-shadow:0 0 34px var(--violet)}
+.drivemode{min-height:1.2em;margin-top:.15em;letter-spacing:.28em;font-size:clamp(9px,1.1vw,13px);
+  font-weight:700;text-transform:uppercase;color:var(--muted);transition:color .15s;}
+.drivemode.m-race{color:var(--teal);text-shadow:0 0 12px rgba(0,210,190,.6)}
+.drivemode.m-ers{color:var(--violet);text-shadow:0 0 12px rgba(185,139,255,.6)}
+.drivemode.m-train{color:var(--muted)}
 .right{display:flex;flex-direction:column;gap:.5em;align-items:flex-end;min-width:clamp(150px,18vw,250px)}
 .pillrow{display:flex;gap:.5em;justify-content:flex-end;flex-wrap:wrap}
 .pill{padding:.42em .9em;font-weight:800;letter-spacing:.18em;font-size:clamp(10px,1.3vw,15px);text-transform:uppercase;

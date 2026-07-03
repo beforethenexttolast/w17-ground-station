@@ -9,8 +9,8 @@ An **Electron** app that overlays a Mercedes-livery F1 HUD on the live FPV video
   full-screen background (low latency; WebRTC not HLS).
 - **HUD** — throttle/brake/steering/DRS/boost/overtake/gear mirrored live from the DualShock
   (Gamepad API), plus a simulated speed/rpm/ERS animation, all in the F1 dash style.
-- **Telemetry overlay** — real speed, battery, ERS%, link quality and failsafe from the car
-  replace the simulated values when a telemetry source is connected.
+- **Telemetry overlay** — real speed, gear, drive mode, ERS%, battery, link quality and failsafe
+  from the car replace the simulated values when a telemetry source is connected.
 
 ## Viewer only — it does NOT drive the car
 
