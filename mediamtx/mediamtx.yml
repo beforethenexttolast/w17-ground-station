@@ -1,0 +1,36 @@
+# mediamtx config for the W17 ground station.
+# Ingests the OpenIPC camera's RTSP stream and republishes it as WebRTC/WHEP
+# for the Electron renderer. Pin the mediamtx version you fetch (see
+# scripts/fetch-mediamtx.js) so these keys stay valid.
+#
+# BENCH: set `source` to the real camera URL from majestic_fpv.yaml (see
+# docs/SETUP.md). If the camera emits H.265, WebRTC will NOT play it in
+# Chromium -- reconfigure the camera to H.264 or transcode (docs/SETUP.md #1).
+
+logLevel: info
+logDestinations: [stdout]
+
+# WebRTC / WHEP server. The renderer POSTs its SDP offer to
+# http://127.0.0.1:8889/<path>/whep.
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+# Localhost only -- this is a local ground-station bridge, not a public server.
+webrtcAdditionalHosts: [127.0.0.1]
+
+# RTSP server stays available too (so VLC/the fallback can hit mediamtx, and
+# for the offline demo re-publish).
+rtspAddress: :8554
+api: no
+
+paths:
+  # The live camera feed. Replace the source with the real RTSP URL.
+  cam:
+    source: rtsp://192.168.1.10:554/stream0
+    sourceOnDemand: yes
+
+  # Offline demo path: publish a local file to exercise the exact WHEP path
+  # with no camera. Start it with:
+  #   mediamtx  (then) ffmpeg -re -stream_loop -1 -i demo.mp4 -c:v libx264 \
+  #     -f rtsp rtsp://127.0.0.1:8554/cam
+  # or point `source` above at a file:// via ffmpeg. See docs/SETUP.md.

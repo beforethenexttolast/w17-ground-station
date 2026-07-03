@@ -1,0 +1,22 @@
+{
+  "name": "w17-ground-station",
+  "version": "0.1.0",
+  "description": "Viewer-only FPV ground station for the W17 RC car: WebRTC video + gamepad-mirrored HUD + telemetry overlay.",
+  "type": "module",
+  "main": "main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "demo": "W17_TELEMETRY_SOURCE=replay electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "electron-builder --win",
+    "fetch-mediamtx": "node scripts/fetch-mediamtx.js"
+  },
+  "author": "Vitaliy Khomenko",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "vitest": "^2.0.0"
+  }
+}

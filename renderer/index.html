@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src http://127.0.0.1:8889 http://localhost:8889; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+<title>W17 — FPV Ground Station</title>
+<link rel="stylesheet" href="hud.css" />
+</head>
+<body>
+  <!-- Live video underlay: the WHEP stream from mediamtx renders here. -->
+  <div class="stage">
+    <video id="feed" autoplay playsinline muted></video>
+    <div class="feed-note" id="feedNote">WAITING FOR VIDEO<small>WHEP · mediamtx</small></div>
+  </div>
+  <div class="vignette"></div>
+
+  <div class="hud">
+    <div class="top">
+      <div class="driver panel">
+        <div class="numplate">63</div>
+        <div class="who">
+          <div class="name">Russell</div>
+          <div class="team">Mercedes-AMG Petronas</div>
+        </div>
+      </div>
+      <div class="revwrap">
+        <div class="revlabel">Revs</div>
+        <div class="rev panel" id="rev"></div>
+      </div>
+      <div class="session panel">
+        <div class="live"><span class="dot"></span>Live</div>
+        <div class="clock num" id="clock">00:00.0</div>
+        <div class="gp" id="gpStatus">No controller</div>
+        <div class="link" id="linkStatus">Telemetry: sim</div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="left">
+        <div class="speedbox panel">
+          <div class="speed num"><span id="speed">0</span><small id="speedUnit">km/h · sim</small></div>
+        </div>
+        <div class="bars panel">
+          <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="thr"></div></div></div>
+          <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="brk"></div></div></div>
+        </div>
+        <div class="steer panel">
+          <b>STR</b>
+          <div class="steerbar"><div class="steerdot" id="steer"></div></div>
+        </div>
+      </div>
+
+      <div class="gearbox">
+        <div class="gearlabel">Gear</div>
+        <div class="gear num" id="gear">N</div>
+      </div>
+
+      <div class="right">
+        <div class="pillrow">
+          <div class="pill boost" id="boost">Boost</div>
+          <div class="pill ot" id="ot">Overtake</div>
+        </div>
+        <div class="pillrow"><div class="pill drs" id="drs">DRS</div></div>
+        <div class="battrow panel" id="battRow">
+          <div class="ershead"><b>BATT</b><span class="num"><span id="battV">--</span> V</span></div>
+        </div>
+        <div class="ersbox panel">
+          <div class="ershead"><b>ERS</b><span class="num"><span id="ersPct">100</span>%</span></div>
+          <div class="erstrack"><div class="ersfill" id="ers"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="gate">
+    <h1>W17 <em>FPV</em></h1>
+    <div class="sub">Mercedes-AMG Petronas · No.63 · ground station</div>
+    <div class="status no" id="gateStatus">Searching for controller…</div>
+    <button class="startbtn" id="startBtn">Press Start</button>
+    <div class="keys">
+      <strong>DualShock</strong> L-stick steer · R2 throttle · L2 brake · R1/L1 gear · △ DRS · ○ boost · □ overtake<br>
+      <strong>Keyboard</strong> arrows steer/throttle/brake · E/Q gear · D DRS · B boost · O overtake · Enter start
+    </div>
+    <div class="keys" style="margin-top:.4em;opacity:.7">The car is driven by elrs-joystick-control. This window mirrors your inputs and overlays telemetry — it does not command the car.</div>
+  </div>
+  <div class="demoToggle"><button id="demoBtn">▶ Demo mode</button></div>
+
+  <script type="module" src="hud.js"></script>
+</body>
+</html>
