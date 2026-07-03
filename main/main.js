@@ -10,6 +10,7 @@ const path = require('node:path');
 
 const { MediamtxSupervisor } = require('./mediamtx.js');
 const { ReplaySource } = require('../shared/replaySource.js');
+const { CrsfSerialSource } = require('./CrsfSerialSource.js');
 const feel = require('../shared/feelConstants.js');
 
 const projectRoot = path.join(__dirname, '..');
@@ -31,6 +32,13 @@ const WHEP_URL = process.env.W17_WHEP_URL || 'http://127.0.0.1:8889/cam/whep';
 function chooseTelemetrySource() {
   const kind = process.env.W17_TELEMETRY_SOURCE || 'none';
   if (kind === 'replay') return new ReplaySource();
+  if (kind === 'crsf-serial') {
+    // Real battery + link-quality over the ELRS backchannel (docs/TELEMETRY.md).
+    return new CrsfSerialSource({
+      path: process.env.W17_TELEMETRY_PORT || (process.platform === 'win32' ? 'COM5' : '/dev/ttyUSB0'),
+      log: (m) => console.log(m),
+    });
+  }
   return null; // HUD runs fully on gamepad + display model with no source
 }
 

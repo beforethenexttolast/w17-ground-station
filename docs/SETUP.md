@@ -29,20 +29,27 @@ different mediamtx source). Confirm which, and the exact path.
 `http://127.0.0.1:8889/cam/whep` once a source is publishing. If you bump the version, re-check
 the `webrtc*` keys in `mediamtx.yml` against that release's docs.
 
-## 4. Telemetry return path (deferrable — HUD works without it)
+## 4. Telemetry (battery + link quality, over the ELRS backchannel)
 
-The HUD is fully alive from the gamepad; telemetry only adds car-side truths (real speed,
-battery, armed/failsafe, link quality). Two candidate sources (see `docs/TELEMETRY.md`):
+The HUD is fully alive from the gamepad; telemetry only adds the car-side truths it can't infer
+— here, **real battery voltage + link quality**. The control-board firmware already emits a CRSF
+battery frame up to RP1; the ground TX module reports link statistics natively. Enable the
+ground-station reader with `W17_TELEMETRY_SOURCE=crsf-serial W17_TELEMETRY_PORT=COMx`. The
+one setup task is getting a reader onto the CRSF serial that elrs-joystick-control already holds
+exclusively (see `docs/TELEMETRY.md`):
 
-- **WiFi (recommended):** the car ESP32 publishes a small JSON/UDP packet over the OpenIPC
-  5.8 GHz AP the laptop is already on. No serial contention. Cleanest — build a
-  `WebSocketSource`/`UdpSource` and point `main.js` at it.
-- **CRSF serial (only if it works):** telemetry returns on the *same FT232 port*
-  elrs-joystick-control holds for control. **Verify whether elrs-joystick-control can forward
-  the telemetry it receives** (a `--telemetry`/UDP/stdout flag). If yes, a `CrsfSerialSource`
-  consumes that (the `shared/crsf.js` parser is ready). If no, use the WiFi path.
+- **First check:** does `elrs-joystick-control` expose/forward telemetry (a UDP/log/stdout
+  flag)? If so, point the source there — simplest, viewer-only intact.
+- **Otherwise:** install **com0com** (+ `hub4com`) on Windows — one owner mirrors the physical
+  FT232 port to two virtual ports; elrs-joystick-control opens one, set `W17_TELEMETRY_PORT` to
+  the other. Confirm `CrsfSerialSource` logs `CRSF serial open` and the HUD's battery/LQ go live.
+- Verify the TX module actually emits LINK_STATISTICS (0x14) + the car's battery (0x08) on that
+  serial (a few Hz is plenty). ELRS telemetry rate is more than enough for a battery gauge.
 
-Until then, `npm run demo` runs the built-in replay source so you can see the full overlay.
+`serialport` is a native module — after `npm install` run `npx electron-rebuild` (or
+`npm run setup` if wired) so it matches Electron's ABI. If it's missing/unbuilt the app still
+runs (gamepad HUD; telemetry just stays simulated). Until the bench, `npm run demo` runs the
+built-in replay source so you can see the full overlay.
 
 ## 5. Offline demo (no car, no camera)
 

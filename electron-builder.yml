@@ -17,6 +17,9 @@ win:
   target: nsis
   # Unsigned for a one-off gift build: Windows SmartScreen shows a first-run
   # "unknown publisher" prompt; click through. Sign later if desired.
-# If a serial telemetry source is added, its native module needs
-# @electron/rebuild + asarUnpack here. The WiFi telemetry path avoids that.
-asarUnpack: []
+# serialport (CRSF telemetry source) is a native module: it must be rebuilt
+# against Electron's ABI (@electron/rebuild, run via the app:rebuild step) and
+# unpacked from the asar so its .node binary can load at runtime.
+asarUnpack:
+  - '**/node_modules/serialport/**'
+  - '**/node_modules/@serialport/**'
