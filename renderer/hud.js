@@ -14,7 +14,7 @@ const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   gearEl = el('gear'), thrEl = el('thr'), brkEl = el('brk'), steerEl = el('steer'),
   ersEl = el('ers'), ersPctEl = el('ersPct'), battVEl = el('battV'),
-  drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'),
+  drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
   gate = el('gate'), gateStatus = el('gateStatus'), startBtn = el('startBtn'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote');
@@ -35,6 +35,7 @@ computeCaps();
 const S = {
   started: false, gear: 1, speed: 0, rpm: 0, ers: 100,
   throttle: 0, brake: 0, steer: 0, drs: false, boost: false, overtake: false,
+  camPan: 0, camTilt: 0, // right stick -> gimbal look direction (mirror; car drives it via ch9/10)
   t0: performance.now(), connected: false,
 };
 
@@ -91,6 +92,9 @@ function readDemo() {
   S.drs = Math.floor(demoState.t / 6) % 2 === 1 && S.gear >= 5;
   S.boost = Math.floor(demoState.t / 9) % 3 === 0 && S.ers > 15 && S.gear >= 4;
   S.overtake = false;
+  // Gentle camera drift so the reticle is alive in demo mode.
+  S.camPan = Math.sin(demoState.t * 0.5) * 0.7;
+  S.camTilt = Math.sin(demoState.t * 0.31) * 0.4;
 }
 
 function readInputs() {
@@ -110,6 +114,9 @@ function readInputs() {
     prev.drs = drsBtn;
     S.boost = !!(b[1] && b[1].pressed);
     S.overtake = !!(b[2] && b[2].pressed);
+    // Right stick -> camera gimbal (mirror; the car aims it via ch9/ch10).
+    S.camPan = clamp(ax[2] || 0, -1, 1);
+    S.camTilt = clamp(ax[3] || 0, -1, 1);
   } else {
     S.steer = clamp((keys.arrowright ? 1 : 0) - (keys.arrowleft ? 1 : 0), -1, 1);
     S.throttle = keys.arrowup ? 1 : 0;
@@ -164,6 +171,9 @@ function render() {
   thrEl.style.width = (S.throttle * 100).toFixed(0) + '%';
   brkEl.style.width = (S.brake * 100).toFixed(0) + '%';
   steerEl.style.left = 50 + S.steer * 42 + '%';
+  // Camera reticle: pan = X, tilt = Y (stick up = look up = dot up).
+  camDotEl.style.left = 50 + S.camPan * 40 + '%';
+  camDotEl.style.top = 50 + S.camTilt * 40 + '%';
   drsEl.classList.toggle('on', S.drs);
   boostEl.classList.toggle('on', S.boost && S.ers > 0);
   otEl.classList.toggle('on', S.overtake && S.ers > 0);

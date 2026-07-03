@@ -73,6 +73,15 @@ body{background:#000;color:var(--silver);
 .steerbar{position:relative;flex:1;height:clamp(6px,.8vw,10px);background:#10181a;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .steerbar::before{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#2a3639}
 .steerdot{position:absolute;top:50%;width:clamp(12px,1.6vw,18px);height:100%;background:var(--teal);box-shadow:0 0 10px var(--teal);transform:translate(-50%,-50%);transition:left .05s linear;left:50%}
+.campanel{display:flex;align-items:center;gap:.6em;padding:.4em .8em}
+.campanel b{font-size:clamp(8px,1vw,11px);letter-spacing:.18em;color:var(--muted);font-weight:700}
+.camgrid{position:relative;width:clamp(34px,4.4vw,52px);height:clamp(34px,4.4vw,52px);background:#10181a;
+  clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+.camgrid::before,.camgrid::after{content:"";position:absolute;background:#2a3639}
+.camgrid::before{left:50%;top:2px;bottom:2px;width:1px}
+.camgrid::after{top:50%;left:2px;right:2px;height:1px}
+.camdot{position:absolute;left:50%;top:50%;width:clamp(7px,.9vw,10px);height:clamp(7px,.9vw,10px);border-radius:50%;
+  background:var(--teal);box-shadow:0 0 8px var(--teal);transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}
 .gearbox{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:.2em}
 .gearlabel{color:var(--muted);letter-spacing:.5em;font-size:clamp(8px,1vw,12px);text-transform:uppercase;margin-bottom:.1em}
 .gear{font-style:italic;font-weight:800;line-height:.8;font-size:clamp(96px,17vw,210px);color:var(--silver);transform:skewX(-6deg);
