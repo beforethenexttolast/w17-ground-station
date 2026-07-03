@@ -10,10 +10,13 @@ const SYNC_BYTE = 0xc8;
 const FRAME_TYPE_RC_CHANNELS_PACKED = 0x16;
 const FRAME_TYPE_LINK_STATISTICS = 0x14;
 const FRAME_TYPE_BATTERY = 0x08;
+const FRAME_TYPE_GPS = 0x02;
+const FRAME_TYPE_FLIGHT_MODE = 0x21;
 const CRC8_POLY = 0xd5;
 
 const LINK_STATISTICS_PAYLOAD_LEN = 10;
 const BATTERY_PAYLOAD_LEN = 8;
+const GPS_PAYLOAD_LEN = 15;
 
 // CRC-8/DVB-S2, poly 0xD5, MSB-first, init 0 -- the exact loop from
 // CrsfParser::computeCrc8. Catalog check value for "123456789" is 0xBC.
@@ -71,6 +74,49 @@ function decodeBattery(payload) {
   };
 }
 
+// Decodes the standard CRSF GPS payload (15 bytes, big-endian). The car only
+// populates groundspeed with real wheel speed; the rest is benign filler.
+//   lat/lon  int32, 1e-7 deg   (0 here)
+//   speed    uint16, 0.1 km/h  <- real wheel speed
+//   heading  uint16, 0.01 deg
+//   altitude uint16, metres + 1000
+//   sats     uint8
+function decodeGps(payload) {
+  if (payload.length < GPS_PAYLOAD_LEN) {
+    throw new Error('gps payload too short');
+  }
+  return {
+    speedKmh: ((payload[8] << 8) | payload[9]) / 10,
+    altitudeM: ((payload[12] << 8) | payload[13]) - 1000,
+    satellites: payload[14],
+  };
+}
+
+// Decodes a CRSF FLIGHTMODE payload: a NUL-terminated ASCII status string. The
+// car packs gear/drive-mode/ERS into it ("G3 M2 E55"); parseFlightMode reads
+// them back out. Returns the raw string.
+function decodeFlightMode(payload) {
+  let s = '';
+  for (const b of payload) {
+    if (b === 0) break;
+    s += String.fromCharCode(b);
+  }
+  return s;
+}
+
+// Extracts {gear, driveMode, ersPct} from the car's "G<n> M<n> E<n>" status
+// string. Tolerant of spacing/order/missing fields (returns only what matched).
+function parseFlightMode(str) {
+  const out = {};
+  const g = /G(\d+)/.exec(str);
+  const m = /M(\d+)/.exec(str);
+  const e = /E(\d+)/.exec(str);
+  if (g) out.gear = Number(g[1]);
+  if (m) out.driveMode = Number(m[1]);
+  if (e) out.ersPct = Number(e[1]);
+  return out;
+}
+
 // Result codes mirror the firmware DecodeResult.
 const DecodeResult = {
   Ok: 'Ok',
@@ -102,12 +148,18 @@ module.exports = {
   FRAME_TYPE_RC_CHANNELS_PACKED,
   FRAME_TYPE_LINK_STATISTICS,
   FRAME_TYPE_BATTERY,
+  FRAME_TYPE_GPS,
+  FRAME_TYPE_FLIGHT_MODE,
   CRC8_POLY,
   LINK_STATISTICS_PAYLOAD_LEN,
   BATTERY_PAYLOAD_LEN,
+  GPS_PAYLOAD_LEN,
   computeCrc8,
   decodeLinkStatistics,
   decodeBattery,
+  decodeGps,
+  decodeFlightMode,
+  parseFlightMode,
   DecodeResult,
   decodeFrame,
 };

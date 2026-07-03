@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { computeCrc8, SYNC_BYTE, FRAME_TYPE_BATTERY, FRAME_TYPE_LINK_STATISTICS } from '../shared/crsf.js';
+import {
+  computeCrc8,
+  SYNC_BYTE,
+  FRAME_TYPE_BATTERY,
+  FRAME_TYPE_LINK_STATISTICS,
+  FRAME_TYPE_GPS,
+  FRAME_TYPE_FLIGHT_MODE,
+} from '../shared/crsf.js';
 import { CrsfAssembler } from '../shared/crsfAssembler.js';
 import { frameToTelemetry } from '../shared/crsfTelemetry.js';
 
@@ -35,8 +42,21 @@ describe('frameToTelemetry', () => {
     expect(t.linkQualityPct).toBe(88);
   });
 
+  it('maps a GPS frame to real speedKmh (groundspeed / 10)', () => {
+    // groundspeed field (payload offset 8-9) = 361 = 36.1 km/h; altitude baseline 1000.
+    const payload = [0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x69, 0, 0, 0x03, 0xe8, 0];
+    const t = frameToTelemetry({ type: FRAME_TYPE_GPS, payload });
+    expect(t.speedKmh).toBeCloseTo(36.1, 5);
+  });
+
+  it('maps a flightmode status string to gear/driveMode/ersPct', () => {
+    const payload = [...'G3 M2 E55'].map((c) => c.charCodeAt(0)).concat(0);
+    const t = frameToTelemetry({ type: FRAME_TYPE_FLIGHT_MODE, payload });
+    expect(t).toEqual({ gear: 3, driveMode: 2, ersPct: 55 });
+  });
+
   it('returns null for unmapped types (HUD keeps simulating)', () => {
-    expect(frameToTelemetry({ type: 0x16, payload: [] })).toBeNull();
+    expect(frameToTelemetry({ type: 0x2b, payload: [] })).toBeNull();
     expect(frameToTelemetry(null)).toBeNull();
   });
 });

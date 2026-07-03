@@ -25,6 +25,12 @@ class CrsfSerialSource extends TelemetrySource {
     this._port = null;
     this._reopenTimer = null;
     this._stopped = false;
+    // The car's telemetry is split across frame types (battery, GPS-speed,
+    // flightmode gear/mode/ERS) that arrive in separate frames. The renderer
+    // replaces its telemetry object wholesale on each push, so we accumulate a
+    // running merged snapshot here and emit the merge -- otherwise a battery
+    // frame would blank out speed/gear and vice versa.
+    this._telem = {};
   }
 
   start() {
@@ -78,7 +84,10 @@ class CrsfSerialSource extends TelemetrySource {
       const frame = this._asm.feedByte(b);
       if (frame) {
         const t = frameToTelemetry(frame);
-        if (t) this._emit(t);
+        if (t) {
+          Object.assign(this._telem, t);
+          this._emit({ ...this._telem });
+        }
       }
     }
   }

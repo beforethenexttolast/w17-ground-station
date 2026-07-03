@@ -18,6 +18,7 @@
  * @property {number} [linkQualityPct]
  * @property {number} [gear]
  * @property {number} [ersPct]
+ * @property {number} [driveMode]
  */
 
 // Base class / interface. Implementations: ReplaySource (now, demo+test),
