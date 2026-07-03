@@ -6,3 +6,6 @@ dist/
 mediamtx/mediamtx
 mediamtx/mediamtx.exe
 *.log
+
+# code-signing certs (never commit)
+*.pfx

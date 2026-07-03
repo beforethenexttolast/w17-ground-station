@@ -15,8 +15,21 @@ extraResources:
     filter: ['**/*']
 win:
   target: nsis
-  # Unsigned for a one-off gift build: Windows SmartScreen shows a first-run
-  # "unknown publisher" prompt; click through. Sign later if desired.
+  # Code signing (docs/CODESIGNING.md). electron-builder signs automatically
+  # when a certificate is supplied via the environment -- no secrets in the
+  # repo:
+  #   CSC_LINK          = path to (or base64 of) the .pfx certificate
+  #   CSC_KEY_PASSWORD  = its password
+  # With neither set, the build is unsigned and Windows shows a one-time
+  # "unknown publisher" prompt (fine for a personal gift -- click "Run anyway").
+  # A trusted RFC-3161 timestamp so signatures stay valid after the cert
+  # expires; harmless when unsigned.
+  rfc3161TimeStampServer: http://timestamp.digicert.com
+  signingHashAlgorithms:
+    - sha256
+  # publisherName must match the certificate's subject CN once you sign;
+  # left commented so the unsigned build doesn't warn about a mismatch.
+  # publisherName: "Vitaliy Khomenko"
 # serialport (CRSF telemetry source) is a native module: it must be rebuilt
 # against Electron's ABI (@electron/rebuild, run via the app:rebuild step) and
 # unpacked from the asar so its .node binary can load at runtime.

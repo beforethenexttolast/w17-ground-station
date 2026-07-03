@@ -28,7 +28,8 @@ npm run setup               # fetch mediamtx + repair the Electron binary if the
 npm test                    # pure-core unit tests (no hardware)
 npm start                   # launch the app (video needs the camera; see docs/SETUP.md)
 npm run demo                # launch with the replay telemetry source (live-looking, no car)
-npm run build               # package a Windows .exe (electron-builder)
+npm run build               # package a Windows .exe (electron-builder; unsigned by
+                            #   default -- code-signing is opt-in, see docs/CODESIGNING.md)
 ```
 
 Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just the
