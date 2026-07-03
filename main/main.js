@@ -1,18 +1,17 @@
-// Electron main process. Owns: window lifecycle, the mediamtx video
-// supervisor, and the telemetry source (replay by default; a live source
-// slots in behind the same interface). Pushes telemetry to the renderer over
-// a single IPC channel. The renderer is fully sandboxed -- it reaches Node
-// only through the narrow preload bridge.
+// Electron main process (CommonJS -- Electron's main is rock-solid as CJS;
+// ESM main on Electron 31 / Node 20 crashes importing the built-in electron
+// module). Owns: window lifecycle, the mediamtx video supervisor, and the
+// telemetry source (replay by default; a live source slots in behind the same
+// interface). Pushes telemetry to the renderer over a single IPC channel. The
+// renderer is fully sandboxed -- it reaches Node only through the preload.
 
-import { app, BrowserWindow, ipcMain } from 'electron';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('node:path');
 
-import { MediamtxSupervisor } from './mediamtx.js';
-import { ReplaySource } from '../shared/replaySource.js';
-import * as feel from '../shared/feelConstants.js';
+const { MediamtxSupervisor } = require('./mediamtx.js');
+const { ReplaySource } = require('../shared/replaySource.js');
+const feel = require('../shared/feelConstants.js');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, '..');
 
 // mediamtx lives next to the app in dev, and as an unpacked extraResource in
@@ -26,14 +25,10 @@ function mediamtxPaths() {
   };
 }
 
-// WHEP endpoint the renderer connects to. mediamtx serves WebRTC/WHEP at
-// http://<host>:8889/<path>/whep (default port). The renderer reads this via
-// the preload bridge so the URL isn't hard-coded in the page.
+// WHEP endpoint the renderer connects to (mediamtx default WebRTC port 8889).
 const WHEP_URL = process.env.W17_WHEP_URL || 'http://127.0.0.1:8889/cam/whep';
 
 function chooseTelemetrySource() {
-  // Only "replay" exists today; a WebSocket/UDP source (car over WiFi) or a
-  // CRSF-serial source will register here later. Default off unless demo.
   const kind = process.env.W17_TELEMETRY_SOURCE || 'none';
   if (kind === 'replay') return new ReplaySource();
   return null; // HUD runs fully on gamepad + display model with no source

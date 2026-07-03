@@ -23,12 +23,29 @@ on the raw stream) is always available.
 
 ```
 npm install
-npm run fetch-mediamtx     # download the pinned mediamtx binary for your OS
+npm run setup               # fetch mediamtx + repair the Electron binary if the install
+                            #   was blocked by a script gate (see Troubleshooting)
 npm test                    # pure-core unit tests (no hardware)
 npm start                   # launch the app (video needs the camera; see docs/SETUP.md)
 npm run demo                # launch with the replay telemetry source (live-looking, no car)
 npm run build               # package a Windows .exe (electron-builder)
 ```
+
+Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just the
+deployment target). Cross-platform is proven by CI + the pure-core tests; the GUI + WebRTC
+video are verified on the target machine.
+
+### Troubleshooting (dev environment)
+
+- **"Electron failed to install correctly"** — your npm blocked Electron's postinstall (a
+  lavamoat `allowScripts` gate, corporate npm, or `ignore-scripts`), so the binary never
+  extracted. `npm run setup` repairs it by extracting the cached download directly. (If the
+  cache is empty, run `node node_modules/electron/install.js` once to download, then
+  `npm run setup`.)
+- **App boots as bare Node / `Cannot read properties of undefined (reading 'whenReady')`** —
+  your terminal exports `ELECTRON_RUN_AS_NODE=1` (the **VS Code integrated terminal** leaks
+  this because VS Code is itself Electron). `npm start` / `npm run demo` go through
+  `scripts/run.js`, which strips that variable, so use those rather than `electron .` directly.
 
 **Before first real use, work through `docs/SETUP.md`** — it lists the hardware verifications
 that gate the video pipeline (chiefly: is the camera emitting H.264 or H.265? WebRTC needs

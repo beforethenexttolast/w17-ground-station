@@ -37,7 +37,15 @@ Suggested JSON (maps 1:1 to `Telemetry`):
 ### Fallback: CRSF telemetry over the control serial
 Standard CRSF telemetry frames travel RP1 → ELRS TX module → the **FT232 port**. But that port
 is held by `elrs-joystick-control`, so our app can only read telemetry if that tool **forwards**
-it (verify — see SETUP §4). If it does, a `CrsfSerialSource` consumes it using the already-built
+it (verify — see SETUP §4).
+
+> **Why we can't just open the port too:** on Windows a COM port is opened for **exclusive
+> access** by default (`CreateFile` with `dwShareMode = 0`, per Microsoft's serial docs), so a
+> second process opening the same COMx fails. There is exactly one owner. The ways around it are
+> all "one owner redistributes": elrs-joystick-control forwards the telemetry it reads (cleanest
+> if supported), a virtual-COM splitter (com0com/hub4com) where one process owns the physical
+> port and mirrors RX to virtual ports, a **UDP/WiFi bridge** (our recommended path above), or a
+> second physical USB-UART. This is why the WiFi path is preferred for a viewer-only station. If it does, a `CrsfSerialSource` consumes it using the already-built
 parser in `shared/crsf.js`:
 - **LINK_STATISTICS** (type `0x14`, 10-byte payload) → `linkQualityPct` from `uplinkLinkQuality`
   (offset 2), the failsafe-relevant field.

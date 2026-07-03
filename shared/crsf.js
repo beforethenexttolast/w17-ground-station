@@ -4,20 +4,20 @@
 // JS decode of bytes the firmware produced would silently disagree. The
 // firmware's golden vectors are reused as tests.
 //
-// Pure: no Node/DOM. Runs under vitest and in the Electron main process.
+// CommonJS: required by the Electron main process (CJS) and by vitest.
 
-export const SYNC_BYTE = 0xc8;
-export const FRAME_TYPE_RC_CHANNELS_PACKED = 0x16;
-export const FRAME_TYPE_LINK_STATISTICS = 0x14;
-export const FRAME_TYPE_BATTERY = 0x08;
-export const CRC8_POLY = 0xd5;
+const SYNC_BYTE = 0xc8;
+const FRAME_TYPE_RC_CHANNELS_PACKED = 0x16;
+const FRAME_TYPE_LINK_STATISTICS = 0x14;
+const FRAME_TYPE_BATTERY = 0x08;
+const CRC8_POLY = 0xd5;
 
-export const LINK_STATISTICS_PAYLOAD_LEN = 10;
-export const BATTERY_PAYLOAD_LEN = 8;
+const LINK_STATISTICS_PAYLOAD_LEN = 10;
+const BATTERY_PAYLOAD_LEN = 8;
 
 // CRC-8/DVB-S2, poly 0xD5, MSB-first, init 0 -- the exact loop from
 // CrsfParser::computeCrc8. Catalog check value for "123456789" is 0xBC.
-export function computeCrc8(bytes, start = 0, len = bytes.length - start) {
+function computeCrc8(bytes, start = 0, len = bytes.length - start) {
   let crc = 0;
   for (let i = 0; i < len; i++) {
     crc ^= bytes[start + i];
@@ -36,7 +36,7 @@ function toInt8(b) {
 // Decodes a LINK_STATISTICS payload (10 bytes). Same field order as the
 // firmware CrsfLinkStatistics struct. uplinkLinkQuality (offset 2) is the
 // failsafe-relevant field: ELRS forces it to 0 on link loss.
-export function decodeLinkStatistics(payload) {
+function decodeLinkStatistics(payload) {
   if (payload.length < LINK_STATISTICS_PAYLOAD_LEN) {
     throw new Error('link statistics payload too short');
   }
@@ -59,9 +59,7 @@ export function decodeLinkStatistics(payload) {
 //   current  uint16 BE, deciamps (0.1 A)
 //   capacity uint24 BE, mAh used
 //   percent  uint8, remaining %
-// (This is the standard TBS battery frame item 5 would emit if it goes the
-// CRSF-telemetry route; documented in docs/TELEMETRY.md.)
-export function decodeBattery(payload) {
+function decodeBattery(payload) {
   if (payload.length < BATTERY_PAYLOAD_LEN) {
     throw new Error('battery payload too short');
   }
@@ -74,7 +72,7 @@ export function decodeBattery(payload) {
 }
 
 // Result codes mirror the firmware DecodeResult.
-export const DecodeResult = {
+const DecodeResult = {
   Ok: 'Ok',
   BadSync: 'BadSync',
   BadLength: 'BadLength',
@@ -82,10 +80,9 @@ export const DecodeResult = {
 };
 
 // Decodes one complete CRSF frame buffer: [sync][length][type][payload...][crc].
-// `length` counts type+payload+crc. CRC is over [type + payload] (not sync,
-// not length, not the crc byte). Returns { result, type, payload } — payload
-// is the raw bytes between type and crc, for the type-specific decoders above.
-export function decodeFrame(frame) {
+// `length` counts type+payload+crc. CRC is over [type + payload]. Returns
+// { result, type, payload } — payload is the bytes between type and crc.
+function decodeFrame(frame) {
   if (frame.length < 4) return { result: DecodeResult.BadLength };
   if (frame[0] !== SYNC_BYTE) return { result: DecodeResult.BadSync };
   const length = frame[1];
@@ -93,9 +90,24 @@ export function decodeFrame(frame) {
     return { result: DecodeResult.BadLength };
   }
   const type = frame[2];
-  const payload = frame.slice(3, 2 + length - 1); // between type and crc
+  const payload = frame.slice(3, 2 + length - 1);
   const receivedCrc = frame[2 + length - 1];
-  const computed = computeCrc8(frame, 2, length - 1); // type + payload
+  const computed = computeCrc8(frame, 2, length - 1);
   if (computed !== receivedCrc) return { result: DecodeResult.CrcMismatch };
   return { result: DecodeResult.Ok, type, payload };
 }
+
+module.exports = {
+  SYNC_BYTE,
+  FRAME_TYPE_RC_CHANNELS_PACKED,
+  FRAME_TYPE_LINK_STATISTICS,
+  FRAME_TYPE_BATTERY,
+  CRC8_POLY,
+  LINK_STATISTICS_PAYLOAD_LEN,
+  BATTERY_PAYLOAD_LEN,
+  computeCrc8,
+  decodeLinkStatistics,
+  decodeBattery,
+  DecodeResult,
+  decodeFrame,
+};

@@ -1,16 +1,16 @@
 // Byte-stream CRSF frame assembler, mirroring the firmware CrsfFrameAssembler:
 // find sync, read length, buffer the rest, decode, resync on any failure.
 // For the serial telemetry path (if that route is chosen); the WiFi/replay
-// paths deliver whole telemetry objects and don't need this.
+// paths deliver whole telemetry objects and don't need this. CommonJS.
 
-import { SYNC_BYTE, decodeFrame, DecodeResult } from './crsf.js';
+const { SYNC_BYTE, decodeFrame, DecodeResult } = require('./crsf.js');
 
 const MAX_FRAME_LEN = 64; // CRSF caps a frame at 64 bytes on the wire
 
-export class CrsfAssembler {
+class CrsfAssembler {
   constructor() {
     this._buf = [];
-    this._expected = 0; // total frame length once known
+    this._expected = 0;
   }
 
   // Feed one byte. Returns a decoded frame object ({type, payload}) when a
@@ -24,7 +24,7 @@ export class CrsfAssembler {
     if (this._buf.length === 1) {
       const totalLen = 2 + b;
       if (b < 2 || totalLen > MAX_FRAME_LEN) {
-        this._buf = []; // bad length: resync immediately
+        this._buf = [];
         return null;
       }
       this._buf.push(b);
@@ -41,3 +41,5 @@ export class CrsfAssembler {
     return decoded.result === DecodeResult.Ok ? decoded : null;
   }
 }
+
+module.exports = { CrsfAssembler };

@@ -1,15 +1,13 @@
 // Supervises the bundled mediamtx binary: spawn, restart-on-crash, kill on
 // app quit, pipe logs. mediamtx ingests the camera RTSP and republishes it as
 // WebRTC/WHEP for the renderer. A classic bug is an orphaned mediamtx holding
-// the port after the app dies -- we own its lifecycle explicitly.
+// the port after the app dies -- we own its lifecycle explicitly. CommonJS.
 
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
+const { spawn } = require('node:child_process');
+const { existsSync } = require('node:fs');
+const path = require('node:path');
 
-export class MediamtxSupervisor {
-  // binaryPath: absolute path to mediamtx(.exe); configPath: mediamtx.yml.
-  // log: (line) => void.
+class MediamtxSupervisor {
   constructor({ binaryPath, configPath, log = () => {} }) {
     this._binaryPath = binaryPath;
     this._configPath = configPath;
@@ -47,8 +45,10 @@ export class MediamtxSupervisor {
     this._stopping = true;
     if (this._restartTimer) clearTimeout(this._restartTimer);
     if (this._proc) {
-      this._proc.kill(); // SIGTERM; mediamtx exits promptly and frees the port
+      this._proc.kill();
       this._proc = null;
     }
   }
 }
+
+module.exports = { MediamtxSupervisor };
