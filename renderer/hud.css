@@ -54,6 +54,9 @@ body{background:#000;color:var(--silver);
 .gp.on{color:var(--green)}
 .link.live{color:var(--teal)}
 .link.lost{color:var(--amber)}
+/* Last-known real values held (dimmed) while the telemetry stream is stale
+   ('TELEMETRY LOST') -- the HUD never silently resumes simulated numbers. */
+.stale{opacity:.35}
 
 .bottom{position:absolute;left:var(--gap);right:var(--gap);bottom:var(--gap);
   display:flex;align-items:flex-end;justify-content:space-between;gap:var(--gap);}

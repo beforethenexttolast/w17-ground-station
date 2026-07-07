@@ -8,15 +8,24 @@ to deliver the **car-side truths** the ground can't already infer from the gamep
 | `speedKmh` | number | real ground speed (Hall sensor) |
 | `batteryV` | number | pack voltage |
 | `batteryPct` | number | remaining % |
-| `armed` | bool | arm-gate confirmation from the car |
-| `failsafe` | bool | car-side failsafe active |
-| `linkQualityPct` | number | ELRS uplink LQ, 0..100 |
+| `linkQualityPct` | number | ELRS uplink LQ, 0..100 — **also the link-loss signal** (0 = LINK LOST) |
 | `gear` | number | 1-based, car-authoritative (optional — HUD mirrors it locally otherwise) |
 | `ersPct` | number | ERS store, car-authoritative (optional — HUD simulates otherwise) |
 | `driveMode` | number | 0=Training 1=Race 2=ERS (optional) |
+| `armed` / `failsafe` | bool | **demo-only — NOT transmitted by the car.** Only the replay/demo source sets them; the real CRSF backchannel carries no such field. The HUD derives link loss from `linkQualityPct` + staleness instead (see below). |
 
-All fields optional: the HUD overlays whatever is present and simulates the rest. A source
-that stops emitting for >1 s falls back to simulation automatically.
+All fields optional: the HUD overlays whatever is present and simulates the rest.
+
+### HUD link states (audit R01, option A)
+
+The HUD shows one of four states, derived ground-side (`shared/linkState.mjs`):
+
+| state | trigger | display |
+|---|---|---|
+| sim | no telemetry source has **ever** produced data | "Telemetry: sim", simulated values |
+| live | fresh telemetry, LQ > 0 | "LQ n%", real values |
+| **LINK LOST** | fresh telemetry with `linkQualityPct == 0` (the ground TX module keeps reporting LINK_STATISTICS after the radio link to the car drops) | red/amber alarm |
+| **TELEMETRY LOST** | the source *was* live, then went silent >1 s (serial unplugged, forwarder died) | alarm; last real values held **dimmed** — the HUD never silently resumes simulated numbers once a source has been live |
 
 ## The chosen path: CRSF over the ELRS backchannel (real speed + gear/mode/ERS + battery + LQ)
 

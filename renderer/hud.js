@@ -3,12 +3,14 @@
 //     comes from the local gamepad/keyboard -- the driver commands these, so
 //     the ground already knows them with zero latency. This is a MIRROR; it
 //     does not drive the car (elrs-joystick-control does).
-//   CAR-SIDE TRUTH (real speed, battery, armed, failsafe, link quality, and
-//     optionally gear/ers) arrives as telemetry over the preload bridge and
-//     OVERRIDES the simulated values when present. With no telemetry source,
-//     a display-only physics model animates speed/rpm/ers so the HUD is fully
-//     alive from the gamepad alone.
+//   CAR-SIDE TRUTH (real speed, battery, link quality, gear/mode/ers) arrives
+//     as telemetry over the preload bridge and OVERRIDES the simulated values
+//     when present. Link loss is DERIVED here from LQ + staleness (the car
+//     does not transmit an armed/failsafe field -- shared/linkState.mjs). With
+//     no telemetry source ever seen, a display-only physics model animates
+//     speed/rpm/ers so the HUD is fully alive from the gamepad alone.
 import { startWhep } from './whep.js';
+import { linkState } from '../shared/linkState.mjs';
 
 const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
@@ -50,6 +52,7 @@ const S = {
 // Latest telemetry (car-side truth); null fields fall back to simulation.
 let telem = null;
 let telemFresh = 0; // performance.now() of last telemetry packet
+let telemEverLive = false; // latched: once true, staleness shows TELEMETRY LOST, never sim
 
 const keys = {};
 const prev = { up: false, down: false, drs: false };
@@ -155,27 +158,45 @@ function updateSim(dt) {
   else if (S.brake > 0.1 || S.throttle < 0.1) S.ers = Math.min(100, S.ers + FEEL.ersHarvestPctPerSec * dt);
 }
 
-function telemetryLive() { return telem && performance.now() - telemFresh < 1000; }
+// Three-state telemetry display (audit R01/F2): 'sim' only while NO source has
+// ever been live; after that, staleness shows TELEMETRY LOST holding the last
+// real values dimmed -- never a silent fall-back to simulated numbers.
+function telemetryState() {
+  return linkState({
+    nowMs: performance.now(),
+    lastTelemetryMs: telemFresh,
+    everLive: telemEverLive,
+    linkQualityPct: telem ? telem.linkQualityPct : undefined,
+    failsafe: telem ? telem.failsafe : undefined,
+  });
+}
 
 function render() {
-  const live = telemetryLive();
+  const state = telemetryState();
+  // In every non-sim state the panels show real values -- `telem` still holds
+  // the last merged snapshot when the stream stalls ('telemetry-lost').
+  const useTelem = state !== 'sim';
+  const stale = state === 'telemetry-lost';
 
   // Speed: real when telemetry present, else simulated.
-  const showSpeed = live && typeof telem.speedKmh === 'number' ? telem.speedKmh : S.speed;
+  const showSpeed = useTelem && typeof telem.speedKmh === 'number' ? telem.speedKmh : S.speed;
   speedEl.textContent = Math.round(showSpeed);
-  speedUnitEl.textContent = live && typeof telem.speedKmh === 'number' ? 'km/h' : 'km/h · sim';
+  speedUnitEl.textContent = useTelem && typeof telem.speedKmh === 'number'
+    ? (stale ? 'km/h · stale' : 'km/h') : 'km/h · sim';
+  speedEl.classList.toggle('stale', stale);
 
   // Gear: telemetry gear if given, else the locally-tracked gear.
-  const showGear = live && typeof telem.gear === 'number' ? telem.gear : S.gear;
+  const showGear = useTelem && typeof telem.gear === 'number' ? telem.gear : S.gear;
   gearEl.textContent = showSpeed < 1 && showGear === 1 ? 'N' : showGear;
-  const shifting = S.rpm > 0.96 && S.gear < FEEL.gears && !live;
+  const shifting = S.rpm > 0.96 && S.gear < FEEL.gears && state === 'sim';
   gearEl.classList.toggle('shift', shifting);
+  gearEl.classList.toggle('stale', stale);
 
   // Drive mode: car-authoritative only (the HUD has no local mode state -- the
-  // mode is chosen upstream in elrs-joystick-control). Blank unless live.
-  const mode = live && typeof telem.driveMode === 'number' ? DRIVE_MODES[telem.driveMode] : null;
+  // mode is chosen upstream in elrs-joystick-control). Blank unless telemetry.
+  const mode = useTelem && typeof telem.driveMode === 'number' ? DRIVE_MODES[telem.driveMode] : null;
   driveModeEl.textContent = mode ? mode.label : '';
-  driveModeEl.className = mode ? `drivemode ${mode.cls}` : 'drivemode';
+  driveModeEl.className = (mode ? `drivemode ${mode.cls}` : 'drivemode') + (stale ? ' stale' : '');
 
   const lit = Math.round(S.rpm * REV_LIGHTS), third = REV_LIGHTS / 3;
   revs.forEach((r, i) => { r.className = ''; if (i < lit) r.classList.add(i < third ? 'g' : i < third * 2 ? 'r' : 'v'); });
@@ -193,18 +214,24 @@ function render() {
   otEl.classList.toggle('on', S.overtake && S.ers > 0);
 
   // ERS: telemetry ersPct if given, else simulated.
-  const showErs = live && typeof telem.ersPct === 'number' ? telem.ersPct : S.ers;
+  const showErs = useTelem && typeof telem.ersPct === 'number' ? telem.ersPct : S.ers;
   ersEl.style.width = showErs.toFixed(0) + '%';
   ersPctEl.textContent = Math.round(showErs);
-  ersEl.classList.toggle('deploy', (S.boost || S.overtake) && showErs > 0 && !live);
+  ersEl.classList.toggle('deploy', (S.boost || S.overtake) && showErs > 0 && state === 'sim');
   ersEl.classList.toggle('low', showErs < 20);
+  ersEl.classList.toggle('stale', stale);
+  ersPctEl.classList.toggle('stale', stale);
 
   // Battery + link: only meaningful from telemetry.
-  battVEl.textContent = live && typeof telem.batteryV === 'number' ? telem.batteryV.toFixed(1) : '--';
+  battVEl.textContent = useTelem && typeof telem.batteryV === 'number' ? telem.batteryV.toFixed(1) : '--';
+  battVEl.classList.toggle('stale', stale);
 
-  if (live) {
-    if (telem.failsafe) { linkEl.textContent = 'LINK LOST'; linkEl.className = 'link lost'; }
-    else { linkEl.textContent = `LQ ${Math.round(telem.linkQualityPct ?? 0)}%`; linkEl.className = 'link live'; }
+  if (state === 'link-lost') {
+    linkEl.textContent = 'LINK LOST'; linkEl.className = 'link lost';
+  } else if (state === 'telemetry-lost') {
+    linkEl.textContent = 'TELEMETRY LOST'; linkEl.className = 'link lost';
+  } else if (state === 'live') {
+    linkEl.textContent = `LQ ${Math.round(telem.linkQualityPct ?? 0)}%`; linkEl.className = 'link live';
   } else {
     linkEl.textContent = 'Telemetry: sim'; linkEl.className = 'link';
   }
@@ -231,7 +258,7 @@ async function init() {
   const cfg = await window.groundStation.getConfig();
   if (cfg.feel) { FEEL = { ...FEEL, ...cfg.feel }; computeCaps(); S.ers = 100; }
 
-  window.groundStation.onTelemetry((t) => { telem = t; telemFresh = performance.now(); });
+  window.groundStation.onTelemetry((t) => { telem = t; telemFresh = performance.now(); telemEverLive = true; });
 
   if (cfg.whepUrl) {
     startWhep(feed, cfg.whepUrl, {

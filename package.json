@@ -9,7 +9,8 @@
     "demo": "node scripts/run.js --demo",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "electron-builder --win",
+    "app:rebuild": "electron-rebuild -f -w serialport",
+    "build": "npm run app:rebuild && electron-builder --win",
     "fetch-mediamtx": "node scripts/fetch-mediamtx.js"
   },
   "author": "Vitaliy Khomenko",

@@ -31,8 +31,10 @@ win:
   # left commented so the unsigned build doesn't warn about a mismatch.
   # publisherName: "Vitaliy Khomenko"
 # serialport (CRSF telemetry source) is a native module: it must be rebuilt
-# against Electron's ABI (@electron/rebuild, run via the app:rebuild step) and
-# unpacked from the asar so its .node binary can load at runtime.
+# against Electron's ABI. `npm run app:rebuild` (electron-rebuild) does that and
+# is chained into `npm run build`, so a packaged build always ships an
+# ABI-matched binary; it is also unpacked from the asar (below) so the .node
+# can load at runtime. (audit R03)
 asarUnpack:
   - '**/node_modules/serialport/**'
   - '**/node_modules/@serialport/**'
