@@ -11,7 +11,7 @@ to deliver the **car-side truths** the ground can't already infer from the gamep
 | `linkQualityPct` | number | ELRS uplink LQ, 0..100 — **also the link-loss signal** (0 = LINK LOST) |
 | `gear` | number | 1-based, car-authoritative (optional — HUD mirrors it locally otherwise) |
 | `ersPct` | number | ERS store, car-authoritative (optional — HUD simulates otherwise) |
-| `driveMode` | number | 0=Training 1=Race 2=ERS (optional) |
+| `driveMode` | number | 0=TRAINING 1=RACE 2=ERS (optional); firmware calls 1/2 "gearbox"/"gearbox+ERS" |
 | `armed` / `failsafe` | bool | **demo-only — NOT transmitted by the car.** Only the replay/demo source sets them; the real CRSF backchannel carries no such field. The HUD derives link loss from `linkQualityPct` + staleness instead (see below). |
 
 All fields optional: the HUD overlays whatever is present and simulates the rest.

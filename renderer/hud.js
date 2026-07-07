@@ -34,7 +34,7 @@ for (let i = 0; i < REV_LIGHTS; i++) revEl.appendChild(document.createElement('i
 const revs = [...revEl.children];
 
 // Feel constants come from main (single source: shared/feelConstants.js).
-let FEEL = { gears: 8, topSpeedKmh: 320, ersDeployPctPerSec: 26, ersHarvestPctPerSec: 11, ersBoostMultiplier: 1.18 };
+let FEEL = { gears: 4, topSpeedKmh: 320, ersDeployPctPerSec: 26, ersHarvestPctPerSec: 11, ersBoostMultiplier: 1.18 };
 let caps = [];
 function computeCaps() {
   caps = [0];

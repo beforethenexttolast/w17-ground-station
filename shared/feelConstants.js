@@ -8,6 +8,6 @@ module.exports = {
   ERS_DEPLOY_PCT_PER_SEC: 26, // ErsConfig deployRatePermille 260
   ERS_HARVEST_PCT_PER_SEC: 11, // harvestBrakeRatePermille ~110
   ERS_BOOST_MULTIPLIER: 1.18, // boostBonusPermille 180
-  GEARS: 8, // display gears on the HUD dial
+  GEARS: 4, // matches the firmware gearbox numGears=4 (audit R05: one canonical gear count)
   TOP_SPEED_KMH: 320, // themed; set to real measured top speed later
 };

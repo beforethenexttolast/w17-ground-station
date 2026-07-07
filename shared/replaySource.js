@@ -12,11 +12,11 @@ const { TelemetrySource } = require('./telemetry.js');
 const DEMO_TIMELINE = [
   { t: 0, speedKmh: 0, batteryV: 8.3, batteryPct: 95, armed: false, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 100, driveMode: 0 },
   { t: 1500, speedKmh: 0, batteryV: 8.3, batteryPct: 95, armed: true, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 100, driveMode: 1 },
-  { t: 6000, speedKmh: 180, batteryV: 7.6, batteryPct: 70, armed: true, failsafe: false, linkQualityPct: 98, gear: 6, ersPct: 40, driveMode: 2 },
+  { t: 6000, speedKmh: 180, batteryV: 7.6, batteryPct: 70, armed: true, failsafe: false, linkQualityPct: 98, gear: 4, ersPct: 40, driveMode: 2 },
   { t: 9000, speedKmh: 90, batteryV: 7.9, batteryPct: 66, armed: true, failsafe: false, linkQualityPct: 96, gear: 3, ersPct: 75, driveMode: 1 },
-  { t: 12000, speedKmh: 210, batteryV: 7.2, batteryPct: 55, armed: true, failsafe: false, linkQualityPct: 92, gear: 7, ersPct: 20, driveMode: 2 },
-  { t: 14000, speedKmh: 0, batteryV: 7.2, batteryPct: 55, armed: false, failsafe: true, linkQualityPct: 0, gear: 7, ersPct: 20, driveMode: 2 },
-  { t: 16000, speedKmh: 0, batteryV: 7.2, batteryPct: 54, armed: false, failsafe: true, linkQualityPct: 0, gear: 7, ersPct: 20, driveMode: 1 },
+  { t: 12000, speedKmh: 210, batteryV: 7.2, batteryPct: 55, armed: true, failsafe: false, linkQualityPct: 92, gear: 4, ersPct: 20, driveMode: 2 },
+  { t: 14000, speedKmh: 0, batteryV: 7.2, batteryPct: 55, armed: false, failsafe: true, linkQualityPct: 0, gear: 4, ersPct: 20, driveMode: 2 },
+  { t: 16000, speedKmh: 0, batteryV: 7.2, batteryPct: 54, armed: false, failsafe: true, linkQualityPct: 0, gear: 4, ersPct: 20, driveMode: 1 },
   { t: 17000, speedKmh: 60, batteryV: 7.4, batteryPct: 53, armed: true, failsafe: false, linkQualityPct: 90, gear: 2, ersPct: 30, driveMode: 1 },
   { t: 20000, speedKmh: 0, batteryV: 7.5, batteryPct: 52, armed: false, failsafe: false, linkQualityPct: 96, gear: 1, ersPct: 45, driveMode: 0 },
 ];

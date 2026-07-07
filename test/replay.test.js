@@ -68,7 +68,7 @@ describe('ReplaySource', () => {
     tick();
 
     expect(seen.length).toBe(2);
-    expect(seen[1].gear).toBe(6); // t=6000 keyframe
+    expect(seen[1].gear).toBe(4); // t=6000 keyframe (canonical 4-gear demo, audit R05)
     src.stop();
     expect(tick).toBeNull();
   });
