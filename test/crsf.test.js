@@ -4,12 +4,19 @@ import {
   decodeFrame,
   decodeLinkStatistics,
   decodeBattery,
+  decodeGps,
+  decodeFlightMode,
+  parseFlightMode,
   DecodeResult,
   SYNC_BYTE,
   FRAME_TYPE_LINK_STATISTICS,
   FRAME_TYPE_BATTERY,
 } from '../shared/crsf.js';
 import { CrsfAssembler } from '../shared/crsfAssembler.js';
+import golden from './fixtures/crsf_golden.json';
+
+// Parse a space-separated hex string ("c8 0a 08 ...") into on-wire bytes.
+const hexToBytes = (s) => Uint8Array.from(s.trim().split(/\s+/).map((h) => parseInt(h, 16)));
 
 // Build a CRSF frame the same way the firmware CrsfFrameBuilder does.
 function buildFrame(type, payload) {
@@ -92,5 +99,54 @@ describe('CrsfAssembler', () => {
     for (const b of good) out = asm.feedByte(b) ?? out;
     expect(out).not.toBeNull();
     expect(decodeBattery(out.payload).remainingPct).toBe(60);
+  });
+});
+
+// Shared golden fixture (audit R07): the exact on-wire bytes the firmware emits,
+// decoded here. A layout/endianness/CRC drift on EITHER repo fails these. The
+// firmware side is cross-referenced from test_crsf/test_main.cpp.
+describe('shared CRSF golden fixture', () => {
+  it('battery frame decodes to the fixture values', () => {
+    const { result, type, payload } = decodeFrame(hexToBytes(golden.battery.frame));
+    expect(result).toBe(DecodeResult.Ok);
+    expect(type).toBe(golden.battery.type);
+    const b = decodeBattery(payload);
+    expect(b.voltageV).toBeCloseTo(golden.battery.expect.voltageV, 5);
+    expect(b.currentA).toBeCloseTo(golden.battery.expect.currentA, 5);
+    expect(b.capacityMah).toBe(golden.battery.expect.capacityMah);
+    expect(b.remainingPct).toBe(golden.battery.expect.remainingPct);
+  });
+
+  it('gps frame decodes to the fixture speed/altitude', () => {
+    const { result, type, payload } = decodeFrame(hexToBytes(golden.gps.frame));
+    expect(result).toBe(DecodeResult.Ok);
+    expect(type).toBe(golden.gps.type);
+    const g = decodeGps(payload);
+    expect(g.speedKmh).toBeCloseTo(golden.gps.expect.speedKmh, 5);
+    expect(g.altitudeM).toBe(golden.gps.expect.altitudeM);
+    expect(g.satellites).toBe(golden.gps.expect.satellites);
+  });
+
+  it('flightmode frame decodes to gear/driveMode/ersPct', () => {
+    const { result, type, payload } = decodeFrame(hexToBytes(golden.flightmode.frame));
+    expect(result).toBe(DecodeResult.Ok);
+    expect(type).toBe(golden.flightmode.type);
+    expect(parseFlightMode(decodeFlightMode(payload))).toEqual(golden.flightmode.expect);
+  });
+
+  it('link statistics frame decodes to the fixture LQ/SNR', () => {
+    const { result, type, payload } = decodeFrame(hexToBytes(golden.linkStatistics.frame));
+    expect(result).toBe(DecodeResult.Ok);
+    expect(type).toBe(golden.linkStatistics.type);
+    const s = decodeLinkStatistics(payload);
+    expect(s.uplinkLinkQuality).toBe(golden.linkStatistics.expect.uplinkLinkQuality);
+    expect(s.uplinkSnr).toBe(golden.linkStatistics.expect.uplinkSnr);
+    expect(s.downlinkSnr).toBe(golden.linkStatistics.expect.downlinkSnr);
+  });
+
+  it('every fixture frame is CRC-valid (guards the shared CRC domain)', () => {
+    for (const k of ['battery', 'gps', 'flightmode', 'linkStatistics']) {
+      expect(decodeFrame(hexToBytes(golden[k].frame)).result).toBe(DecodeResult.Ok);
+    }
   });
 });

@@ -9,6 +9,7 @@ import {
 } from '../shared/crsf.js';
 import { CrsfAssembler } from '../shared/crsfAssembler.js';
 import { frameToTelemetry } from '../shared/crsfTelemetry.js';
+import golden from './fixtures/crsf_golden.json';
 
 // Build a CRSF frame like the firmware CrsfFrameBuilder does.
 function buildFrame(type, payload) {
@@ -17,6 +18,8 @@ function buildFrame(type, payload) {
   frame[frame.length - 1] = computeCrc8(frame, 2, length - 1);
   return Uint8Array.from(frame);
 }
+
+const hexToBytes = (s) => Uint8Array.from(s.trim().split(/\s+/).map((h) => parseInt(h, 16)));
 
 // The exact battery frame the firmware emits for 7.9V, 72% (matches the
 // control repo's test_build_battery_frame_bytes golden vector).
@@ -75,5 +78,38 @@ describe('end-to-end: assembler + mapper (the CrsfSerialSource pipeline)', () =>
     expect(telem).not.toBeNull();
     expect(telem.batteryV).toBeCloseTo(8.3, 5);
     expect(telem.batteryPct).toBe(95);
+  });
+});
+
+// The shared golden fixture, fed byte-by-byte through the real assembler +
+// mapper (the CrsfSerialSource path), proving the firmware's exact on-wire
+// bytes map to the expected HUD telemetry (audit R07).
+describe('golden fixture -> frameToTelemetry (end to end)', () => {
+  const feed = (hex) => {
+    const asm = new CrsfAssembler();
+    let frame = null;
+    for (const b of hexToBytes(hex)) frame = asm.feedByte(b) ?? frame;
+    return frame;
+  };
+
+  it('battery -> batteryV/batteryPct', () => {
+    const t = frameToTelemetry(feed(golden.battery.frame));
+    expect(t.batteryV).toBeCloseTo(golden.battery.expect.voltageV, 5);
+    expect(t.batteryPct).toBe(golden.battery.expect.remainingPct);
+  });
+
+  it('gps -> speedKmh', () => {
+    const t = frameToTelemetry(feed(golden.gps.frame));
+    expect(t.speedKmh).toBeCloseTo(golden.gps.expect.speedKmh, 5);
+  });
+
+  it('flightmode -> gear/driveMode/ersPct', () => {
+    const t = frameToTelemetry(feed(golden.flightmode.frame));
+    expect(t).toEqual(golden.flightmode.expect);
+  });
+
+  it('link statistics -> linkQualityPct', () => {
+    const t = frameToTelemetry(feed(golden.linkStatistics.frame));
+    expect(t.linkQualityPct).toBe(golden.linkStatistics.expect.uplinkLinkQuality);
   });
 });

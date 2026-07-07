@@ -1,8 +1,12 @@
-// CRSF wire-format decode, ported FAITHFULLY from the firmware
-// (w17-control-fw/lib/crsf). This is the one piece of genuine shared-truth
+// CRSF wire-format decode, a parallel reimplementation of the firmware
+// (w17-control-fw/lib/crsf) in JS. This is the one piece of genuine shared-truth
 // logic between the repos: the byte layouts and CRC must match exactly, or a
-// JS decode of bytes the firmware produced would silently disagree. The
-// firmware's golden vectors are reused as tests.
+// JS decode of bytes the firmware produced would silently disagree. The two
+// sides are NOT one codebase -- the layouts are mirrored by hand and pinned by
+// a shared golden fixture (test/fixtures/crsf_golden.json, exercised by
+// test/crsf.test.js), whose byte vectors mirror the firmware builder tests. A
+// drift on either side fails that fixture; there is no automated import of the
+// firmware's vectors, so keep the fixture in sync when the wire format changes.
 //
 // CommonJS: required by the Electron main process (CJS) and by vitest.
 
