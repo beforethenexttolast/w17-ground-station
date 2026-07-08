@@ -39,10 +39,13 @@ describe('frameToTelemetry', () => {
     expect(t.batteryPct).toBe(72);
   });
 
-  it('maps a link statistics frame to linkQualityPct', () => {
-    const payload = [70, 65, 88, 0, 1, 4, 3, 80, 99, 0]; // uplinkLQ at offset 2 = 88
+  it('maps a link statistics frame to linkQualityPct + rssiDbm + snrDb', () => {
+    // uplinkRssiAnt1=70 (-> -70 dBm), uplinkLQ at offset 2 = 88, SNR at offset 3 = 0x0C (12 dB).
+    const payload = [70, 65, 88, 12, 1, 4, 3, 80, 99, 0];
     const t = frameToTelemetry({ type: FRAME_TYPE_LINK_STATISTICS, payload });
     expect(t.linkQualityPct).toBe(88);
+    expect(t.rssiDbm).toBe(-70); // CRSF carries RSSI as a positive dBm magnitude
+    expect(t.snrDb).toBe(12);
   });
 
   it('maps a GPS frame to real speedKmh (groundspeed / 10)', () => {
@@ -108,8 +111,11 @@ describe('golden fixture -> frameToTelemetry (end to end)', () => {
     expect(t).toEqual(golden.flightmode.expect);
   });
 
-  it('link statistics -> linkQualityPct', () => {
+  it('link statistics -> linkQualityPct + rssiDbm + snrDb', () => {
     const t = frameToTelemetry(feed(golden.linkStatistics.frame));
     expect(t.linkQualityPct).toBe(golden.linkStatistics.expect.uplinkLinkQuality);
+    // Golden frame byte 0 is 0x4b = 75 -> -75 dBm; SNR from the fixture.
+    expect(t.rssiDbm).toBe(-75);
+    expect(t.snrDb).toBe(golden.linkStatistics.expect.uplinkSnr);
   });
 });

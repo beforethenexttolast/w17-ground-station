@@ -38,6 +38,27 @@ Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just
 deployment target). Cross-platform is proven by CI + the pure-core tests; the GUI + WebRTC
 video are verified on the target machine.
 
+### iPhone telemetry bridge (optional, off by default)
+
+Windows can also stream the normalized telemetry snapshot to the companion iPhone FPV
+HUD app as UDP/JSON — **send-only, viewer companion, no control authority** (the iPhone
+cannot drive the car; the firmware never sees it). Off unless explicitly enabled. The
+packet shape is the iPhone app's own contract (snake_case fields, unknown fields
+omitted): `docs/windows_bridge_contract.md`.
+
+```
+W17_IPHONE_BRIDGE=1          # master enable (unset = off, no socket opened)
+W17_IPHONE_ADDR=192.168.1.9  # iPhone IPv4 (required when enabled; missing = disabled)
+W17_IPHONE_PORT=5601         # destination UDP port (default 5601, per the iPhone contract)
+W17_IPHONE_RATE_HZ=10        # send cadence in Hz (default 10)
+```
+
+The bridge is a second consumer of the existing telemetry flow plus a read-only display
+mirror of the HUD's gamepad/camera state, so the on-screen HUD is unaffected and nothing
+flows back. With `W17_IPHONE_BRIDGE` unset the app behaves exactly as before. (The
+iPhone→Windows head-tracking receiver — UDP port 5602, log-only — is a separate, later
+batch and is not built.)
+
 ### Troubleshooting (dev environment)
 
 - **"Electron failed to install correctly"** — your npm blocked Electron's postinstall (a
@@ -58,8 +79,8 @@ H.264). `docs/TELEMETRY.md` defines the telemetry contract for the car firmware.
 
 | path | role |
 |---|---|
-| `shared/` | pure, unit-tested: CRSF parser (ported from the firmware), telemetry types, replay source, feel constants |
-| `main/` | Electron main: mediamtx supervisor, telemetry source, IPC push |
+| `shared/` | pure, unit-tested: CRSF parser (ported from the firmware), telemetry types, replay source, feel constants, iPhone snapshot builder |
+| `main/` | Electron main: mediamtx supervisor, telemetry source, IPC push, iPhone telemetry bridge (UDP send) |
 | `renderer/` | the HUD page, WHEP video client, telemetry overlay |
 | `mediamtx/` | pinned config (binary fetched, not committed) |
 | `test/` | vitest specs, reusing the firmware's golden CRSF vectors |

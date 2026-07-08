@@ -7,10 +7,13 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const { MediamtxSupervisor } = require('./mediamtx.js');
 const { ReplaySource } = require('../shared/replaySource.js');
 const { CrsfSerialSource } = require('./CrsfSerialSource.js');
+const { IphoneTelemetryBridge } = require('./IphoneTelemetryBridge.js');
+const { iphoneBridgeConfigFromEnv } = require('./iphoneBridgeConfig.js');
 const feel = require('../shared/feelConstants.js');
 
 const projectRoot = path.join(__dirname, '..');
@@ -42,8 +45,22 @@ function chooseTelemetrySource() {
   return null; // HUD runs fully on gamepad + display model with no source
 }
 
+// Windows -> iPhone telemetry bridge (docs/windows_bridge_contract.md — the
+// iPhone app's canonical contract; UDP JSON to port 5601 by default).
+// Off unless W17_IPHONE_BRIDGE=1 AND a destination address is set -- with either
+// missing, this returns null and app behavior is unchanged (no socket opened).
+// `linkStateFn` is the SAME pure function the renderer uses, so both HUDs agree.
+function chooseIphoneBridge(linkStateFn) {
+  const cfg = iphoneBridgeConfigFromEnv(process.env, (m) => console.log(m));
+  if (!cfg) return null;
+  // Diagnostic `mode` tag for the packet: the replay source is the demo.
+  const mode = (process.env.W17_TELEMETRY_SOURCE || 'none') === 'replay' ? 'demo' : undefined;
+  return new IphoneTelemetryBridge({ ...cfg, linkStateFn, mode, log: (m) => console.log(m) });
+}
+
 let mediamtx = null;
 let telemetry = null;
+let iphoneBridge = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -74,6 +91,9 @@ function createWindow() {
   if (telemetry) {
     telemetry.onTelemetry((t) => {
       if (!win.isDestroyed()) win.webContents.send('telemetry', t);
+      // Second consumer: the iPhone bridge. Feeding it here never alters the
+      // renderer push above (the HUD is untouched).
+      if (iphoneBridge) iphoneBridge.onTelemetry(t);
     });
     telemetry.start();
   }
@@ -82,12 +102,27 @@ function createWindow() {
   return win;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const { binaryPath, configPath } = mediamtxPaths();
   mediamtx = new MediamtxSupervisor({ binaryPath, configPath, log: (l) => console.log(l) });
   mediamtx.start();
 
   telemetry = chooseTelemetrySource();
+
+  // linkState lives in an ES module (shared/linkState.mjs, consumed by the
+  // renderer + vitest); load it dynamically so the bridge derives link state
+  // with the exact same logic as the HUD. Only used when the bridge is enabled.
+  const { linkState } = await import(pathToFileURL(path.join(projectRoot, 'shared', 'linkState.mjs')).href);
+  iphoneBridge = chooseIphoneBridge(linkState);
+  if (iphoneBridge) iphoneBridge.start();
+
+  // Read-only display mirror from the renderer (throttle/brake/steering/camera
+  // as drawn on the HUD) -- forwarded outward to the iPhone bridge only. This
+  // is one-way: nothing is sent back, and no control state is touched.
+  ipcMain.on('command-mirror', (_event, mirror) => {
+    if (iphoneBridge) iphoneBridge.onCommandMirror(mirror);
+  });
+
   createWindow();
 
   app.on('activate', () => {
@@ -101,6 +136,7 @@ app.on('window-all-closed', () => {
 
 // Always tear down the child + source so nothing is orphaned.
 app.on('will-quit', () => {
+  if (iphoneBridge) iphoneBridge.stop();
   if (telemetry) telemetry.stop();
   if (mediamtx) mediamtx.stop();
 });

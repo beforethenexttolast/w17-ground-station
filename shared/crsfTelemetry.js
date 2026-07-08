@@ -29,7 +29,13 @@ function frameToTelemetry(frame) {
   }
   if (frame.type === FRAME_TYPE_LINK_STATISTICS) {
     const s = decodeLinkStatistics(frame.payload);
-    return { linkQualityPct: s.uplinkLinkQuality };
+    // CRSF carries uplink RSSI as a positive dBm magnitude; real value is
+    // negative (75 -> -75 dBm). SNR is already a signed dB value.
+    return {
+      linkQualityPct: s.uplinkLinkQuality,
+      rssiDbm: -s.uplinkRssiAnt1,
+      snrDb: s.uplinkSnr,
+    };
   }
   if (frame.type === FRAME_TYPE_GPS) {
     const g = decodeGps(frame.payload);

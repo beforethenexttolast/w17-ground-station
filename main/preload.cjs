@@ -14,4 +14,9 @@ contextBridge.exposeInMainWorld('groundStation', {
     ipcRenderer.on('telemetry', handler);
     return () => ipcRenderer.removeListener('telemetry', handler);
   },
+  // READ-ONLY display mirror (throttle/brake/steering/camera as drawn on the
+  // HUD) for the outbound iPhone telemetry bridge. One-way renderer -> main ->
+  // UDP out; main only serializes it — it never feeds control, and nothing
+  // comes back on this channel.
+  sendCommandMirror: (mirror) => ipcRenderer.send('command-mirror', mirror),
 });

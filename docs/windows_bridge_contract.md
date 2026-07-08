@@ -1,311 +1,646 @@
-# Windows ↔ iPhone bridge contract (v1, canonical)
+> **This document is the Windows implementation copy of the iPhone bridge contract.
+> The iPhone app is the client; Windows must conform to this packet shape.**
+>
+> The authoritative source text lives with the iPhone app (currently a copy sits
+> untracked at `w17-control-fw/docs/windows_bridge_contract.md`; it should move to
+> the iPhone repo). Sections 1–7 below reproduce it verbatim. The final appendix
+> ("Windows implementation notes") records how *this* repo implements the Windows
+> side — it adds no requirements and must never contradict the sections above.
+> This copy supersedes the earlier camelCase/port-48017 draft that previously
+> lived in this file (W1); that draft is obsolete.
 
-**Status: contract / design only. Nothing here is implemented (W1, docs-only).** No iPhone
-repo or schema exists in this workspace, so **this document is the canonical v1 contract**:
-the iPhone companion client conforms to what Windows defines here.
+# W17 iPhone <-> Windows Bridge Contract
 
-Companion design record: [`iphone_bridge_readiness.md`](iphone_bridge_readiness.md).
-Firmware side: `w17-control-fw/project-review/iphone_pan_tilt_firmware_readiness.md`.
+Last updated: 2026-07-08
 
-Date: 2026-07-08. Batches: **W2** = Windows→iPhone telemetry sender; **W3** =
-iPhone→Windows head-tracking receiver (log-only). Neither is built yet.
+This document defines the W17 integration contract between the existing iPhone FPV HUD / head-tracking app and the future Windows ground-station bridge.
 
----
+This is a documentation contract only. It does not authorize active camera pan/tilt mapping, CRSF channel output, servo movement, vehicle movement, firmware changes, or APFPV video decoding.
 
-## A. Architecture boundary (non-negotiable this phase)
+## Authority And Scope
 
-- **Windows is the sole control authority.** Driving stays with elrs-joystick-control
-  (DualShock → CRSF → ELRS TX). The ground-station app and this bridge are viewer/companion
-  only.
-- **The iPhone is a thin companion client.** It *displays* telemetry it receives and *sends*
-  head-tracking intent. It has **no control authority** and no path to the car.
-- **Windows → iPhone:** normalized telemetry snapshots over **UDP/JSON** (§B).
-- **iPhone → Windows:** head-tracking intent over **UDP/JSON**, sent to Windows **only**
-  (§D). In W3 the receiver is **log-only**.
-- **The firmware is unaware of the iPhone.** It never sees UDP or JSON; it consumes only
-  final, already-arbitrated CRSF channels over the radio link. This bridge introduces no
-  firmware change.
-- **No pan/tilt, CRSF, or servo output is produced from iPhone intent in this phase.**
-  Head-tracking terminates at a Windows log. Mapping intent → camera channels is a
-  separate, later, safety-gated milestone.
-- **Video is out of scope of this contract.** The FPV video path (camera → mediamtx →
-  WebRTC/WHEP) is independent of control and of this bridge; it is not carried over these
-  UDP channels. Advertising video endpoint info to the phone is a possible future
-  extension, explicitly deferred.
+The Windows ground station remains the control authority. The iPhone is a thin companion client.
 
-### Transport summary
+Hard boundaries:
 
-| Direction | Batch | Transport | Default port | Config | Behavior |
-|---|---|---|---|---|---|
-| Windows → iPhone telemetry | W2 | UDP, JSON, one datagram per snapshot | **48017/udp** | `W17_IPHONE_PORT` | fire-and-forget, ~10 Hz |
-| iPhone → Windows head-tracking | W3 | UDP, JSON, one datagram per intent | **48018/udp** (reserved) | `W17_HEADTRACK_PORT` (W3) | received, validated, **logged only** |
+- The iPhone sends head-tracking intent only.
+- Windows initially logs iPhone head-tracking only.
+- Windows must not forward iPhone head-tracking to CRSF channels, servos, gimbal, ESC, or vehicle control in the first bridge milestone.
+- Windows may later map validated intent to camera pan/tilt only after a separate safety milestone.
+- The iPhone receives normalized telemetry snapshots from Windows.
+- The iPhone must not parse raw CRSF.
+- Firmware must not parse iPhone JSON.
+- Firmware must not receive iPhone UDP.
+- APFPV/OpenIPC video is a separate path and must not be coupled to telemetry or head-tracking authority.
 
-Both defaults are in the non-privileged range (> 1023) and are **configurable** to avoid
-collisions on any given network. UDP is chosen deliberately: telemetry and head-tracking
-are both latest-value-wins streams where a dropped datagram is preferable to
-head-of-line blocking; there is no retransmission and no ordering guarantee at the
-transport layer (the `seq` field provides ordering/loss visibility at the application
-layer).
+Related documents:
 
----
+- `docs/PROTOCOL_CONTRACT.md`
+- `schemas/telemetry_snapshot.schema.json`
+- `schemas/head_tracking_packet.schema.json`
+- `examples/telemetry_snapshot.example.json`
+- `examples/head_tracking_packet.example.json`
+- `docs/WINDOWS_BRIDGE_INTEGRATION_PLAN.md`
+- `docs/FUTURE_HEAD_TRACKING_TO_PAN_TILT_SAFETY.md`
+- `docs/FIRST_ACTIVE_PAN_TILT_MILESTONE.md`
 
-## B. W2 — Windows → iPhone telemetry snapshot contract
+## 1. Data Paths
 
-### B.1 Packet
+### Windows To iPhone: Telemetry Snapshot
 
-One UDP datagram per snapshot, payload = a single UTF-8 JSON object (no framing, no
-trailing newline required). One snapshot fully replaces the previous one on the phone
-(latest-value-wins).
+```text
+Car / ELRS / CRSF telemetry
+  -> Windows decode / merge / normalize
+  -> UDP JSON telemetry snapshot
+  -> iPhone HUD
+```
 
-```jsonc
+Purpose: give the iPhone a display-safe, normalized snapshot for the HUD.
+
+The Windows bridge owns raw telemetry decoding and normalization. The iPhone receives only the normalized UDP JSON snapshot.
+
+### iPhone To Windows: Head-Tracking Intent
+
+```text
+iPhone Core Motion / mock motion
+  -> iPhone calibration and send gating
+  -> UDP JSON head-tracking intent
+  -> Windows validation / stale tracking / logging
+  -> no control output in first bridge milestone
+```
+
+Purpose: provide optional camera-look intent to Windows for logging now and possible future pan/tilt arbitration later.
+
+### Future Video Path
+
+Preferred low-latency video path remains independent:
+
+```text
+APFPV/OpenIPC camera
+  -> RTP/UDP H.265
+  -> iPhone APFPV receiver / depacketizer / decoder in a future milestone
+  -> video surface
+  -> SwiftUI/UIKit HUD overlay
+```
+
+Windows does not have to forward or re-encode video for the preferred iPhone path. APFPV diagnostics are packet-statistics only until the native decoder milestone.
+
+### Forbidden Path
+
+There must be no iPhone-to-firmware data path:
+
+```text
+iPhone -> firmware JSON/UDP/CRSF: forbidden
+```
+
+Firmware should only ever see final, already-arbitrated control channels from the existing Windows/control chain in a later milestone.
+
+## 2. Telemetry Snapshot Contract
+
+Direction: Windows -> iPhone.
+
+Transport: UDP JSON.
+
+Default port: `5601`.
+
+Schema: `schemas/telemetry_snapshot.schema.json`.
+
+Current protocol version: `1`.
+
+For version 1, `protocol_version` is recommended but optional for compatibility. If omitted, receivers should treat the packet as version 1 during bench testing.
+
+### Recommended JSON Shape
+
+```json
 {
-  "v": 1,              // protocol version (integer). Bump on any breaking change.
-  "type": "telemetry", // message discriminator (lets one listener sort message kinds)
-  "seq": 1234,         // uint32, +1 per sent datagram, wraps 4294967295 -> 0
-  "tMs": 1751972400123,// sender wall-clock, ms since Unix epoch, at snapshot build
-  "linkState": "live", // derived on Windows: "sim"|"live"|"link-lost"|"telemetry-lost"
-  "speedKmh": 182.4,   // number | null
-  "batteryV": 7.6,     // number | null
-  "batteryPct": 70,    // number | null (0..100)
-  "linkQualityPct": 98,// number | null (0..100; 0 is the link-lost signal, not "unknown")
-  "gear": 4,           // number | null (1-based; 1 == first gear)
-  "ersPct": 40,        // number | null (0..100)
-  "driveMode": 2       // number | null (0=TRAINING, 1=RACE, 2=ERS)
+  "protocol_version": 1,
+  "timestamp_ms": 12345678,
+  "battery_v": 14.8,
+  "link_quality": 92,
+  "rssi_dbm": -62,
+  "snr_db": 18,
+  "speed_kmh": 12.4,
+  "gear": 3,
+  "drive_mode": "GEARBOX_ERS",
+  "ers_percent": 55,
+  "throttle": 0.43,
+  "brake": 0.0,
+  "steering": -0.15,
+  "camera_yaw_deg": -12.0,
+  "camera_pitch_deg": 5.0,
+  "head_tracking_mode": "OFF",
+  "video_lock": true,
+  "warning": "",
+  "stale_data_warnings": []
 }
 ```
 
-### B.2 Field definitions
+### Field Definitions
 
-| Field | Type | Units / meaning | Source |
-|---|---|---|---|
-| `v` | integer | protocol version; `1` for this contract | constant |
-| `type` | string | `"telemetry"` | constant |
-| `seq` | integer (uint32) | per-datagram counter, wraps at 2³²; the phone uses it to detect loss/reorder | sender |
-| `tMs` | integer | ms since Unix epoch when the snapshot was built (informational; the phone measures its own staleness against arrival time) | sender clock |
-| `linkState` | string enum | `"sim"` / `"live"` / `"link-lost"` / `"telemetry-lost"` — **derived on Windows** by `shared/linkState.mjs`, sent so both HUDs agree instead of the phone re-deriving with different constants | derived |
-| `speedKmh` | number\|null | real ground speed (Hall → GPS 0x02 groundspeed) | car |
-| `batteryV` | number\|null | pack voltage (V) | car |
-| `batteryPct` | number\|null | coarse remaining %, 0..100 | car |
-| `linkQualityPct` | number\|null | ELRS uplink LQ, 0..100 | ground TX module |
-| `gear` | number\|null | 1-based gear, car-authoritative | car |
-| `ersPct` | number\|null | ERS store %, 0..100 | car |
-| `driveMode` | number\|null | 0=TRAINING, 1=RACE, 2=ERS | car |
+| Field | Required for full snapshot | Unit | Valid range / values | Unknown/null behavior |
+| --- | --- | --- | --- | --- |
+| `protocol_version` | Recommended | integer | `1` | Missing means version 1 for bench compatibility |
+| `timestamp_ms` | Yes | milliseconds | `>= 0` | Should not be null in full snapshots |
+| `battery_v` | Yes | volts | `>= 0` | If unknown, omit in partial/test packets or mark stale; do not send old value as fresh |
+| `link_quality` | Yes | percent | `0...100` | If unknown, omit in partial/test packets or mark stale |
+| `rssi_dbm` | Yes | dBm | integer | If unknown, omit in partial/test packets or mark stale |
+| `snr_db` | Yes | dB | number | If unknown, omit in partial/test packets or mark stale |
+| `speed_kmh` | Yes | km/h | `>= 0` | Do not use `0` to mean unknown unless Windows knows the car is safely stopped |
+| `gear` | Yes | gear index | integer `>= 0` | Use `0` or omit only if defined as unknown by Windows UI/contract |
+| `drive_mode` | Yes | enum | `TRAINING`, `GEARBOX`, `GEARBOX_ERS`, `UNKNOWN` | Use `UNKNOWN` when unavailable |
+| `ers_percent` | Yes | percent | `0...100` | If unknown, omit in partial/test packets or mark stale |
+| `throttle` | Yes | normalized | `0.0...1.0` | If unknown, omit in partial/test packets |
+| `brake` | Yes | normalized | `0.0...1.0` | If unknown, omit in partial/test packets |
+| `steering` | Yes | normalized | `-1.0...1.0` | If unknown, omit in partial/test packets |
+| `camera_yaw_deg` | Yes | degrees | number | Current camera/gimbal reported yaw, not iPhone authority |
+| `camera_pitch_deg` | Yes | degrees | number | Current camera/gimbal reported pitch, not iPhone authority |
+| `head_tracking_mode` | Yes | enum | `OFF`, `DS4`, `HEAD_TRACKING`, `MIXED`, `UNKNOWN` | Use `UNKNOWN` if unavailable |
+| `video_lock` | Yes | boolean | `true` / `false` | `false` means no current video lock; it does not prove video path latency |
+| `warning` | Optional | string/null | human-readable status | `""` or `null` means no warning |
+| `stale_data_warnings` | Optional | array | see below | Empty or missing means no explicit stale subsystem flags |
+| `link_state` | Optional | enum | `disconnected`, `connecting`, `connected`, `degraded`, `demo` | Mainly diagnostic/debug |
+| `mode` | Optional | enum | `demo`, `udp` | Mainly diagnostic/debug |
 
-### B.3 Send rate
+Accepted `stale_data_warnings` values:
 
-Default **10 Hz**. Overridable via `W17_IPHONE_RATE_HZ`. The underlying telemetry
-sources emit irregularly (the CRSF path emits once per merged frame; the replay source at
-20 Hz), so the sender **coalesces** to the configured cadence — it sends the latest merged
-snapshot on a fixed timer, not one datagram per source emit.
+- `battery`
+- `linkQuality`
+- `speed`
+- `flightMode`
+- `camera`
+- `video`
+- `telemetry`
 
-### B.4 Destination configuration (read in `main/main.js`, repo env-var pattern)
+### Telemetry Source Meaning
+
+Windows should normalize from existing sources, for example:
+
+- CRSF battery frame `0x08` -> `battery_v`.
+- Ground TX `LINK_STATISTICS` -> `link_quality`, `rssi_dbm`, `snr_db`.
+- CRSF GPS frame `0x02` groundspeed -> `speed_kmh`.
+- CRSF FLIGHTMODE frame `0x21`, such as `G3 M2 E55` -> gear, drive mode, ERS/status fields.
+- Existing control/mixer state -> `throttle`, `brake`, `steering`.
+- Existing camera/gimbal state -> `camera_yaw_deg`, `camera_pitch_deg`, `head_tracking_mode`.
+
+The iPhone must not know or parse those raw upstream protocols.
+
+### Nullable And Unknown Values
+
+The preferred full snapshot is complete and non-null for required fields. For bench compatibility, the current iPhone parser tolerates missing fields and merges partial packets with the previous raw telemetry state.
+
+Safety rule for Windows: do not keep publishing old values as fresh. If Windows loses a source, it should either:
+
+- Stop sending valid snapshots and let the iPhone enter stale/lost state.
+- Send explicit warning/status flags and unknown values where the schema supports them.
+- Mark affected subsystems in `stale_data_warnings`.
+
+Do not represent unknown speed as `0 km/h` unless Windows explicitly knows the vehicle is stopped.
+
+### Telemetry Freshness And HUD Behavior
+
+The iPhone evaluates telemetry freshness from local receive time:
+
+- Fresh: latest valid packet age `<= about 1 s`.
+- Stale: latest valid packet age `> about 1 s` and `<= about 3 s`.
+- Lost: latest valid packet age `> about 3 s`.
+
+Fresh telemetry:
+
+- HUD shows actual values normally.
+
+Stale telemetry:
+
+- HUD shows a stale warning.
+- Values may remain visible but should be visually degraded/marked stale.
+
+Lost telemetry:
+
+- HUD shows `TELEMETRY DATA LOST >3S` or equivalent.
+- HUD must clear unsafe stale values:
+  - battery -> `--.- V`
+  - LQ -> `--`
+  - RSSI -> `--`
+  - SNR -> `--`
+  - gear -> `--`
+  - ERS -> `--`
+  - speed -> `-- km/h`
+  - source/mode -> `UNKNOWN` or `--`
+- HUD may hold only non-authoritative debug metadata if clearly marked stale.
+
+## 3. Head-Tracking Intent Contract
+
+Direction: iPhone -> Windows.
+
+Transport: UDP JSON.
+
+Default port: `5602`.
+
+Schema: `schemas/head_tracking_packet.schema.json`.
+
+Current protocol version: `1`.
+
+The packet is camera-look intent only. It is not a servo command, pan/tilt command, vehicle command, CRSF packet, or firmware packet.
+
+### Current JSON Shape
+
+```json
+{
+  "seq": 1,
+  "timestamp_ms": 12345678,
+  "yaw_deg": -12.5,
+  "pitch_deg": 6.8,
+  "roll_deg": 1.2,
+  "tracking_enabled": true,
+  "centered": true,
+  "timeout_ms": 250
+}
+```
+
+`protocol_version` is recommended for future compatibility but is not currently emitted by the iPhone app encoder. Windows should treat missing `protocol_version` as version 1 for this bench phase.
+
+### Field Definitions
+
+| Field | Required | Unit | Valid range / values | Behavior |
+| --- | --- | --- | --- | --- |
+| `protocol_version` | Recommended | integer | `1` | Missing means version 1 during bench phase |
+| `seq` | Yes | count | integer `>= 0` | Monotonic diagnostics; wrap/restart should be logged, not fatal |
+| `timestamp_ms` | Yes | milliseconds | integer `>= 0` | Sender timestamp; use receive time for stale authority |
+| `yaw_deg` | Yes | degrees | finite number; schema range `-360...360` | Centered iPhone yaw intent |
+| `pitch_deg` | Yes | degrees | finite number; schema range `-180...180` | Centered iPhone pitch intent |
+| `roll_deg` | Yes | degrees | finite number; schema range `-180...180` | Diagnostic only initially; ignore for pan/tilt |
+| `tracking_enabled` | Yes | boolean | `true` / `false` | User/app tracking intent state |
+| `centered` | Recommended | boolean | `true` / `false` | Must be true before any future active mapping |
+| `timeout_ms` | Recommended | milliseconds | `1...5000`, app default `250` | Sender's suggested stale timeout; Windows may enforce its own configured timeout |
+
+### Current Axis Conventions
+
+Current iPhone implementation:
+
+- Uses CoreMotion `CMMotionManager` device motion with `.xArbitraryCorrectedZVertical` on real iPhone.
+- Uses simulator/mock yaw, pitch, and roll values in degrees on Simulator.
+- Sends centered deltas after the user presses Center/Calibrate.
+- `yaw_deg`, `pitch_deg`, and `roll_deg` are iPhone-attitude-derived intent values, not direct pan/tilt output values.
+
+Current assumptions that must remain diagnostic until real iPhone validation:
+
+- Positive/negative yaw sign is whatever CoreMotion reports in the mounted phone orientation.
+- Positive/negative pitch sign is whatever CoreMotion reports in the mounted phone orientation.
+- Roll is recorded for diagnostics only and should be ignored for initial pan/tilt mapping.
+- Mount orientation and sign flips are not validated yet.
+
+Future mapping may use:
+
+- yaw -> pan
+- pitch -> tilt
+- roll ignored initially
+
+But that mapping must not be implemented until the active pan/tilt safety milestone is complete.
+
+### Invalid, Disabled, And Uncentered Behavior
+
+Windows must classify valid packets without treating every packet as usable for control.
+
+Recommended states:
+
+- `disabled`: bridge disabled or socket closed.
+- `idle`: no valid packet has been received.
+- `inactive`: valid fresh packet with `tracking_enabled=false`.
+- `not_centered`: valid fresh packet with `tracking_enabled=true` and `centered != true`.
+- `active_log_only`: valid fresh packet with `tracking_enabled=true` and `centered=true`.
+- `stale`: no valid packet within timeout.
+- `invalid`: malformed or semantically invalid packet received.
+- `fault`: configuration/socket/internal bridge error.
+
+First milestone output rule:
+
+| State | Log | CRSF output | Servo/gimbal output |
+| --- | --- | --- | --- |
+| `disabled` | Optional | No | No |
+| `idle` | Yes | No | No |
+| `inactive` | Yes | No | No |
+| `not_centered` | Yes | No | No |
+| `active_log_only` | Yes | No | No |
+| `stale` | Yes | No | No |
+| `invalid` | Yes | No | No |
+| `fault` | Yes | No | No |
+
+### Stale Timeout
+
+Windows should use local receive time as the authority for freshness.
+
+Default stale timeout:
+
+- Head tracking stale if no valid packet arrives for `> about 300 ms`.
+
+Windows may use the packet's `timeout_ms` as a diagnostic hint, but Windows should own the configured receiver timeout. Clock sync between iPhone and Windows must not be required.
+
+### Malformed Packet Rejection
+
+Windows must reject malformed or semantically invalid packets without updating the current valid state.
+
+Reject when:
+
+- Packet is not valid JSON.
+- Packet is not a JSON object.
+- Unsupported `protocol_version` is present.
+- Required fields are missing.
+- `seq` is not a non-negative integer.
+- `timestamp_ms` is not a non-negative integer.
+- `yaw_deg`, `pitch_deg`, or `roll_deg` are missing, non-numeric, NaN, infinite, or outside accepted diagnostic range.
+- `tracking_enabled` is not boolean.
+- `centered`, when present, is not boolean.
+- `timeout_ms`, when present, is not a positive integer in the accepted range.
+
+Invalid packets must:
+
+- Increment an invalid packet count.
+- Log a concise warning.
+- Preserve the last valid packet state separately.
+- Never produce control output.
+
+### Sequence And Timestamp Diagnostics
+
+Windows should track:
+
+- Last valid `seq`.
+- Sequence gaps.
+- Sequence repeats/regressions.
+- Packet-rate estimate over roughly one second.
+- Sender timestamp delta for diagnostics.
+- Receive-time age for safety/stale state.
+
+Sequence regressions may occur on app restart or sender reset. They should be logged as diagnostics, not treated as proof of malicious or unsafe input by themselves.
+
+## 4. Windows Responsibilities
+
+Windows must:
+
+- Own the bridge enable/disable state.
+- Own socket configuration and validation.
+- Receive iPhone head-tracking UDP JSON packets.
+- Validate packet schema and semantics.
+- Reject stale, uncentered, disabled, malformed, or invalid packets for any future control use.
+- Initially log only.
+- Never forward iPhone packets to CRSF/servos/gimbal in the first milestone.
+- Never interfere with existing joystick/control flow in the first milestone.
+- Publish normalized telemetry snapshots to the configured iPhone IP/port.
+- Avoid blocking control loops on UDP send/receive.
+- Show/log bridge state, packet age, packet rate, sequence diagnostics, yaw/pitch/roll, `tracking_enabled`, `centered`, valid packet count, invalid packet count, and stale state.
+- Treat receive time as stale authority.
+- Clear or mark telemetry source data stale rather than forwarding old values as live.
+- Later arbitrate with manual/gamepad input only after a separate active pan/tilt safety milestone.
+- Own any future operator enable/arm/disarm state.
+
+Windows must not:
+
+- Parse iPhone intent as direct servo angle commands in the first milestone.
+- Map iPhone intent to CRSF channels 9/10 in the first milestone.
+- Send iPhone JSON to firmware.
+- Let a bridge enable switch bypass existing safety/failsafe architecture.
+- Treat stale/invalid/uncentered packets as usable control input.
+
+## 5. iPhone Responsibilities
+
+The iPhone app must:
+
+- Treat Windows as the authority.
+- Receive telemetry snapshots from Windows only.
+- Not parse raw CRSF.
+- Gate head-tracking sender by valid settings, tracking enabled state, active motion state, and center/calibration.
+- Stop sending when tracking is disabled.
+- Stop sending when calibration is reset.
+- Require fresh center/calibrate after app restart.
+- Send camera-look intent only.
+- Include sequence and timestamp diagnostics.
+- Expose tracking state, calibration state, packet rate, and sender errors in Debug / Setup.
+- Use compact non-technical error labels in Drive mode.
+- Show stale/lost telemetry safely.
+- Clear unsafe stale telemetry values when data is lost.
+
+The iPhone app must not:
+
+- Claim vehicle authority.
+- Send direct car commands.
+- Send CRSF.
+- Talk directly to firmware.
+- Send direct pan/tilt servo commands.
+- Treat APFPV video diagnostics as proof of decoded video or latency.
+
+## 6. Firmware Responsibilities
+
+Firmware has no direct responsibility for iPhone integration in the current contract.
+
+Firmware must not:
+
+- Parse iPhone JSON.
+- Receive iPhone UDP.
+- Trust iPhone packets directly.
+- Add an iPhone-specific side channel.
+
+In a future active pan/tilt milestone, firmware should only consume final already-arbitrated control channels from the normal Windows/control chain. The existing pan/tilt CRSF channel behavior remains downstream of Windows authority and safety logic.
+
+## 7. Compatibility Tests
+
+These tests are no-hardware or bench/log-only. They must not command vehicle hardware.
+
+### Fake Windows Telemetry Sender To iPhone
+
+Purpose: prove iPhone UDP telemetry receive and display safety.
+
+Use:
+
+```sh
+python3 scripts/send_demo_telemetry.py --host <iphone-or-simulator-ip> --port 5601 --rate 20 --profile normal
+```
+
+Expected:
+
+- iPhone shows live telemetry values while packets arrive.
+- Packet age updates in Debug / Setup.
+- No malformed count increases for valid packets.
+
+Stale/lost test:
+
+```sh
+python3 scripts/send_demo_telemetry.py --host <iphone-or-simulator-ip> --port 5601 --drop-after 5 --duration 10
+```
+
+Expected:
+
+- Stale warning after about `1 s`.
+- Lost warning after about `3 s`.
+- Battery, LQ, RSSI, SNR, gear, ERS, speed, and source/mode clear to safe unknown placeholders.
+
+### Fake iPhone Head Tracking To Windows Receiver
+
+Purpose: prove Windows can receive and validate iPhone-shaped intent packets before a real iPhone is available.
+
+Use:
+
+```sh
+python3 scripts/send_fake_head_tracking.py --host <windows-host> --port 5602 --duration 5 --rate 30 --pattern sine
+```
+
+Expected:
+
+- Windows logs sequence, packet age, packet rate, yaw, pitch, roll, `tracking_enabled`, and `centered`.
+- Windows state becomes `active_log_only` for fresh enabled and centered packets.
+- No CRSF/servo/gimbal output changes occur.
+
+Uncentered test:
+
+```sh
+python3 scripts/send_fake_head_tracking.py --host <windows-host> --port 5602 --duration 5 --uncentered
+```
+
+Expected:
+
+- Windows logs `not_centered`.
+- No output is produced.
+
+Disabled test:
+
+```sh
+python3 scripts/send_fake_head_tracking.py --host <windows-host> --port 5602 --duration 5 --disable-after 2
+```
+
+Expected:
+
+- Windows logs transition from active/log-only to inactive.
+- No output is produced.
+
+### Malformed Packet Tests
+
+Telemetry malformed test:
+
+```sh
+python3 scripts/send_demo_telemetry.py --host <iphone-or-simulator-ip> --port 5601 --malformed
+```
+
+Expected:
+
+- iPhone does not crash.
+- Malformed count increases.
+- Last valid safe display state is not corrupted.
+
+Head-tracking malformed test:
+
+```sh
+python3 scripts/send_fake_head_tracking.py --host <windows-host> --port 5602 --malformed
+```
+
+Expected:
+
+- Windows rejects the packet.
+- Invalid packet count increases.
+- Last valid packet state is not replaced.
+- No output is produced.
+
+### Stale Timeout Test
+
+Purpose: prove Windows marks head tracking stale when packets stop.
+
+Use:
+
+```sh
+python3 scripts/send_fake_head_tracking.py --host <windows-host> --port 5602 --duration 2 --rate 30 --pattern static
+```
+
+Expected:
+
+- Windows logs packets while sender runs.
+- After packets stop, Windows marks state stale after about `300 ms`.
+- No output is produced before, during, or after stale transition in the first milestone.
+
+### Restart And Calibration Behavior
+
+Purpose: prove iPhone calibration is session-only and sender gating survives restart/reset.
+
+Expected iPhone behavior:
+
+- App restart does not persist calibration as valid.
+- Tracking enabled but not centered produces no packets.
+- Center/calibrate allows packets only after tracking is enabled and motion is active.
+- Reset calibration stops packets again.
+- Invalid settings prevent sender start.
+
+Expected Windows behavior:
+
+- Sequence number reset after app restart is logged as a diagnostic.
+- Missing packets after app restart become stale.
+- New valid centered packets are accepted for logging only.
+- No control output is produced.
+
+## Contract Freeze For First Bridge Milestone
+
+The first Windows bridge milestone is complete only when:
+
+- Windows can send normalized telemetry snapshots to iPhone/Simulator.
+- Windows can receive iPhone/fake-iPhone head-tracking packets.
+- Windows validates schema and semantics.
+- Windows rejects malformed packets without replacing valid state.
+- Windows marks stale head tracking after about `300 ms`.
+- Windows shows/logs all required diagnostics.
+- iPhone HUD handles stale/lost telemetry safely.
+- No iPhone packet affects joystick flow, CRSF output, servos, gimbal, or vehicle behavior.
+
+Anything beyond this, including pan/tilt mapping, requires a separate safety milestone and review.
+
+---
+
+# Appendix: Windows implementation notes (w17-ground-station)
+
+Non-normative. How this repo implements the Windows side of the contract above.
+
+## Configuration (env vars, read in `main/main.js`)
 
 | Env var | Meaning | Default |
 |---|---|---|
-| `W17_IPHONE_BRIDGE` | master enable; `1` turns the sender on | **unset = off** (no socket created) |
-| `W17_IPHONE_ADDR` | iPhone IPv4 address (static; no discovery in v1) | none (required when enabled) |
-| `W17_IPHONE_PORT` | destination UDP port on the iPhone | `48017` |
-| `W17_IPHONE_RATE_HZ` | send cadence in Hz | `10` |
+| `W17_IPHONE_BRIDGE` | master enable; `1` turns the telemetry sender on | **unset = off** (no socket created; app unchanged) |
+| `W17_IPHONE_ADDR` | iPhone/Simulator IPv4 address (static; no discovery) | none (required when enabled) |
+| `W17_IPHONE_PORT` | destination UDP port | `5601` (contract §2) |
+| `W17_IPHONE_RATE_HZ` | snapshot send cadence | `10` |
 
-The bridge is **off by default and opt-in**, matching the ground station's existing
-viewer-only, nothing-by-surprise posture (`W17_TELEMETRY_SOURCE`, `W17_WHEP_URL`, etc.).
-With `W17_IPHONE_BRIDGE` unset, no UDP socket is opened.
+Port `5602` is **reserved** for the future iPhone → Windows head-tracking
+receiver (contract §3) — log-only, not yet implemented (W3).
 
-### B.5 Value honesty rules (mandatory)
+## Module layout
 
-1. **Unknown / unavailable values are explicit `null`, never a fake `0`.** A field is
-   present with value `null` when Windows has no real datum for it. `0` means a real
-   measured zero (e.g. `speedKmh: 0` stopped, `linkQualityPct: 0` link lost). The phone
-   must render `null` as "—"/unknown, never as a real reading.
-2. **Demo-only fields are not exported as car truth.** The replay/demo source sets
-   `armed`/`failsafe`; the real car transmits neither. They are **omitted** from the v1
-   telemetry packet. (If a future debug build needs them, they must be carried under a
-   clearly-marked debug key, never as real fields.)
-3. **Raw CRSF is never sent to the iPhone.** Only the normalized snapshot crosses the
-   bridge. No CRSF frames, no channel arrays, no control values.
-4. `linkState` is authoritative for link status; the phone should not re-derive it from
-   `linkQualityPct` alone (staleness is part of the derivation and lives on Windows).
+- `shared/telemetrySnapshot.js` — pure packet builder (golden-tested against §2's shape).
+- `main/IphoneTelemetryBridge.js` — send-only UDP wrapper: coalesces to the configured
+  cadence, injectable socket/clock for tests.
+- `main/iphoneBridgeConfig.js` — pure env-var resolution (disabled-by-default rules).
+- The bridge subscribes as a **second consumer** of the existing telemetry flow in
+  `main/main.js`; the on-screen HUD path is untouched.
 
----
+## Field sourcing on Windows
 
-## C. W2 — golden example packets
+| Contract field | Windows source |
+|---|---|
+| `battery_v` | CRSF BATTERY 0x08 → merged `Telemetry.batteryV` |
+| `link_quality`, `rssi_dbm`, `snr_db` | ground TX LINK_STATISTICS 0x14 (`rssi_dbm` = −uplinkRssiAnt1; `snr_db` = uplinkSnr) |
+| `speed_kmh` | CRSF GPS 0x02 groundspeed |
+| `gear`, `drive_mode`, `ers_percent` | CRSF FLIGHTMODE 0x21 `"G3 M2 E55"`; `drive_mode` maps 0→`TRAINING`, 1→`GEARBOX`, 2→`GEARBOX_ERS`, else `UNKNOWN` |
+| `throttle`, `brake`, `steering` | **read-only display mirror** of the HUD's gamepad state, renderer → main IPC (`command-mirror`), ~20 Hz |
+| `camera_yaw_deg`, `camera_pitch_deg` | same mirror: right-stick pan/tilt × 90° full deflection; positive yaw = camera right, positive pitch = camera up. Commanded look direction, **not** a measured gimbal angle |
+| `head_tracking_mode` | `"DS4"` while the mirror is fresh (camera is right-stick-driven; Windows has no head tracking yet) |
+| `video_lock` | whether the HUD's WHEP `<video>` is currently playing |
+| `mode` | `"demo"` when the replay telemetry source is active |
 
-These are the pinned reference packets; the W2 snapshot-builder golden test (§E) must
-reproduce them from canned inputs, and the iPhone client must parse them.
+The mirror is one-way (renderer → main → UDP out). Nothing the iPhone sends can
+reach it; `test/noControlPath.test.js` guards this structurally.
 
-### C.1 Normal live telemetry
+## Staleness/omission behavior (contract "Nullable And Unknown Values")
 
-```json
-{
-  "v": 1,
-  "type": "telemetry",
-  "seq": 481,
-  "tMs": 1751972400123,
-  "linkState": "live",
-  "speedKmh": 182.4,
-  "batteryV": 7.6,
-  "batteryPct": 70,
-  "linkQualityPct": 98,
-  "gear": 4,
-  "ersPct": 40,
-  "driveMode": 2
-}
-```
-
-### C.2 LINK LOST — fresh telemetry, but uplink LQ is 0
-
-The ground TX module keeps reporting after the radio to the car drops; `linkQualityPct`
-is a real `0` (the link-lost signal), not `null`. Last real car values may still be shown.
-
-```json
-{
-  "v": 1,
-  "type": "telemetry",
-  "seq": 902,
-  "tMs": 1751972411500,
-  "linkState": "link-lost",
-  "speedKmh": 0,
-  "batteryV": 7.2,
-  "batteryPct": 55,
-  "linkQualityPct": 0,
-  "gear": 4,
-  "ersPct": 20,
-  "driveMode": 2
-}
-```
-
-### C.3 TELEMETRY LOST / stale — source was live, then went silent
-
-Windows holds the last real values and marks the state stale; the phone shows them
-dimmed and must not resume simulated numbers. `tMs` continues to advance (Windows is
-still sending state packets) even though the car data underneath is frozen.
-
-```json
-{
-  "v": 1,
-  "type": "telemetry",
-  "seq": 903,
-  "tMs": 1751972413000,
-  "linkState": "telemetry-lost",
-  "speedKmh": 0,
-  "batteryV": 7.2,
-  "batteryPct": 55,
-  "linkQualityPct": 0,
-  "gear": 4,
-  "ersPct": 20,
-  "driveMode": 1
-}
-```
-
-### C.4 Partial / unknown values — only some fields known
-
-E.g. a battery frame has arrived but no GPS/flightmode yet; unknown fields are explicit
-`null`. `linkState` is `sim` because no source has ever been fully live in this example.
-
-```json
-{
-  "v": 1,
-  "type": "telemetry",
-  "seq": 3,
-  "tMs": 1751972390000,
-  "linkState": "sim",
-  "speedKmh": null,
-  "batteryV": 7.9,
-  "batteryPct": 66,
-  "linkQualityPct": null,
-  "gear": null,
-  "ersPct": null,
-  "driveMode": null
-}
-```
-
----
-
-## D. W3 — iPhone → Windows head-tracking intent contract (log-only)
-
-**Planned for W3. Not built in W1. In W3 the receiver validates and logs; it produces no
-control output of any kind.**
-
-### D.1 Planned packet
-
-```jsonc
-{
-  "v": 1,                 // protocol version (integer)
-  "type": "head-intent",  // message discriminator
-  "seq": 5567,            // uint32, +1 per datagram, wraps
-  "timestamp_ms": 1751972400200, // iPhone clock, ms; used with arrival time for staleness
-  "yaw_deg": -12.5,       // head yaw, degrees (would map to camera PAN — later, not now)
-  "pitch_deg": 4.0,       // head pitch, degrees (would map to camera TILT — later, not now)
-  "roll_deg": 1.2,        // head roll, degrees (captured; unused — the 2-axis gimbal has no roll)
-  "tracking_enabled": true, // the phone asserts head-tracking is active
-  "centered": true        // a neutral/centered reference has been calibrated this session
-}
-```
-
-Full 3-axis head pose is captured at the intent layer for completeness and future use;
-only yaw/pitch would ever map to the 2-axis gimbal, and **no mapping exists in this
-phase**. `roll_deg` is recorded but has no camera meaning.
-
-### D.2 Validation & handling rules (W3)
-
-Each rule short-circuits to a logged rejection with a machine-readable reason; **no
-packet, valid or not, produces any control/servo/CRSF output**:
-
-1. **Malformed** — oversized datagram (reject before parse), non-JSON, wrong/absent
-   `type`, missing required field, or wrong `v` → **rejected** (`malformed` /
-   `bad-schema` / `bad-version`).
-2. **Disabled** — `tracking_enabled !== true` → **ignored** (logged as `disabled`).
-3. **Uncentered / not calibrated** — until a packet with `centered: true` has been seen,
-   intent is **ignored** (`uncentered`); a stream must start from a calibrated neutral.
-4. **Invalid / out of range** — non-finite numbers or angles outside the declared limits
-   → **rejected** (`out-of-range`).
-5. **Stale** — intent older than **~300 ms** (receiver wall-clock since the last accepted
-   packet, or `seq` regression) → **rejected** (`stale`), and the centered gate re-arms
-   (a fresh `centered` packet is required to resume acceptance). This 300 ms window is the
-   canonical head-tracking staleness threshold for this contract; it supersedes the
-   earlier 400 ms placeholder noted in `iphone_bridge_readiness.md`. It is distinct from
-   the telemetry HUD's 1000 ms freshness window (`TELEMETRY_FRESH_MS`).
-6. **Log-only** — accepted packets are summarized to the log + an in-memory diagnostics
-   buffer. The receiver's public surface is `{start, stop, getDiagnostics}` only; nothing
-   consumes its data. There is **no code path** from the receiver to a telemetry source,
-   IPC, serial, or the (nonexistent-in-this-repo) control path.
-
----
-
-## E. Tests expected later (all vitest; pure modules, injected clock/socket — repo style)
-
-**W2 (telemetry sender):**
-- **Snapshot builder golden tests** — canned merged telemetry + derived link state →
-  exact packets from §C (live, link-lost, telemetry-lost, partial/null). Committed as a
-  shared fixture; unknown → `null`; demo-only `armed`/`failsafe` never present.
-- **Disabled / no-destination test** — with `W17_IPHONE_BRIDGE` unset (or no
-  `W17_IPHONE_ADDR`), no socket is created and nothing is sent.
-- **UDP sender mock test** — injected fake socket + fake clock: coalesces emit bursts to
-  the configured `W17_IPHONE_RATE_HZ` cadence, sends the latest snapshot per tick,
-  increments `seq`, stops cleanly.
-
-**W3 (head-tracking receiver):**
-- **Parser tests** — golden accepted packet; each rejection class (`malformed`,
-  `bad-schema`, `bad-version`, `out-of-range`, `disabled`, `uncentered`, `stale`/seq
-  regression) returns its distinct reason; oversized datagram rejected before parse.
-- **Stale timeout tests** — injected clock: gap > 300 ms → `stale` and the centered gate
-  re-arms; gap < 300 ms accepted; boundary pinned.
-- **No-control-path guard** — static/module-graph assertion: nothing in `main/`+`shared/`
-  gains a serial write or CRSF RC-channel encoder because of the bridge; the head-tracking
-  module is imported only by `main.js` + its test; its emitted-events surface is empty.
-
----
-
-## F. Reserved / deferred (explicitly not v1)
-
-- iPhone auto-discovery of the Windows host (v1 uses a static `W17_IPHONE_ADDR`).
-- Video endpoint advertisement to the phone (`whepUrl`/`rtspUrl`/`codec`) — a future
-  telemetry-packet or handshake extension, tied to the mirrored-video decision.
-- Any mapping of head-tracking intent → camera pan/tilt channels — a separate,
-  safety-gated milestone with its own blockers (see the firmware readiness report §8).
-
----
-
-*Sources: `shared/telemetry.js`, `shared/linkState.mjs`, `shared/crsfTelemetry.js`,
-`main/main.js`, `docs/TELEMETRY.md`, `docs/iphone_bridge_readiness.md`, and the firmware
-readiness report `w17-control-fw/project-review/iphone_pan_tilt_firmware_readiness.md`.*
+- Car-side fields are included only while the Windows source is **fresh** (the
+  same `shared/linkState.mjs` derivation the HUD uses). `link-lost` (LQ = 0) is
+  fresh, real data and adds `warning: "LINK LOST"`.
+- When a previously-live source goes silent (>1 s), car fields are **omitted**
+  and `stale_data_warnings: ["telemetry"]` is set — old values are never re-sent
+  as fresh.
+- A mirror silent for >1 s is omitted the same way.
+- Anything Windows has no real datum for is omitted, never faked as `0`/`null`.
+- Demo-only `armed`/`failsafe` (replay source) are never exported.
+- Raw CRSF never crosses the bridge.
+- Optional diagnostic `link_state`: `live`→`connected`, `link-lost`→`degraded`,
+  `telemetry-lost`→`disconnected` ("sim" sends nothing car-side).

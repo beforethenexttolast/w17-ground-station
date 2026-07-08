@@ -1,0 +1,46 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import * as crsf from '../shared/crsf.js';
+
+// The W2 bridge must remain viewer-only: it exports telemetry OUT and opens NO
+// control path back to the car. These guards fail loudly if a future edit adds
+// an RC-channel encoder, a serial write, or a UDP receiver to the bridge files.
+
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+
+describe('no-control-path regression (contract A + E)', () => {
+  it('shared/crsf.js exposes NO RC-channel encoder — decode only', () => {
+    const encoderLike = Object.keys(crsf).filter((k) => /^(encode|build)/i.test(k));
+    expect(encoderLike).toEqual([]);
+    // The decoders we DO expect are still present (sanity: we didn't neuter it).
+    expect(typeof crsf.decodeFrame).toBe('function');
+  });
+
+  it('the telemetry bridge writes no serial and touches no control/servo API', () => {
+    const src = read('../main/IphoneTelemetryBridge.js');
+    for (const forbidden of [
+      'serialport', 'SerialPort', 'CrsfFrameBuilder', 'RcChannels',
+      'buildRcChannels', 'encodeRcChannels', 'setPosition', 'setThrottle', 'ledc',
+    ]) {
+      expect(src, `bridge must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it('the telemetry bridge is send-only — it does not bind or receive datagrams', () => {
+    const src = read('../main/IphoneTelemetryBridge.js');
+    expect(src).toContain('.send('); // it sends
+    expect(src).not.toContain('.bind(');
+    expect(src).not.toContain("on('message'");
+    expect(src).not.toContain('on("message"');
+    expect(src).not.toContain('onmessage');
+  });
+
+  it('the snapshot builder is pure telemetry — no CRSF, channel, or serial references', () => {
+    const src = read('../shared/telemetrySnapshot.js').toLowerCase();
+    // "crsf" appears only in a doc comment about NOT sending raw CRSF; assert no
+    // code-level channel/serial handling.
+    expect(src).not.toContain('serialport');
+    expect(src).not.toContain('channels[');
+    expect(src).not.toContain('setposition');
+  });
+});

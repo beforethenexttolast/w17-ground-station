@@ -21,6 +21,8 @@
  * @property {boolean} [armed]    demo-only — never set by the real source
  * @property {boolean} [failsafe] demo-only — never set by the real source
  * @property {number} [linkQualityPct]
+ * @property {number} [rssiDbm]  uplink RSSI, negative dBm (from LINK_STATISTICS)
+ * @property {number} [snrDb]    uplink SNR, dB (from LINK_STATISTICS)
  * @property {number} [gear]
  * @property {number} [ersPct]
  * @property {number} [driveMode]

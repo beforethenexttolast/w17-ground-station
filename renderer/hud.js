@@ -243,11 +243,33 @@ function render() {
   }
 }
 
+// Read-only command/camera mirror for the outbound iPhone telemetry bridge:
+// the same display values the HUD draws, sent one-way to main at ~20 Hz.
+// Display only — this never drives the car (elrs-joystick-control does), and
+// there is no return path from the iPhone into these values.
+let videoPlaying = false;
+let lastMirrorSentMs = 0;
+const MIRROR_SEND_PERIOD_MS = 50; // ~20 Hz, comfortably above the bridge's 10 Hz
+function sendCommandMirror(now) {
+  if (!window.groundStation || !window.groundStation.sendCommandMirror) return;
+  if (now - lastMirrorSentMs < MIRROR_SEND_PERIOD_MS) return;
+  lastMirrorSentMs = now;
+  window.groundStation.sendCommandMirror({
+    throttle: S.throttle,   // 0..1
+    brake: S.brake,         // 0..1
+    steering: S.steer,      // -1..1
+    camPan: S.camPan,       // -1..1 (right stick X)
+    camTilt: S.camTilt,     // -1..1 (right stick Y; up = negative)
+    videoPlaying,           // whether the WHEP <video> is currently playing
+  });
+}
+
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (S.started || demo) { readInputs(); updateSim(dt); }
   render();
+  sendCommandMirror(now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -266,8 +288,8 @@ async function init() {
         console.log(m);
       },
     });
-    feed.addEventListener('playing', () => feedNote.classList.add('hidden'));
-    feed.addEventListener('emptied', () => feedNote.classList.remove('hidden'));
+    feed.addEventListener('playing', () => { feedNote.classList.add('hidden'); videoPlaying = true; });
+    feed.addEventListener('emptied', () => { feedNote.classList.remove('hidden'); videoPlaying = false; });
   }
 }
 init();
