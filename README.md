@@ -55,9 +55,26 @@ W17_IPHONE_RATE_HZ=10        # send cadence in Hz (default 10)
 
 The bridge is a second consumer of the existing telemetry flow plus a read-only display
 mirror of the HUD's gamepad/camera state, so the on-screen HUD is unaffected and nothing
-flows back. With `W17_IPHONE_BRIDGE` unset the app behaves exactly as before. (The
-iPhone→Windows head-tracking receiver — UDP port 5602, log-only — is a separate, later
-batch and is not built.)
+flows back. With `W17_IPHONE_BRIDGE` unset the app behaves exactly as before.
+
+### iPhone head-tracking receiver (optional, off by default, LOG-ONLY)
+
+Windows can also *receive* the iPhone app's head-tracking intent packets (UDP/JSON on
+port 5602) — **strictly log-only**: packets are validated, counted, and summarized to the
+console, and nothing else happens. No CRSF, no servos, no camera pan/tilt, no control —
+that mapping is blocked until a separate safety milestone. Off unless explicitly enabled.
+
+```
+W17_HEADTRACK=1            # master enable (unset = off, no socket bound)
+W17_HEADTRACK_PORT=5602    # UDP listen port (default 5602, per the iPhone contract)
+W17_HEADTRACK_BIND=0.0.0.0 # bind address (default all interfaces)
+W17_HEADTRACK_STALE_MS=300 # receive-time stale authority (default 300 ms)
+```
+
+Test it with the iPhone repo's fake sender (no phone needed):
+`python3 iPhone_rc/scripts/send_fake_head_tracking.py --host <this-pc> --port 5602 --pattern sine`
+— the console shows `[headtrack] state=active_log_only rate=30/s ...` lines and state
+transitions (`idle/inactive/not_centered/active_log_only/stale/invalid`).
 
 ### Troubleshooting (dev environment)
 

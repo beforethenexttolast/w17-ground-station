@@ -646,3 +646,54 @@ reach it; `test/noControlPath.test.js` guards this structurally.
 - Raw CRSF never crosses the bridge.
 - Optional diagnostic `link_state`: `live`→`connected`, `link-lost`→`degraded`,
   `telemetry-lost`→`disconnected` ("sim" sends nothing car-side).
+
+## W3: head-tracking receiver (LOG-ONLY) — implementation notes
+
+Implements contract §3 ("Head-Tracking Intent Contract") and §4's first-milestone
+output rule: **every state logs; none produces CRSF, servo, gimbal, or control
+output.** Active pan/tilt mapping remains **blocked until the separate safety
+milestone** (contract "Contract Freeze"; firmware blockers in
+`w17-control-fw/project-review/iphone_pan_tilt_firmware_readiness.md` §8).
+
+- `shared/headTracking.js` — pure validator (mirrors the reference
+  `iPhone_rc/scripts/reference_iphone_bridge.py` semantics: required
+  `seq`/`timestamp_ms`/`yaw_deg`/`pitch_deg`/`roll_deg`/`tracking_enabled`;
+  missing `protocol_version` ⇒ version 1; angles finite, yaw ±360°,
+  pitch/roll ±180°; `timeout_ms` 1–5000 when present; booleans never pass
+  integer checks) + `HeadTrackingMonitor` diagnostics state machine.
+- `main/HeadTrackingReceiver.js` — thin UDP wrapper: binds, validates, logs
+  state transitions and a 1 Hz rate line, caps invalid-packet log spam.
+  Public surface is `{start, stop, state, getDiagnostics}` — a structural dead
+  end; `test/noControlPath.test.js` asserts no other runtime module imports it
+  and `main.js` never reads its data.
+- States: `disabled`, `idle`, `inactive`, `not_centered`, `active_log_only`,
+  `stale`, `invalid`, `fault` (contract's recommended set). Stale authority is
+  **receive time > 300 ms** (`W17_HEADTRACK_STALE_MS`, clamped 1–5000); the
+  packet's `timeout_ms` is recorded as a diagnostic hint only. Invalid packets
+  increment counters + log a concise reason and never replace the last valid
+  state. Sequence gaps/repeats/regressions are logged diagnostics, not faults.
+- `calibrated` is not a schema field (the app's Center/Calibrate action is
+  carried by `centered`); it is tolerated as an optional boolean diagnostic and
+  gated conservatively (`calibrated: false` ⇒ `not_centered`).
+
+### Config (env vars, read in `main/main.js`)
+
+| Env var | Meaning | Default |
+|---|---|---|
+| `W17_HEADTRACK` | master enable; `1` binds the listener | **unset = off** |
+| `W17_HEADTRACK_PORT` | UDP listen port | `5602` (contract §3) |
+| `W17_HEADTRACK_BIND` | bind address | `0.0.0.0` |
+| `W17_HEADTRACK_STALE_MS` | receive-time stale authority | `300` |
+
+### Log-only validation runbook (mirrors `iPhone_rc/docs/WINDOWS_BRIDGE_LOG_ONLY_TEST.md`)
+
+1. `W17_HEADTRACK=1 npm start` (or `npm run demo`) — expect
+   `[headtrack] LOG-ONLY receiver listening on 0.0.0.0:5602 …`.
+2. From the iPhone repo:
+   `python3 scripts/send_fake_head_tracking.py --host <pc-ip> --port 5602 --pattern sine`
+   → state `idle -> active_log_only`, 1 Hz rate lines with seq/age/yaw/pitch/roll.
+3. `--uncentered` → `not_centered`; `--disable-after 2` → `inactive`;
+   `--malformed` → `rejected packet: malformed-json`, counters up, valid state kept.
+4. Stop the sender → `active_log_only -> stale` after ~300 ms.
+5. Throughout: confirm **no** CRSF/servo/pan-tilt/control effect exists — there is
+   no code path; `npm test` runs the no-control-path regression proving it.

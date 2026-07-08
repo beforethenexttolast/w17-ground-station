@@ -43,4 +43,50 @@ describe('no-control-path regression (contract A + E)', () => {
     expect(src).not.toContain('channels[');
     expect(src).not.toContain('setposition');
   });
+
+  // --- W3: the head-tracking receiver must be a log-only dead end. ---
+
+  it('the head-tracking modules touch no control/servo/serial/CRSF API', () => {
+    for (const file of ['../main/HeadTrackingReceiver.js', '../shared/headTracking.js', '../main/headTrackingConfig.js']) {
+      const src = read(file);
+      for (const forbidden of [
+        'serialport', 'SerialPort', 'CrsfFrameBuilder', 'RcChannels',
+        'buildRcChannels', 'encodeRcChannels', 'setPosition', 'setThrottle', 'ledc',
+      ]) {
+        expect(src, `${file} must not reference ${forbidden}`).not.toContain(forbidden);
+      }
+    }
+  });
+
+  it('the head-tracking receiver feeds NOTHING: no telemetry source, no IPC, no renderer, no outbound bridge', () => {
+    const src = read('../main/HeadTrackingReceiver.js');
+    for (const forbidden of [
+      'TelemetrySource', 'webContents', 'ipcMain', 'ipcRenderer',
+      'IphoneTelemetryBridge', 'onTelemetry', 'onCommandMirror', 'send(',
+    ]) {
+      expect(src, `receiver must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it('head-tracking intent is consumed only by main.js and its own modules (module graph)', () => {
+    // No other runtime module may import the head-tracking code -- importing it
+    // anywhere else (renderer, bridge, telemetry) would be the first step of a
+    // control path and must fail review + CI.
+    const runtimeFiles = [
+      '../main/IphoneTelemetryBridge.js', '../main/iphoneBridgeConfig.js',
+      '../main/CrsfSerialSource.js', '../main/mediamtx.js', '../main/preload.cjs',
+      '../shared/telemetrySnapshot.js', '../shared/telemetry.js', '../shared/crsf.js',
+      '../shared/crsfTelemetry.js', '../shared/crsfAssembler.js', '../shared/replaySource.js',
+      '../shared/linkState.mjs', '../renderer/hud.js', '../renderer/whep.js',
+    ];
+    for (const file of runtimeFiles) {
+      const src = read(file);
+      expect(src, `${file} must not import head-tracking code`).not.toMatch(/headTracking|HeadTracking/);
+    }
+    // main.js may construct it, but must not wire its data anywhere: the only
+    // references are require/construct/start/stop -- never a data read.
+    const main = read('../main/main.js');
+    expect(main).not.toContain('getDiagnostics');
+    expect(main).not.toMatch(/headTracking\.(on|emit|pipe)/);
+  });
 });

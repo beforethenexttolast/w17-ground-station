@@ -14,6 +14,8 @@ const { ReplaySource } = require('../shared/replaySource.js');
 const { CrsfSerialSource } = require('./CrsfSerialSource.js');
 const { IphoneTelemetryBridge } = require('./IphoneTelemetryBridge.js');
 const { iphoneBridgeConfigFromEnv } = require('./iphoneBridgeConfig.js');
+const { HeadTrackingReceiver } = require('./HeadTrackingReceiver.js');
+const { headTrackingConfigFromEnv } = require('./headTrackingConfig.js');
 const feel = require('../shared/feelConstants.js');
 
 const projectRoot = path.join(__dirname, '..');
@@ -58,9 +60,20 @@ function chooseIphoneBridge(linkStateFn) {
   return new IphoneTelemetryBridge({ ...cfg, linkStateFn, mode, log: (m) => console.log(m) });
 }
 
+// iPhone -> Windows head-tracking receiver (contract section 3): LOG-ONLY.
+// Off unless W17_HEADTRACK=1. It is a dead end by construction -- nothing
+// consumes its data; it logs and counts. It must never feed CRSF, servos,
+// pan/tilt, telemetry, or the renderer (separate safety milestone required).
+function chooseHeadTrackingReceiver() {
+  const cfg = headTrackingConfigFromEnv(process.env);
+  if (!cfg) return null;
+  return new HeadTrackingReceiver({ ...cfg, log: (m) => console.log(m) });
+}
+
 let mediamtx = null;
 let telemetry = null;
 let iphoneBridge = null;
+let headTracking = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -116,6 +129,9 @@ app.whenReady().then(async () => {
   iphoneBridge = chooseIphoneBridge(linkState);
   if (iphoneBridge) iphoneBridge.start();
 
+  headTracking = chooseHeadTrackingReceiver();
+  if (headTracking) headTracking.start();
+
   // Read-only display mirror from the renderer (throttle/brake/steering/camera
   // as drawn on the HUD) -- forwarded outward to the iPhone bridge only. This
   // is one-way: nothing is sent back, and no control state is touched.
@@ -136,6 +152,7 @@ app.on('window-all-closed', () => {
 
 // Always tear down the child + source so nothing is orphaned.
 app.on('will-quit', () => {
+  if (headTracking) headTracking.stop();
   if (iphoneBridge) iphoneBridge.stop();
   if (telemetry) telemetry.stop();
   if (mediamtx) mediamtx.stop();
