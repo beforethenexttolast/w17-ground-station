@@ -4,6 +4,7 @@ import {
   DRIVE_MODE_ENUM,
   CAMERA_FULL_DEFLECTION_DEG,
 } from '../shared/telemetrySnapshot.js';
+import { sampleTimeline, DEMO_TIMELINE } from '../shared/replaySource.js';
 
 // Packet shape per docs/windows_bridge_contract.md (the iPhone app's canonical
 // contract): snake_case fields, drive_mode enum strings, unknown fields OMITTED
@@ -162,6 +163,69 @@ describe('read-only command mirror (display values only)', () => {
     expect(pkt.camera_yaw_deg).toBe(CAMERA_FULL_DEFLECTION_DEG);
     expect(pkt.camera_pitch_deg).toBe(CAMERA_FULL_DEFLECTION_DEG);
     expect(pkt.head_tracking_mode).toBe('DS4'); // no head tracking on Windows yet
+  });
+});
+
+describe('integer normalization (iPhone Swift parser: Int/UInt64 fields)', () => {
+  // link_quality, ers_percent, gear, rssi_dbm decode as Int; timestamp_ms as
+  // UInt64. A non-integral JSON number there makes JSONDecoder reject the whole
+  // packet, so the builder must round these while leaving number-typed fields
+  // (battery_v, snr_db, speed_kmh, camera_*) free to stay fractional.
+  const INT_FIELDS = ['link_quality', 'ers_percent', 'gear', 'rssi_dbm', 'timestamp_ms'];
+
+  it('all Int-typed fields are integers when present (fractional input is rounded)', () => {
+    const pkt = buildTelemetrySnapshot({
+      tMs: 1783184400000.9,
+      telem: { linkQualityPct: 99.2, ersPct: 54.6, gear: 2.5, rssiDbm: -62.4, snrDb: 18.3, speedKmh: 12.44, batteryV: 7.63 },
+      linkState: 'live',
+      mirror: null,
+    });
+    for (const k of INT_FIELDS) {
+      expect(Number.isInteger(pkt[k]), `${k}=${pkt[k]} must be an integer`).toBe(true);
+    }
+    expect(pkt.link_quality).toBe(99);
+    expect(pkt.ers_percent).toBe(55);
+    expect(pkt.gear).toBe(3);          // 2.5 rounds to 3
+    expect(pkt.rssi_dbm).toBe(-62);    // -62.4 rounds to -62
+    expect(pkt.timestamp_ms).toBe(1783184400000); // floored
+    // number-typed fields keep their fractional precision
+    expect(pkt.snr_db).toBe(18.3);
+    expect(pkt.speed_kmh).toBe(12.44);
+    expect(pkt.battery_v).toBe(7.63);
+  });
+
+  it('demo/replay-style interpolated telemetry produces integer Int fields', () => {
+    // Mid-keyframe sample: replaySource lerps linkQualityPct/ersPct to floats.
+    const t = sampleTimeline(DEMO_TIMELINE, 3300);
+    expect(Number.isInteger(t.linkQualityPct)).toBe(false); // proves the source is fractional
+    const pkt = buildTelemetrySnapshot({ tMs: 1, telem: t, linkState: 'live', mirror: null });
+    for (const k of ['link_quality', 'ers_percent', 'gear', 'rssi_dbm'].filter((k) => k in pkt)) {
+      expect(Number.isInteger(pkt[k]), `${k}=${pkt[k]}`).toBe(true);
+    }
+  });
+
+  it('omitted Int fields stay omitted (rounding never invents a value)', () => {
+    const pkt = buildTelemetrySnapshot({
+      tMs: 1, telem: { batteryV: 7.9 }, linkState: 'live', mirror: null,
+    });
+    for (const k of ['link_quality', 'ers_percent', 'gear', 'rssi_dbm']) {
+      expect(pkt).not.toHaveProperty(k);
+    }
+  });
+
+  it('real zero Int values remain valid zeros, not omitted', () => {
+    const pkt = buildTelemetrySnapshot({
+      tMs: 1, telem: { linkQualityPct: 0, ersPct: 0, gear: 0, rssiDbm: 0 }, linkState: 'link-lost', mirror: null,
+    });
+    expect(pkt.link_quality).toBe(0);
+    expect(pkt.ers_percent).toBe(0);
+    expect(pkt.gear).toBe(0);
+    expect(pkt.rssi_dbm).toBe(0);
+  });
+
+  it('timestamp_ms is a non-negative integer even for fractional/negative input', () => {
+    expect(buildTelemetrySnapshot({ tMs: 12.9, telem: null, linkState: 'sim', mirror: null }).timestamp_ms).toBe(12);
+    expect(buildTelemetrySnapshot({ tMs: -5, telem: null, linkState: 'sim', mirror: null }).timestamp_ms).toBe(0);
   });
 });
 

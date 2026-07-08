@@ -1,9 +1,11 @@
 > **This document is the Windows implementation copy of the iPhone bridge contract.
 > The iPhone app is the client; Windows must conform to this packet shape.**
 >
-> The authoritative source text lives with the iPhone app (currently a copy sits
-> untracked at `w17-control-fw/docs/windows_bridge_contract.md`; it should move to
-> the iPhone repo). Sections 1–7 below reproduce it verbatim. The final appendix
+> The authoritative long-term contract lives with the iPhone app, at
+> `iPhone_rc/docs/windows_bridge_contract.md` (plus its `schemas/*.schema.json`
+> and `examples/*.json`) — the iPhone parser is the compatibility constraint, so
+> the contract versions with it. Sections 1–7 below reproduce that document
+> verbatim; keep them re-synced when the iPhone repo revs. The final appendix
 > ("Windows implementation notes") records how *this* repo implements the Windows
 > side — it adds no requirements and must never contradict the sections above.
 > This copy supersedes the earlier camelCase/port-48017 draft that previously

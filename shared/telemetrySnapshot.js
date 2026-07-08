@@ -50,6 +50,15 @@ function putNum(out, key, value) {
     if (isFiniteNum(value)) out[key] = value;
 }
 
+// Like putNum, but rounds to an integer. Several fields are typed `Int`/`UInt64`
+// in the iPhone Swift parser (link_quality, ers_percent, gear, rssi_dbm,
+// timestamp_ms); a non-integral JSON number there makes JSONDecoder reject the
+// WHOLE packet. Replay/demo telemetry interpolates values to floats, so these
+// must be rounded on the way out. Unknown values are still omitted (never 0).
+function putInt(out, key, value) {
+    if (isFiniteNum(value)) out[key] = Math.round(value);
+}
+
 // Build one snapshot packet.
 //   tMs        timestamp_ms (sender clock, ms)
 //   telem      merged car-side Telemetry (shared/telemetry.js) or null
@@ -62,7 +71,8 @@ function putNum(out, key, value) {
 function buildTelemetrySnapshot({ tMs, telem, linkState, mirror, mode }) {
     const out = {
         protocol_version: PROTOCOL_VERSION,
-        timestamp_ms: tMs,
+        // timestamp_ms is UInt64 in the iPhone parser: force a non-negative integer.
+        timestamp_ms: Math.max(0, Math.floor(tMs)),
     };
 
     // --- Car-side truth: only while the source is FRESH ('live' or
@@ -72,13 +82,16 @@ function buildTelemetrySnapshot({ tMs, telem, linkState, mirror, mode }) {
     // has ever produced data: nothing car-side to send at all.
     const telemFresh = linkState === 'live' || linkState === 'link-lost';
     if (telemFresh && telem) {
+        // battery_v / snr_db / speed_kmh are `number` in the iPhone parser (may
+        // be fractional); link_quality / rssi_dbm / gear / ers_percent are `Int`
+        // and MUST be integer-normalized or the packet is rejected wholesale.
         putNum(out, 'battery_v', telem.batteryV);
-        putNum(out, 'link_quality', telem.linkQualityPct);
-        putNum(out, 'rssi_dbm', telem.rssiDbm);
+        putInt(out, 'link_quality', telem.linkQualityPct);
+        putInt(out, 'rssi_dbm', telem.rssiDbm);
         putNum(out, 'snr_db', telem.snrDb);
         putNum(out, 'speed_kmh', telem.speedKmh);
-        putNum(out, 'gear', telem.gear);
-        putNum(out, 'ers_percent', telem.ersPct);
+        putInt(out, 'gear', telem.gear);
+        putInt(out, 'ers_percent', telem.ersPct);
         out.drive_mode = DRIVE_MODE_ENUM[telem.driveMode] ?? 'UNKNOWN';
     }
     if (linkState === 'telemetry-lost') {
