@@ -603,8 +603,11 @@ Non-normative. How this repo implements the Windows side of the contract above.
 | `W17_IPHONE_PORT` | destination UDP port | `5601` (contract §2) |
 | `W17_IPHONE_RATE_HZ` | snapshot send cadence | `10` |
 
-Port `5602` is **reserved** for the future iPhone → Windows head-tracking
-receiver (contract §3) — log-only, not yet implemented (W3).
+Port `5602` is the iPhone → Windows head-tracking receiver (contract §3), now
+**implemented on Windows and LOG-ONLY** (W3; see the "W3: head-tracking receiver"
+notes below). It validates and logs intent only — **no active pan/tilt, no iPhone →
+CRSF, no iPhone → servo, no firmware UDP/JSON**; active pan/tilt mapping stays a
+separate safety milestone, and real-device iPhone validation remains pending.
 
 ## Module layout
 
