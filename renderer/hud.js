@@ -19,7 +19,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   ersEl = el('ers'), ersPctEl = el('ersPct'), battVEl = el('battV'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
-  gate = el('gate'), gateStatus = el('gateStatus'), startBtn = el('startBtn'),
+  gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote');
 
 // Drive modes, indexed by the car's driveMode field (firmware ChannelDecoder:
@@ -61,13 +61,12 @@ let demo = false;
 
 addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
-  if (e.key === 'Enter') start();
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) e.preventDefault();
 });
 addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 addEventListener('gamepadconnected', refreshPad);
 addEventListener('gamepaddisconnected', refreshPad);
-startBtn.addEventListener('click', start);
+// Demo mode bypasses the setup flow entirely: instant HUD, replay-style sim.
 demoBtn.addEventListener('click', () => {
   demo = !demo;
   demoBtn.classList.toggle('on', demo);
@@ -90,13 +89,21 @@ function refreshPad() {
   S.connected = !!p;
   gpEl.textContent = p ? 'Controller ready' : 'No controller';
   gpEl.classList.toggle('on', !!p);
-  if (!S.started) {
-    gateStatus.textContent = p ? 'Controller connected' : 'No controller — use keyboard or Demo';
-    gateStatus.className = 'status ' + (p ? 'ok' : 'no');
-  }
 }
 function start() { if (S.started) return; S.started = true; S.t0 = performance.now(); gate.classList.add('hidden'); }
 setInterval(refreshPad, 600); refreshPad();
+
+// --- Hooks for the setup flow (renderer/setupFlow.js drives the gate). ---
+// startRide: dismiss the gate and go live (called after lights-out).
+export function startRide() { start(); }
+// hudStatus: the GRID checklist's local probes — read-only display state.
+export function hudStatus() {
+  return {
+    videoPlaying,
+    controllerConnected: !!pad(),
+    telemetryState: telemetryState(),
+  };
+}
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;

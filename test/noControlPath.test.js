@@ -101,6 +101,8 @@ describe('no-control-path regression (contract A + E)', () => {
     const setupFlowFiles = [
       '../shared/settings.js', '../main/settingsStore.js', '../main/sessionRuntime.js',
       '../shared/wifiParse.js', '../shared/processList.js', '../shared/inputPresets.mjs',
+      '../shared/setupSteps.mjs', '../shared/checklist.mjs', '../shared/addressProviders.mjs',
+      '../renderer/setupFlow.js', '../renderer/sounds.js',
       '../main/runCommand.js', '../main/wifiManager.js', '../main/hotspot.js',
       '../main/elrsLauncher.js', '../main/hostProbe.js', '../main/remoteAddrHint.js',
     ];
