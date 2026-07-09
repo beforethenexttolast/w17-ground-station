@@ -38,6 +38,32 @@ Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just
 deployment target). Cross-platform is proven by CI + the pure-core tests; the GUI + WebRTC
 video are verified on the target machine.
 
+### Pre-ride setup flow (pit wall)
+
+The app opens into a four-step, F1-styled setup instead of a bare start button:
+
+1. **GARAGE** — pick the session: *Solo FPV* (laptop only) or *iPhone HUD* (adds the
+   telemetry bridge + network step).
+2. **PIT WALL** *(iPhone mode, Windows)* — scan and join a WiFi network, or start a local
+   hotspot (SSID `W17-GRID` by default; Mobile Hotspot backend preferred, legacy
+   `hostednetwork` fallback for the RT5370 dongle). Includes the client-isolation warning —
+   pick a network that allows device-to-device traffic. Enter/confirm the iPhone's IP
+   (validated; a suggestion chip appears when the log-only head-track listener is hearing
+   the phone). On macOS/Linux this step is guide-mode: instructions + verify.
+3. **SEAT FIT** — pick which gamepad the HUD mirrors (persisted) and a layout preset
+   (DualShock / Xbox / generic) with a live test strip. Keyboard fallback remains.
+4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
+   iPhone reachability (iPhone mode), elrs-joystick-control detected (with a LAUNCH
+   button). START enables when required checks pass; an amber **START ANYWAY** always
+   works — the viewer must never lock you out of driving. Then five red lights… lights out.
+
+Choices persist in `settings.json` under Electron's userData dir; **env vars always
+override persisted settings** (dev/CI behavior unchanged). The ⚙ menu holds radio-sound
+(off by default), the log-only head-track toggle, the elrs-joystick-control path
+(launch-only: this app starts it detached and can never stop it), and telemetry
+source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
+iPhone discovery (needs the iPhone-side, Codex-owned change first).
+
 ### iPhone telemetry bridge (optional, off by default)
 
 Windows can also stream the normalized telemetry snapshot to the companion iPhone FPV
@@ -57,6 +83,10 @@ The bridge is a second consumer of the existing telemetry flow plus a read-only 
 mirror of the HUD's gamepad/camera state, so the on-screen HUD is unaffected and nothing
 flows back. With `W17_IPHONE_BRIDGE` unset the app behaves exactly as before.
 
+The setup flow can also enable it without env vars: *iPhone HUD* mode + a confirmed
+iPhone IP starts the same sender. If `W17_IPHONE_BRIDGE` is set (even to `0`), the env
+var wins outright.
+
 ### iPhone head-tracking receiver (optional, off by default, LOG-ONLY)
 
 Windows can also *receive* the iPhone app's head-tracking intent packets (UDP/JSON on
@@ -75,6 +105,12 @@ Test it with the iPhone repo's fake sender (no phone needed):
 `python3 iPhone_rc/scripts/send_fake_head_tracking.py --host <this-pc> --port 5602 --pattern sine`
 — the console shows `[headtrack] state=active_log_only rate=30/s ...` lines and state
 transitions (`idle/inactive/not_centered/active_log_only/stale/invalid`).
+
+The ⚙ settings menu has the same switch ("head-track logging — diagnostic only, no
+camera control"), off by default; a set `W17_HEADTRACK` env var (even `0`) overrides it.
+Either way the receiver stays LOG-ONLY — its only side effect beyond logs is exposing
+the last sender's IP as an address *suggestion* in the setup flow (user-confirmed,
+never packet contents).
 
 ### Troubleshooting (dev environment)
 

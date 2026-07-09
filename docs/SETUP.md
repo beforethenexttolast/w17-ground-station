@@ -61,6 +61,26 @@ ffmpeg -re -stream_loop -1 -i demo.mp4 -c:v libx264 -tune zerolatency -f rtsp rt
 npm run demo    # gamepad drives the widgets; replay source drives the overlay
 ```
 
+## 6. Network & hotspot for the iPhone bridge (Windows)
+
+The in-app PIT WALL step drives this, but the facts to verify on the bench:
+
+- **Client isolation:** guest/office APs often block device-to-device traffic — the
+  bridge needs PC ↔ iPhone UDP. The GRID "IPHONE REACHABLE" check (one ping/s) is the
+  authoritative test; if it never goes green on a network, use the hotspot.
+- **Hotspot backends:** the app prefers Windows **Mobile Hotspot** (WinRT tethering via
+  PowerShell) and falls back to legacy `netsh wlan hostednetwork`, which the RT5370 USB
+  dongle's driver family still supports. `netsh wlan show drivers` → "Hosted network
+  supported: Yes" confirms the fallback path. `hostednetwork` needs the app elevated
+  (run as administrator) — the UI says so instead of failing silently.
+- **One radio can't do both jobs well:** hosting a hotspot and staying joined to the
+  camera's AP on the same adapter is unreliable. The supported topology is the RT5370 as
+  a dedicated hotspot dongle while the built-in adapter talks to the camera.
+- **Localization:** network scanning parses `netsh` structurally and survives non-English
+  Windows; if hotspot capability can't be determined, the UI degrades to guide mode.
+- elrs-joystick-control's path can be set in the ⚙ menu; the app only ever *starts* it
+  (detached) and detects it via `tasklist` — it never stops or talks to it.
+
 ## Gift-day fallback (validate this regardless)
 
 `elrs-joystick-control` for control + **VLC** (or a browser) pointed at the camera's RTSP URL.

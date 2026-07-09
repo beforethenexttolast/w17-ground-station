@@ -603,6 +603,17 @@ Non-normative. How this repo implements the Windows side of the contract above.
 | `W17_IPHONE_PORT` | destination UDP port | `5601` (contract §2) |
 | `W17_IPHONE_RATE_HZ` | snapshot send cadence | `10` |
 
+Since the pre-ride setup flow (2026-07), the same sender can be enabled without env
+vars: persisted settings (`settings.json` in Electron userData; "iPhone HUD" mode + a
+user-confirmed IPv4) resolve through `shared/settings.js`. Precedence: **a set
+`W17_IPHONE_BRIDGE` (any value, including `0`) wins over settings**; unset falls
+through. Packet shape, port defaults, and cadence semantics are unchanged — this is
+configuration sourcing only, not a contract change. Address discovery remains manual:
+the setup UI may *suggest* the last W3 sender's IP (transport metadata from the
+log-only receiver, user-confirmed, never auto-applied). Zero-config mDNS discovery is
+a proposal only (`docs/proposals/iphone_mdns_discovery.md`, needs the iPhone-side
+canonical change first).
+
 Port `5602` is the iPhone → Windows head-tracking receiver (contract §3), now
 **implemented on Windows and LOG-ONLY** (W3; see the "W3: head-tracking receiver"
 notes below). It validates and logs intent only — **no active pan/tilt, no iPhone →
@@ -687,6 +698,16 @@ milestone** (contract "Contract Freeze"; firmware blockers in
 | `W17_HEADTRACK_PORT` | UDP listen port | `5602` (contract §3) |
 | `W17_HEADTRACK_BIND` | bind address | `0.0.0.0` |
 | `W17_HEADTRACK_STALE_MS` | receive-time stale authority | `300` |
+
+The ⚙ settings menu adds a persisted toggle for the same receiver ("head-track
+logging — diagnostic only, no camera control"), off by default; a set `W17_HEADTRACK`
+(any value, including `0`) overrides it. The receiver stays **LOG-ONLY** either way.
+One sanctioned diagnostic seam was added for the setup flow: an injected sink
+(`noteRemoteAddr`) receives the sender IP *string* of accepted datagrams — transport
+metadata only, never packet contents — to pre-fill the W2 destination field as a
+user-confirmed suggestion. `test/noControlPath.test.js` pins the seam shape (exactly
+`rinfo.address`), bans intent vocabulary in the hint store, and keeps every original
+dead-end assertion byte-identical.
 
 ### Log-only validation runbook (mirrors `iPhone_rc/docs/WINDOWS_BRIDGE_LOG_ONLY_TEST.md`)
 
