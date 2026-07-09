@@ -11,6 +11,7 @@
 //     speed/rpm/ers so the HUD is fully alive from the gamepad alone.
 import { startWhep } from './whep.js';
 import { linkState } from '../shared/linkState.mjs';
+import { getPreset, selectGamepad, DEFAULT_PRESET } from '../shared/inputPresets.mjs';
 
 const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
@@ -74,7 +75,16 @@ demoBtn.addEventListener('click', () => {
   if (demo) start();
 });
 
-function pad() { const ps = navigator.getGamepads ? navigator.getGamepads() : []; return [...ps].find((p) => p) || null; }
+// Controller selection: persisted device id + layout preset (SEAT FIT step).
+// Defaults reproduce the original behavior: first pad, DualShock layout.
+let activePreset = getPreset(DEFAULT_PRESET);
+let preferredPadId = '';
+export function setControllerChoice({ id = '', preset = DEFAULT_PRESET } = {}) {
+  preferredPadId = id;
+  activePreset = getPreset(preset);
+  refreshPad();
+}
+function pad() { const ps = navigator.getGamepads ? navigator.getGamepads() : []; return selectGamepad(ps, preferredPadId); }
 function refreshPad() {
   const p = pad();
   S.connected = !!p;
@@ -113,21 +123,22 @@ function readInputs() {
   const p = pad();
   if (p) {
     const ax = p.axes, b = p.buttons;
-    S.steer = clamp(ax[0] || 0, -1, 1);
-    S.throttle = b[7] ? b[7].value : 0;
-    S.brake = b[6] ? b[6].value : 0;
-    const up = !!(b[5] && b[5].pressed), down = !!(b[4] && b[4].pressed);
+    const m = activePreset.map; // layout preset (SEAT FIT); dualshock = legacy indices
+    S.steer = clamp(ax[m.steerAxis] || 0, -1, 1);
+    S.throttle = b[m.throttleBtn] ? b[m.throttleBtn].value : 0;
+    S.brake = b[m.brakeBtn] ? b[m.brakeBtn].value : 0;
+    const up = !!(b[m.gearUpBtn] && b[m.gearUpBtn].pressed), down = !!(b[m.gearDownBtn] && b[m.gearDownBtn].pressed);
     if (up && !prev.up) shift(1);
     if (down && !prev.down) shift(-1);
     prev.up = up; prev.down = down;
-    const drsBtn = !!(b[3] && b[3].pressed);
+    const drsBtn = !!(b[m.drsBtn] && b[m.drsBtn].pressed);
     if (drsBtn && !prev.drs) S.drs = !S.drs;
     prev.drs = drsBtn;
-    S.boost = !!(b[1] && b[1].pressed);
-    S.overtake = !!(b[2] && b[2].pressed);
+    S.boost = !!(b[m.boostBtn] && b[m.boostBtn].pressed);
+    S.overtake = !!(b[m.overtakeBtn] && b[m.overtakeBtn].pressed);
     // Right stick -> camera gimbal (mirror; the car aims it via ch9/ch10).
-    S.camPan = clamp(ax[2] || 0, -1, 1);
-    S.camTilt = clamp(ax[3] || 0, -1, 1);
+    S.camPan = clamp(ax[m.camPanAxis] || 0, -1, 1);
+    S.camTilt = clamp(ax[m.camTiltAxis] || 0, -1, 1);
   } else {
     S.steer = clamp((keys.arrowright ? 1 : 0) - (keys.arrowleft ? 1 : 0), -1, 1);
     S.throttle = keys.arrowup ? 1 : 0;
@@ -279,6 +290,13 @@ async function init() {
   if (!window.groundStation) return; // opened outside Electron (bench preview)
   const cfg = await window.groundStation.getConfig();
   if (cfg.feel) { FEEL = { ...FEEL, ...cfg.feel }; computeCaps(); S.ers = 100; }
+
+  // Apply the persisted controller choice (SEAT FIT step); defaults keep the
+  // original first-pad + DualShock-layout behavior.
+  if (window.groundStation.getSettings) {
+    const { settings } = await window.groundStation.getSettings();
+    if (settings && settings.controller) setControllerChoice(settings.controller);
+  }
 
   window.groundStation.onTelemetry((t) => { telem = t; telemFresh = performance.now(); telemEverLive = true; });
 

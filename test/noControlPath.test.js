@@ -100,7 +100,7 @@ describe('no-control-path regression (contract A + E)', () => {
   it('setup-flow modules import no head-tracking code and no control API', () => {
     const setupFlowFiles = [
       '../shared/settings.js', '../main/settingsStore.js', '../main/sessionRuntime.js',
-      '../shared/wifiParse.js', '../shared/processList.js',
+      '../shared/wifiParse.js', '../shared/processList.js', '../shared/inputPresets.mjs',
       '../main/runCommand.js', '../main/wifiManager.js', '../main/hotspot.js',
       '../main/elrsLauncher.js', '../main/hostProbe.js', '../main/remoteAddrHint.js',
     ];
