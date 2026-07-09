@@ -23,6 +23,11 @@ const { headTrackingConfigFromEnv } = require('./headTrackingConfig.js');
 const { resolveEffective } = require('../shared/settings.js');
 const { createSettingsStore } = require('./settingsStore.js');
 const { SessionRuntime } = require('./sessionRuntime.js');
+const { WifiManager } = require('./wifiManager.js');
+const { HotspotManager } = require('./hotspot.js');
+const { ElrsLauncher } = require('./elrsLauncher.js');
+const { HostProbe } = require('./hostProbe.js');
+const { createRemoteAddrHint } = require('./remoteAddrHint.js');
 const feel = require('../shared/feelConstants.js');
 
 const projectRoot = path.join(__dirname, '..');
@@ -46,6 +51,15 @@ let mediamtx = null;
 let settingsStore = null;
 let runtime = null;
 let lastEffective = null;
+
+// Setup-flow platform services (thin IO; all soft-fail with reasons).
+const wifi = new WifiManager({ log: (m) => console.log(m) });
+const hotspot = new HotspotManager({ log: (m) => console.log(m) });
+const elrs = new ElrsLauncher({ log: (m) => console.log(m) });
+const hostProbe = new HostProbe();
+// Last accepted W3 datagram's SENDER IP (transport metadata only) — feeds the
+// setup screen's address suggestion; the user always confirms it by hand.
+const addrHint = createRemoteAddrHint();
 
 // iPhone -> Windows head-tracking receiver (contract section 3): LOG-ONLY.
 // It is a dead end by construction -- nothing consumes its data; it logs and
@@ -87,7 +101,11 @@ function applyW3(effective) {
   }
   headTrackingKey = key;
   if (cfg) {
-    headTracking = new HeadTrackingReceiver({ ...cfg, log: (m) => console.log(m) });
+    headTracking = new HeadTrackingReceiver({
+      ...cfg,
+      log: (m) => console.log(m),
+      noteRemoteAddr: addrHint.note,
+    });
     headTracking.start();
   }
   return !!headTracking;
@@ -127,6 +145,26 @@ function registerIpcHandlers() {
   ipcMain.handle('settings:set', (_event, patch) => settingsStore.save(patch));
 
   ipcMain.handle('session:apply', () => applySession());
+
+  // --- PIT WALL: WiFi + hotspot (Windows-only; guide mode elsewhere) ---
+  ipcMain.handle('wifi:capabilities', async () => {
+    const caps = wifi.capabilities();
+    const backends = await hotspot.probeBackends();
+    return { ...caps, canHotspot: backends.canHotspot, hotspotBackend: backends.preferred };
+  });
+  ipcMain.handle('wifi:scan', () => wifi.scan());
+  ipcMain.handle('wifi:join', (_event, opts) => wifi.join(opts || {}));
+  ipcMain.handle('wifi:status', () => wifi.status());
+  ipcMain.handle('wifi:hotspot-start', (_event, opts) => hotspot.start(opts || {}));
+  ipcMain.handle('wifi:hotspot-stop', () => hotspot.stop());
+
+  // --- Setup helpers: address suggestion + reachability ---
+  ipcMain.handle('setup:addr-hint', () => addrHint.get());
+  ipcMain.handle('setup:probe-host', (_event, addr) => hostProbe.probe(addr));
+
+  // --- GRID: elrs-joystick-control (launch-only; this app NEVER stops it) ---
+  ipcMain.handle('elrs:status', () => elrs.detectRunning(settingsStore.load().elrsPath));
+  ipcMain.handle('elrs:launch', () => elrs.launchDetached(settingsStore.load().elrsPath));
 
   // Read-only display mirror from the renderer (throttle/brake/steering/camera
   // as drawn on the HUD) -- forwarded outward to the iPhone bridge only. This

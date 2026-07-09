@@ -15,6 +15,19 @@ contextBridge.exposeInMainWorld('groundStation', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   applySession: () => ipcRenderer.invoke('session:apply'),
+  // PIT WALL network step (Windows-only OS control; guide mode elsewhere).
+  wifiCapabilities: () => ipcRenderer.invoke('wifi:capabilities'),
+  wifiScan: () => ipcRenderer.invoke('wifi:scan'),
+  wifiJoin: (opts) => ipcRenderer.invoke('wifi:join', opts),
+  wifiStatus: () => ipcRenderer.invoke('wifi:status'),
+  hotspotStart: (opts) => ipcRenderer.invoke('wifi:hotspot-start', opts),
+  hotspotStop: () => ipcRenderer.invoke('wifi:hotspot-stop'),
+  // Setup helpers: last-sender address suggestion (user-confirmed) + ping.
+  getAddrHint: () => ipcRenderer.invoke('setup:addr-hint'),
+  probeHost: (addr) => ipcRenderer.invoke('setup:probe-host', addr),
+  // elrs-joystick-control: launch-only convenience; this app never stops it.
+  elrsStatus: () => ipcRenderer.invoke('elrs:status'),
+  elrsLaunch: () => ipcRenderer.invoke('elrs:launch'),
   onTelemetry: (cb) => {
     const handler = (_event, telemetry) => cb(telemetry);
     ipcRenderer.on('telemetry', handler);

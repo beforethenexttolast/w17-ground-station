@@ -100,6 +100,9 @@ describe('no-control-path regression (contract A + E)', () => {
   it('setup-flow modules import no head-tracking code and no control API', () => {
     const setupFlowFiles = [
       '../shared/settings.js', '../main/settingsStore.js', '../main/sessionRuntime.js',
+      '../shared/wifiParse.js', '../shared/processList.js',
+      '../main/runCommand.js', '../main/wifiManager.js', '../main/hotspot.js',
+      '../main/elrsLauncher.js', '../main/hostProbe.js', '../main/remoteAddrHint.js',
     ];
     for (const file of setupFlowFiles) {
       const src = read(file);
@@ -111,5 +114,34 @@ describe('no-control-path regression (contract A + E)', () => {
         expect(src, `${file} must not reference ${forbidden}`).not.toContain(forbidden);
       }
     }
+  });
+
+  it('the elrs launcher is launch-only: detached spawn, no pipes, no kill, no IPC', () => {
+    const src = read('../main/elrsLauncher.js');
+    // Must launch fire-and-forget…
+    expect(src).toContain('detached: true');
+    expect(src).toContain("stdio: 'ignore'");
+    expect(src).toContain('.unref()');
+    // …and must have NO way to stop or talk to the control app.
+    for (const forbidden of [
+      '.kill(', 'stdin', "on('message'", 'on("message"', 'ipcMain', 'webContents',
+    ]) {
+      expect(src, `elrs launcher must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it('the W3 address-suggestion seam carries the sender IP string and NOTHING else', () => {
+    // Receiver side: the sink is called with exactly rinfo.address — widening
+    // it to pass packet contents must fail here first.
+    const receiver = read('../main/HeadTrackingReceiver.js');
+    expect(receiver).toMatch(/_noteRemoteAddr\(rinfo\.address\)/);
+    expect(receiver).not.toMatch(/noteRemoteAddr\((?!rinfo\.address\))/);
+    // Store side: transport metadata only — no orientation/intent vocabulary.
+    const hint = read('../main/remoteAddrHint.js');
+    for (const forbidden of ['yaw', 'pitch', 'roll', 'quaternion', 'centered', 'tracking_enabled', 'ingest', 'Monitor']) {
+      expect(hint, `remoteAddrHint must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+    expect(hint).not.toContain('ipcMain');
+    expect(hint).not.toContain('dgram');
   });
 });

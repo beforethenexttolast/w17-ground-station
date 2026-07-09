@@ -1,0 +1,22 @@
+Schnittstellenname : WLAN
+Es sind 2 Netzwerke sichtbar.
+
+SSID 1 : PaddockNet
+    Netzwerktyp             : Infrastruktur
+    Authentifizierung       : WPA2-Personal
+    Verschlüsselung         : CCMP
+
+    BSSID 1                 : aa:bb:cc:11:22:33
+         Signal             : 87%
+         Funktyp            : 802.11n
+         Kanal              : 6
+
+SSID 2 : W17-GRID
+    Netzwerktyp             : Infrastruktur
+    Authentifizierung       : WPA2-Personal
+    Verschlüsselung         : CCMP
+
+    BSSID 1                 : ff:ee:dd:55:66:77
+         Signal             : 99%
+         Funktyp            : 802.11n
+         Kanal              : 11

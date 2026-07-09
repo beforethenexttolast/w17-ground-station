@@ -34,6 +34,12 @@ class HeadTrackingReceiver {
         schedule = (fn, ms) => setInterval(fn, ms),
         cancel = (h) => clearInterval(h),
         log = () => {},
+        // TRANSPORT METADATA sink for the setup flow's address suggestion:
+        // called with the sender IP STRING of an accepted datagram, and with
+        // nothing else — never packet contents, never orientation. This keeps
+        // the intent data a dead end while letting main.js pre-fill the W2
+        // destination field (user-confirmed). Pinned by noControlPath tests.
+        noteRemoteAddr = () => {},
     } = {}) {
         this._port = port;
         this._bindHost = bindHost;
@@ -42,6 +48,7 @@ class HeadTrackingReceiver {
         this._schedule = schedule;
         this._cancel = cancel;
         this._log = log;
+        this._noteRemoteAddr = noteRemoteAddr;
 
         this._monitor = new HeadTrackingMonitor({ staleMs });
         this._socket = null;
@@ -78,9 +85,10 @@ class HeadTrackingReceiver {
         this._running = true;
     }
 
-    _onMessage(buf) {
+    _onMessage(buf, rinfo) {
         const nowMs = this._clock();
         const result = this._monitor.ingest(buf, nowMs);
+        if (result.accepted && rinfo) this._noteRemoteAddr(rinfo.address);
         if (!result.accepted && this._invalidLogsThisWindow < MAX_INVALID_LOGS_PER_WINDOW) {
             this._invalidLogsThisWindow += 1;
             this._log(`[headtrack] rejected packet: ${result.reason}`);

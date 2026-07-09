@@ -1,0 +1,11 @@
+Profiles on interface Wi-Fi:
+
+Group policy profiles (read only)
+---------------------------------
+    <None>
+
+User profiles
+-------------
+    All User Profile     : PaddockNet
+    All User Profile     : Home Net 5G
+    All User Profile     : W17-GRID
