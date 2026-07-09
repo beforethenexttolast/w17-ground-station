@@ -9,6 +9,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('groundStation', {
   getConfig: () => ipcRenderer.invoke('config:get'),
+  // Persisted setup-flow settings (main/settingsStore.js). setSettings saves
+  // only; applySession re-resolves settings+env and (re)starts the session
+  // runtime, returning a summary of what is now running.
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  applySession: () => ipcRenderer.invoke('session:apply'),
   onTelemetry: (cb) => {
     const handler = (_event, telemetry) => cb(telemetry);
     ipcRenderer.on('telemetry', handler);

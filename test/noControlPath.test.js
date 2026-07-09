@@ -89,4 +89,27 @@ describe('no-control-path regression (contract A + E)', () => {
     expect(main).not.toContain('getDiagnostics');
     expect(main).not.toMatch(/headTracking\.(on|emit|pipe)/);
   });
+
+  // --- Setup-flow additions (settings/session runtime): same dead-end rules. ---
+  // These modules are new consumers of NOTHING head-tracking-related and must
+  // stay that way: no head-tracking imports, no control/servo/serial tokens.
+  // (shared/settings.js only carries the user's W17_HEADTRACK env-override flag
+  // and the w3DiagnosticEnabled boolean wish — main.js alone resolves those
+  // into the receiver, which is why the camelCase import ban still holds.)
+
+  it('setup-flow modules import no head-tracking code and no control API', () => {
+    const setupFlowFiles = [
+      '../shared/settings.js', '../main/settingsStore.js', '../main/sessionRuntime.js',
+    ];
+    for (const file of setupFlowFiles) {
+      const src = read(file);
+      expect(src, `${file} must not import head-tracking code`).not.toMatch(/headTracking|HeadTracking/);
+      for (const forbidden of [
+        'serialport', 'SerialPort', 'CrsfFrameBuilder', 'RcChannels',
+        'buildRcChannels', 'encodeRcChannels', 'setPosition', 'setThrottle', 'ledc',
+      ]) {
+        expect(src, `${file} must not reference ${forbidden}`).not.toContain(forbidden);
+      }
+    }
+  });
 });
