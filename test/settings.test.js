@@ -45,6 +45,12 @@ describe('normalizeSettings — garbage-safe, field-by-field', () => {
   it('unknown keys are dropped', () => {
     expect(normalizeSettings({ evilExtra: true })).not.toHaveProperty('evilExtra');
   });
+
+  it('network.adapter is a plain string, defaulting to "" (system default)', () => {
+    expect(normalizeSettings(null).network.adapter).toBe('');
+    expect(normalizeSettings({ network: { adapter: 'Wi-Fi 2' } }).network.adapter).toBe('Wi-Fi 2');
+    expect(normalizeSettings({ network: { adapter: 42 } }).network.adapter).toBe('');
+  });
 });
 
 describe('resolveEffective — env always beats settings, unset falls through', () => {

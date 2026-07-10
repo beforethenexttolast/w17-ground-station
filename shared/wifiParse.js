@@ -72,6 +72,46 @@ function parseNetshInterfaces(text) {
     return { connected: ssid.length > 0, ssid, signalPct };
 }
 
+// `netsh wlan show interfaces` -> EVERY wlan adapter on the machine:
+// [{ name, description, connected, ssid, signalPct }]. Blocks are separated
+// by blank lines and the FIRST field line of a block is the adapter name in
+// every locale (label text ignored on purpose, like the rest of this file).
+// The trailing "Hosted network status" line some Windows builds append forms
+// a 1–2 field pseudo-block; real adapters always have many fields (Name,
+// Description, GUID, MAC, …), so short blocks are dropped.
+const MIN_IFACE_FIELDS = 3;
+function parseNetshInterfacesList(text) {
+    const blocks = [];
+    let current = null;
+    for (const line of String(text).split(/\r?\n/)) {
+        if (!line.trim()) { current = null; continue; }
+        const field = line.match(FIELD_RE);
+        if (!field) continue;
+        const label = field[1].trim();
+        const value = field[2].trim();
+        if (!current) {
+            current = {
+                fields: 0,
+                iface: { name: value, description: '', connected: false, ssid: '', signalPct: null },
+            };
+            blocks.push(current);
+        }
+        current.fields += 1;
+        if (current.fields === 2) current.iface.description = value;
+        if (/^SSID$/i.test(label) && value) {
+            current.iface.ssid = value;
+            current.iface.connected = true;
+        }
+        const pct = value.match(PERCENT_RE);
+        if (pct && current.iface.signalPct === null) {
+            current.iface.signalPct = Math.min(100, Number(pct[1]));
+        }
+    }
+    return blocks
+        .filter((b) => b.fields >= MIN_IFACE_FIELDS && b.iface.name.length > 0)
+        .map((b) => b.iface);
+}
+
 // `netsh wlan show profiles` -> [profile names]. Every profile renders as an
 // indented `<label> : <name>` line; header/section lines have no ` : value`.
 function parseNetshProfiles(text) {
@@ -145,6 +185,7 @@ function buildWlanProfileXml(ssid, password) {
 module.exports = {
     parseNetshNetworks,
     parseNetshInterfaces,
+    parseNetshInterfacesList,
     parseNetshProfiles,
     parseNetshDrivers,
     buildWlanProfileXml,

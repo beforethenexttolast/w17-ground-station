@@ -15,6 +15,7 @@ const path = require('node:path');
 const {
     parseNetshNetworks,
     parseNetshInterfaces,
+    parseNetshInterfacesList,
     parseNetshProfiles,
     buildWlanProfileXml,
 } = require('../shared/wifiParse.js');
@@ -37,10 +38,25 @@ class WifiManager {
         return { platform: this._platform, canScan: win, canJoin: win };
     }
 
-    async scan() {
+    // All WLAN adapters on the machine (built-in + dongles) so the setup UI
+    // can offer a picker when there is more than one. Empty off-Windows.
+    async listInterfaces() {
         if (this._platform !== 'win32') return [];
+        const res = await this._run('netsh', ['wlan', 'show', 'interfaces']);
+        if (!res.ok) {
+            this._log(`[wifi] interface list failed: ${res.stderr || res.stdout}`);
+            return [];
+        }
+        return parseNetshInterfacesList(res.stdout);
+    }
+
+    // `iface` (optional) pins the operation to one WLAN adapter; netsh uses
+    // its default interface when omitted — the pre-picker behavior.
+    async scan({ iface } = {}) {
+        if (this._platform !== 'win32') return [];
+        const ifaceArg = iface ? [`interface=${iface}`] : [];
         const [networksRes, profilesRes] = await Promise.all([
-            this._run('netsh', ['wlan', 'show', 'networks', 'mode=bssid']),
+            this._run('netsh', ['wlan', 'show', 'networks', 'mode=bssid', ...ifaceArg]),
             this._run('netsh', ['wlan', 'show', 'profiles']),
         ]);
         if (!networksRes.ok) {
@@ -59,15 +75,16 @@ class WifiManager {
     // Join a network. With a password, install a WPA2-PSK profile first via a
     // temp XML file (deleted afterwards — it contains the key). Then connect
     // and poll `show interfaces` until the SSID is up or we time out.
-    async join({ ssid, password } = {}) {
+    async join({ ssid, password, iface } = {}) {
         if (this._platform !== 'win32') return { ok: false, error: 'wifi join is Windows-only' };
         if (!ssid || typeof ssid !== 'string') return { ok: false, error: 'ssid required' };
+        const ifaceArg = iface ? [`interface=${iface}`] : [];
 
         if (password) {
             const profilePath = path.join(this._tmpDir, `w17-wlan-${Date.now()}.xml`);
             fs.writeFileSync(profilePath, buildWlanProfileXml(ssid, password), 'utf8');
             try {
-                const add = await this._run('netsh', ['wlan', 'add', 'profile', `filename=${profilePath}`]);
+                const add = await this._run('netsh', ['wlan', 'add', 'profile', `filename=${profilePath}`, ...ifaceArg]);
                 if (!add.ok) {
                     return { ok: false, error: `add profile failed: ${(add.stderr || add.stdout).trim()}` };
                 }
@@ -76,7 +93,7 @@ class WifiManager {
             }
         }
 
-        const connect = await this._run('netsh', ['wlan', 'connect', `name=${ssid}`]);
+        const connect = await this._run('netsh', ['wlan', 'connect', `name=${ssid}`, ...ifaceArg]);
         if (!connect.ok) {
             return { ok: false, error: `connect failed: ${(connect.stderr || connect.stdout).trim()}` };
         }

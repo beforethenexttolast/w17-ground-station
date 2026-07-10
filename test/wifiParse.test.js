@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 const {
   parseNetshNetworks,
   parseNetshInterfaces,
+  parseNetshInterfacesList,
   parseNetshProfiles,
   parseNetshDrivers,
   buildWlanProfileXml,
@@ -58,6 +59,39 @@ describe('parseNetshInterfaces — connectedness from the literal SSID acronym',
       '    State                  : disconnected',
     ].join('\n');
     expect(parseNetshInterfaces(out)).toEqual({ connected: false, ssid: '', signalPct: null });
+  });
+});
+
+describe('parseNetshInterfacesList — every adapter, first field = name', () => {
+  it('two adapters: built-in (connected) + USB dongle (disconnected)', () => {
+    expect(parseNetshInterfacesList(fixture('netsh_interfaces_two_en.txt'))).toEqual([
+      {
+        name: 'Wi-Fi',
+        description: 'Intel(R) Wi-Fi 6 AX201 160MHz',
+        connected: true,
+        ssid: 'PaddockNet',
+        signalPct: 90,
+      },
+      {
+        name: 'Wi-Fi 2',
+        description: 'Ralink RT5370 USB Wireless Adapter',
+        connected: false,
+        ssid: '',
+        signalPct: null,
+      },
+    ]);
+  });
+
+  it('single-adapter fixture: the trailing hosted-network pseudo-block is dropped', () => {
+    const list = parseNetshInterfacesList(fixture('netsh_interfaces_en.txt'));
+    expect(list).toHaveLength(1);
+    expect(list[0].name).toBe('Wi-Fi');
+    expect(list[0].connected).toBe(true);
+  });
+
+  it('empty/garbage input parses to an empty list', () => {
+    expect(parseNetshInterfacesList('')).toEqual([]);
+    expect(parseNetshInterfacesList('no interfaces here')).toEqual([]);
   });
 });
 

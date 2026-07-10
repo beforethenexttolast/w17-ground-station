@@ -84,6 +84,7 @@ const netTabs = el('netTabs'), paneJoin = el('paneJoin'), paneHotspot = el('pane
 const netList = el('netList'), netPwRow = el('netPwRow'), netPassword = el('netPassword');
 const joinStatus = el('joinStatus'), hsStatus = el('hsStatus'), guideStatus = el('guideStatus');
 const addrInput = el('iphoneAddr'), addrSuggest = el('addrSuggest'), addrStatus = el('addrStatus');
+const adapterRow = el('adapterRow'), adapterSelect = el('adapterSelect');
 let netKind = 'join';
 let joinTarget = null;
 let hintTimer = null;
@@ -112,12 +113,39 @@ async function enterPitwall() {
   if (!caps.canScan && !caps.canHotspot) {
     showNetTab('guide');
   } else {
+    await refreshAdapters();
     showNetTab(settings?.network?.kind === 'hotspot' && caps.canHotspot ? 'hotspot' : 'join');
     rescan();
   }
   hintTimer = setInterval(pollAddrHint, 2000);
   pollAddrHint();
 }
+
+// WLAN adapter picker: shown only when more than one adapter exists (built-in
+// vs USB dongle); the choice pins netsh scan/join to that interface.
+async function refreshAdapters() {
+  const ifaces = gs && gs.wifiInterfaces ? await gs.wifiInterfaces() : [];
+  adapterRow.classList.toggle('hidden', ifaces.length < 2);
+  if (ifaces.length < 2) { adapterSelect.replaceChildren(); return; }
+  adapterSelect.replaceChildren(...ifaces.map((i) => {
+    const o = document.createElement('option');
+    o.value = i.name;
+    o.textContent = `${i.name}${i.description ? ` — ${i.description}` : ''}${i.connected ? ` · ${i.ssid}` : ''}`;
+    return o;
+  }));
+  const saved = settings?.network?.adapter;
+  if (saved && ifaces.some((i) => i.name === saved)) adapterSelect.value = saved;
+}
+
+function chosenAdapter() {
+  return adapterRow.classList.contains('hidden') ? undefined : (adapterSelect.value || undefined);
+}
+
+adapterSelect.addEventListener('change', () => {
+  sounds.uiTick();
+  save({ network: { adapter: adapterSelect.value } });
+  rescan();
+});
 
 function leavePitwall() {
   clearInterval(hintTimer);
@@ -144,7 +172,7 @@ function generatePassword() {
 async function rescan() {
   if (!gs || !caps?.canScan) return;
   joinStatus.textContent = 'SCANNING…';
-  const nets = await gs.wifiScan();
+  const nets = await gs.wifiScan({ iface: chosenAdapter() });
   joinStatus.textContent = nets.length ? '' : 'NO NETWORKS FOUND';
   netList.replaceChildren(...nets.map((n) => {
     const row = document.createElement('button');
@@ -174,7 +202,11 @@ async function doJoin() {
   if (!joinTarget) return;
   const ssid = joinTarget.ssid;
   joinStatus.textContent = `JOINING ${ssid}…`;
-  const res = await gs.wifiJoin({ ssid, password: joinTarget.known ? undefined : netPassword.value });
+  const res = await gs.wifiJoin({
+    ssid,
+    password: joinTarget.known ? undefined : netPassword.value,
+    iface: chosenAdapter(),
+  });
   if (res.ok) {
     netPwRow.classList.add('hidden');
     joinStatus.textContent = `CONNECTED: ${ssid}`;

@@ -71,6 +71,37 @@ describe('WifiManager.scan', () => {
     const { wifi } = manager({ 'wlan show networks': fail('radio off') });
     expect(await wifi.scan()).toEqual([]);
   });
+
+  it('a chosen adapter is passed to netsh as interface=; omitted otherwise', async () => {
+    const { wifi, calls } = manager({
+      'wlan show networks': ok(fixture('netsh_networks_en.txt')),
+      'wlan show profiles': ok(fixture('netsh_profiles_en.txt')),
+    });
+    await wifi.scan({ iface: 'Wi-Fi 2' });
+    const networksCall = calls.find((c) => c.args.includes('networks'));
+    expect(networksCall.args).toContain('interface=Wi-Fi 2');
+    calls.length = 0;
+    await wifi.scan();
+    const plainCall = calls.find((c) => c.args.includes('networks'));
+    expect(plainCall.args.some((a) => a.startsWith('interface='))).toBe(false);
+  });
+});
+
+describe('WifiManager.listInterfaces', () => {
+  it('lists every WLAN adapter on win32', async () => {
+    const { wifi } = manager({ 'wlan show interfaces': ok(fixture('netsh_interfaces_two_en.txt')) });
+    const ifaces = await wifi.listInterfaces();
+    expect(ifaces.map((i) => [i.name, i.connected])).toEqual([
+      ['Wi-Fi', true],
+      ['Wi-Fi 2', false],
+    ]);
+  });
+
+  it('non-Windows and netsh failure both degrade to an empty list', async () => {
+    expect(await manager({}, 'darwin').wifi.listInterfaces()).toEqual([]);
+    const { wifi } = manager({ 'wlan show interfaces': fail('wlan svc down') });
+    expect(await wifi.listInterfaces()).toEqual([]);
+  });
 });
 
 describe('WifiManager.join', () => {
@@ -130,6 +161,19 @@ describe('WifiManager.join', () => {
   it('requires an ssid', async () => {
     const { wifi } = manager({});
     expect((await wifi.join({})).error).toBe('ssid required');
+  });
+
+  it('a chosen adapter pins add-profile and connect to that interface', async () => {
+    const { wifi, calls } = manager({
+      'wlan add profile': ok(),
+      'wlan connect name=PaddockNet': ok(),
+      'wlan show interfaces': connectedIfaces,
+    });
+    await wifi.join({ ssid: 'PaddockNet', password: 'password1', iface: 'Wi-Fi 2' });
+    const add = calls.find((c) => c.args.includes('add'));
+    const connect = calls.find((c) => c.args.includes('connect'));
+    expect(add.args).toContain('interface=Wi-Fi 2');
+    expect(connect.args).toContain('interface=Wi-Fi 2');
   });
 });
 

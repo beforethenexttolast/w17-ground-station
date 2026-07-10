@@ -47,11 +47,12 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    view later). Persisted values stay `solo` / `iphone-hud` — display labels only.
 2. **PIT WALL** *(iPhone mode, Windows)* — scan and join a WiFi network, or start a local
    hotspot (SSID `W17-GRID` by default; Mobile Hotspot backend preferred, legacy
-   `hostednetwork` fallback for the RT5370 dongle). The client-isolation warning is a
-   one-line hint (full text on hover) — pick a network that allows device-to-device
-   traffic. Enter/confirm the iPhone's IP (validated; a suggestion chip appears when the
-   log-only head-track listener is hearing the phone). On macOS/Linux this step is
-   guide-mode: instructions + verify.
+   `hostednetwork` fallback for the RT5370 dongle). With more than one WLAN adapter an
+   ADAPTER picker appears and pins netsh scan/join to the chosen interface (persisted).
+   The client-isolation warning is a one-line hint (full text on hover) — pick a network
+   that allows device-to-device traffic. Enter/confirm the iPhone's IP (validated; a
+   suggestion chip appears when the log-only head-track listener is hearing the phone).
+   On macOS/Linux this step is guide-mode: instructions + verify.
 3. **SEAT FIT** — pick which gamepad the HUD mirrors (persisted) and a layout preset
    (DualShock / Xbox / generic) with a live test strip. Keyboard fallback remains.
 4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),

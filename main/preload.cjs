@@ -17,7 +17,8 @@ contextBridge.exposeInMainWorld('groundStation', {
   applySession: () => ipcRenderer.invoke('session:apply'),
   // PIT WALL network step (Windows-only OS control; guide mode elsewhere).
   wifiCapabilities: () => ipcRenderer.invoke('wifi:capabilities'),
-  wifiScan: () => ipcRenderer.invoke('wifi:scan'),
+  wifiInterfaces: () => ipcRenderer.invoke('wifi:interfaces'),
+  wifiScan: (opts) => ipcRenderer.invoke('wifi:scan', opts),
   wifiJoin: (opts) => ipcRenderer.invoke('wifi:join', opts),
   wifiStatus: () => ipcRenderer.invoke('wifi:status'),
   hotspotStart: (opts) => ipcRenderer.invoke('wifi:hotspot-start', opts),

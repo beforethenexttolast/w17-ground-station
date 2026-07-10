@@ -152,7 +152,8 @@ function registerIpcHandlers() {
     const backends = await hotspot.probeBackends();
     return { ...caps, canHotspot: backends.canHotspot, hotspotBackend: backends.preferred };
   });
-  ipcMain.handle('wifi:scan', () => wifi.scan());
+  ipcMain.handle('wifi:interfaces', () => wifi.listInterfaces());
+  ipcMain.handle('wifi:scan', (_event, opts) => wifi.scan(opts || {}));
   ipcMain.handle('wifi:join', (_event, opts) => wifi.join(opts || {}));
   ipcMain.handle('wifi:status', () => wifi.status());
   ipcMain.handle('wifi:hotspot-start', (_event, opts) => hotspot.start(opts || {}));

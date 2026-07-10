@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     network: Object.freeze({
         kind: 'guide',
         ssid: '',
+        adapter: '', // preferred WLAN interface name ('' = system default)
         hotspot: Object.freeze({ ssid: 'W17-GRID', password: '' }),
     }),
     iphoneAddr: '',
@@ -70,6 +71,7 @@ function normalizeSettings(raw) {
         network: {
             kind: oneOf(net.kind, NETWORK_KINDS, d.network.kind),
             ssid: str(net.ssid, d.network.ssid),
+            adapter: str(net.adapter, d.network.adapter),
             hotspot: {
                 ssid: str(hs.ssid, d.network.hotspot.ssid) || d.network.hotspot.ssid,
                 password: str(hs.password, d.network.hotspot.password),
