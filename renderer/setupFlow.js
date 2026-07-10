@@ -451,11 +451,27 @@ async function beginStart() {
 }
 
 // ---------- start lights ----------
+function finishStart(message, fadeMs) {
+  radio(message);
+  gate.classList.add('fade');
+  setTimeout(() => {
+    startRide();
+    gate.classList.remove('fade');
+    lightsEl.classList.add('hidden');
+    lightsRunning = false;
+  }, fadeMs);
+}
+
 function runLights() {
   lightsRunning = true;
   for (const s of screens) s.classList.remove('active');
   setupNav.classList.add('hidden');
   el('gateFootnote').classList.add('hidden');
+  // Start-lights countdown is a ⚙ setting (on by default); off = straight in.
+  if (settings && settings.startLightsEnabled === false) {
+    finishStart('SESSION LIVE', 250);
+    return;
+  }
   lightsEl.classList.remove('hidden');
   lightsEl.replaceChildren(...Array.from({ length: 5 }, () => {
     const col = document.createElement('div');
@@ -473,14 +489,7 @@ function runLights() {
   setTimeout(() => {
     cols.forEach((c) => c.classList.remove('on'));
     sounds.lightsOut();
-    radio("LIGHTS OUT — SESSION LIVE");
-    gate.classList.add('fade');
-    setTimeout(() => {
-      startRide();
-      gate.classList.remove('fade');
-      lightsEl.classList.add('hidden');
-      lightsRunning = false;
-    }, 450);
+    finishStart('LIGHTS OUT — SESSION LIVE', 450);
   }, stepMs * 5 + holdMs);
 }
 
@@ -502,6 +511,7 @@ addEventListener('keydown', (e) => {
 function populateSettingsMenu() {
   if (!settings) return;
   el('setSound').checked = settings.soundEnabled;
+  el('setLights').checked = settings.startLightsEnabled;
   el('setW3').checked = settings.w3DiagnosticEnabled;
   el('setElrsPath').value = settings.elrsPath;
   el('setTelemetrySource').value = settings.telemetry.source;
@@ -513,6 +523,9 @@ el('setSound').addEventListener('change', async (e) => {
   setSoundEnabled(e.target.checked);
   await save({ soundEnabled: e.target.checked });
   sounds.radioOpen();
+});
+el('setLights').addEventListener('change', async (e) => {
+  await save({ startLightsEnabled: e.target.checked });
 });
 el('setW3').addEventListener('change', async (e) => {
   await save({ w3DiagnosticEnabled: e.target.checked });

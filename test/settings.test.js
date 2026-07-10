@@ -46,6 +46,12 @@ describe('normalizeSettings — garbage-safe, field-by-field', () => {
     expect(normalizeSettings({ evilExtra: true })).not.toHaveProperty('evilExtra');
   });
 
+  it('start lights default ON; only a boolean false disables them', () => {
+    expect(normalizeSettings(null).startLightsEnabled).toBe(true);
+    expect(normalizeSettings({ startLightsEnabled: false }).startLightsEnabled).toBe(false);
+    expect(normalizeSettings({ startLightsEnabled: 'no' }).startLightsEnabled).toBe(true);
+  });
+
   it('network.adapter is a plain string, defaulting to "" (system default)', () => {
     expect(normalizeSettings(null).network.adapter).toBe('');
     expect(normalizeSettings({ network: { adapter: 'Wi-Fi 2' } }).network.adapter).toBe('Wi-Fi 2');

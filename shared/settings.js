@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     iphonePort: 5601,
     controller: Object.freeze({ id: '', preset: 'dualshock' }),
     soundEnabled: false, // radio sounds are opt-in by decision
+    startLightsEnabled: true, // five-red-lights countdown before the HUD
     elrsPath: '',
     w3DiagnosticEnabled: false, // LOG-ONLY diagnostic wish; resolved in main.js
     telemetry: Object.freeze({ source: 'none', port: '' }),
@@ -84,6 +85,7 @@ function normalizeSettings(raw) {
             preset: oneOf(ctl.preset, CONTROLLER_PRESETS, d.controller.preset),
         },
         soundEnabled: bool(raw.soundEnabled, d.soundEnabled),
+        startLightsEnabled: bool(raw.startLightsEnabled, d.startLightsEnabled),
         elrsPath: str(raw.elrsPath, d.elrsPath),
         w3DiagnosticEnabled: bool(raw.w3DiagnosticEnabled, d.w3DiagnosticEnabled),
         telemetry: {

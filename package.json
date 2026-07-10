@@ -11,7 +11,11 @@
     "test:watch": "vitest",
     "app:rebuild": "electron-rebuild -f -w serialport",
     "build": "npm run app:rebuild && electron-builder --win",
-    "fetch-mediamtx": "node scripts/fetch-mediamtx.js"
+    "fetch-mediamtx": "node scripts/fetch-mediamtx.js",
+    "icon": "node scripts/render-icon.js"
+  },
+  "build": {
+    "icon": "build/icon.png"
   },
   "author": "Vitaliy Khomenko",
   "license": "MIT",

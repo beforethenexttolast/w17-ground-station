@@ -64,9 +64,10 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
 
 Choices persist in `settings.json` under Electron's userData dir; **env vars always
 override persisted settings** (dev/CI behavior unchanged). The ⚙ menu is a modal
-(backdrop click / Escape closes) holding radio-sound (off by default), the log-only
-head-track toggle, the elrs-joystick-control path (launch-only: this app starts it
-detached and can never stop it), and telemetry source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
+(backdrop click / Escape closes) holding radio-sound (off by default), the start-lights
+countdown toggle (on by default; off = straight into the HUD), the log-only head-track
+toggle, the elrs-joystick-control path (launch-only: this app starts it detached and can
+never stop it), and telemetry source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
 iPhone discovery (needs the iPhone-side, Codex-owned change first).
 
 The OS-touching pieces (netsh scan/join, both hotspot backends, elrs detection) are
