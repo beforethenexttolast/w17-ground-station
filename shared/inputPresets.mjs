@@ -56,6 +56,19 @@ export function getPreset(name) {
     return PRESETS[name] || PRESETS[DEFAULT_PRESET];
 }
 
+// Best-effort layout suggestion from Gamepad.id (Chromium ids carry the
+// vendor: Sony 054c, Microsoft 045e). Informational only — it preselects
+// the SEAT FIT label preset; the manual preset pills always override, and
+// an unrecognized pad returns null (caller keeps the current choice).
+const SONY_ID = /dualshock|dualsense|054c|sony|wireless controller/i;
+const XBOX_ID = /xbox|xinput|045e|microsoft/i;
+export function detectPresetFromId(id) {
+    const s = String(id || '');
+    if (SONY_ID.test(s)) return 'dualshock';
+    if (XBOX_ID.test(s)) return 'xbox';
+    return null;
+}
+
 // Pick the pad the HUD mirrors. Exact id match wins (persisted choice);
 // otherwise first connected pad — the original behavior. Gamepad.id is stable
 // per model but not per unit, so two identical pads fall back gracefully.

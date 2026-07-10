@@ -53,8 +53,10 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    that allows device-to-device traffic. Enter/confirm the iPhone's IP (validated; a
    suggestion chip appears when the log-only head-track listener is hearing the phone).
    On macOS/Linux this step is guide-mode: instructions + verify.
-3. **SEAT FIT** — pick which gamepad the HUD mirrors (persisted) and a layout preset
-   (DualShock / Xbox / generic) with a live test strip. Keyboard fallback remains.
+3. **SEAT FIT** — connected gamepads are detected automatically (first pad tagged *auto*)
+   with a manual override; the layout preset (DualShock / Xbox / generic) is auto-suggested
+   from the pad type and shown as a visual button-mapping preview (informational only — no
+   camera/pan-tilt mapping) next to a live test strip. Keyboard fallback remains.
 4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
    iPhone reachability (iPhone mode), elrs-joystick-control detected (with a LAUNCH
    button). START enables when required checks pass; an amber **START ANYWAY** always

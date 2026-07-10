@@ -10,7 +10,8 @@ import { startRide, hudStatus, setControllerChoice } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
-import { PRESETS, DEFAULT_PRESET, getPreset } from '../shared/inputPresets.mjs';
+import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId } from '../shared/inputPresets.mjs';
+import { padPreviewSvg } from './padPreview.js';
 import { sounds, setSoundEnabled } from './sounds.js';
 
 const el = (id) => document.getElementById(id);
@@ -264,24 +265,36 @@ el('addrCheck').addEventListener('click', async () => {
 });
 
 // ---------- SEAT FIT ----------
-const padList = el('padList'), presetRow = el('presetRow');
+const padList = el('padList'), presetRow = el('presetRow'), padPreview = el('padPreview');
 let padTimer = null;
 let chosenPadId = '';
 let chosenPreset = DEFAULT_PRESET;
+let presetManual = false; // a pill click this visit beats auto-detection
 
 function enterSeatfit() {
   chosenPadId = settings?.controller?.id || '';
   chosenPreset = settings?.controller?.preset || DEFAULT_PRESET;
+  presetManual = false;
   presetRow.replaceChildren(...Object.entries(PRESETS).map(([key, p]) => {
     const b = document.createElement('button');
     b.className = 'pill';
     b.textContent = p.label;
     b.dataset.preset = key;
-    b.addEventListener('click', () => { chosenPreset = key; applyChoice(); sounds.uiTick(); });
+    b.addEventListener('click', () => { chosenPreset = key; presetManual = true; applyChoice(); sounds.uiTick(); });
     return b;
   }));
   padTimer = setInterval(seatfitTick, 250);
   applyChoice();
+}
+
+// Auto-suggest the layout from the pad type. Loses to: a manual pill click
+// this visit, and a persisted choice saved for this exact pad. Unrecognized
+// pads keep the current layout.
+function maybeAutoPreset(padId) {
+  if (presetManual || !padId) return;
+  if (settings?.controller?.id === padId) return;
+  const detected = detectPresetFromId(padId);
+  if (detected) chosenPreset = detected;
 }
 
 function leaveSeatfit() {
@@ -293,6 +306,7 @@ function leaveSeatfit() {
 function applyChoice() {
   setControllerChoice({ id: chosenPadId, preset: chosenPreset });
   for (const b of presetRow.children) b.classList.toggle('on', b.dataset.preset === chosenPreset);
+  padPreview.innerHTML = padPreviewSvg(chosenPreset);
 }
 
 function seatfitTick() {
@@ -304,13 +318,25 @@ function seatfitTick() {
     padList.replaceChildren(...(pads.length ? pads.map((p) => {
       const b = document.createElement('button');
       b.className = 'netrow';
-      b.textContent = p.id;
-      b.addEventListener('click', () => { chosenPadId = p.id; applyChoice(); sounds.uiTick(); });
+      b.dataset.padId = p.id;
+      const name = document.createElement('b');
+      name.textContent = p.id;
+      const tag = document.createElement('span');
+      tag.className = 'known';
+      tag.textContent = 'auto';
+      b.append(name, tag);
+      b.addEventListener('click', () => { chosenPadId = p.id; maybeAutoPreset(p.id); applyChoice(); sounds.uiTick(); });
       return b;
     }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: 'NO CONTROLLER DETECTED — keyboard fallback stays available' })]));
+    // No manual pick yet: the first pad is the auto choice — suggest its layout.
+    if (!chosenPadId && pads[0]) { maybeAutoPreset(pads[0].id); applyChoice(); }
   }
+  const activeId = chosenPadId || pads[0]?.id;
   for (const b of padList.children) {
-    if (b.tagName === 'BUTTON') b.classList.toggle('on', b.textContent === (chosenPadId || pads[0]?.id));
+    if (b.tagName !== 'BUTTON') continue;
+    b.classList.toggle('on', b.dataset.padId === activeId);
+    const tag = b.querySelector('.known');
+    if (tag) tag.style.visibility = !chosenPadId && b.dataset.padId === pads[0]?.id ? 'visible' : 'hidden';
   }
   // Live test strip through the chosen preset — proves the mapping instantly.
   const p = pads.find((x) => x.id === chosenPadId) || pads[0];

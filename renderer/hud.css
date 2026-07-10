@@ -227,6 +227,17 @@ body{background:#000;color:var(--silver);
   max-width:90ch;line-height:1.4;white-space:nowrap}
 @media (max-width:900px){.keys.footnote{white-space:normal;max-width:60ch}}
 
+/* SEAT FIT layout preview (renderer/padPreview.js — informational only) */
+.padpreview{width:min(44ch,76vw)}
+.padpreview svg{width:100%;height:auto;display:block}
+.pp-body{fill:#0d1416;stroke:var(--panel-edge)}
+.pp-pill{fill:#10181a;stroke:#233033}
+.pp-ctl{fill:#10181a;stroke:var(--teal);stroke-width:1.5}
+.pp-ctl.dim{stroke:#233033}
+.pp-dot{fill:var(--teal)}
+.pp-name{fill:var(--teal);font-weight:700;font-size:10px;font-family:var(--mono);letter-spacing:.05em}
+.pp-role{fill:var(--muted);font-size:9px;letter-spacing:.15em;font-weight:700}
+
 /* start-lights gantry: 5 columns, lit left to right, all out together */
 .lights{display:flex;gap:clamp(10px,2vw,26px)}
 .lights.hidden{display:none}
