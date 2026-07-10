@@ -42,14 +42,16 @@ video are verified on the target machine.
 
 The app opens into a four-step, F1-styled setup instead of a bare start button:
 
-1. **GARAGE** — pick the session: *Solo FPV* (laptop only) or *iPhone HUD* (adds the
-   telemetry bridge + network step).
+1. **GARAGE** — pick the session: *Desktop FPV* (laptop only) or *iPhone Cockpit* (adds
+   the telemetry bridge + network step; live HUD on the iPhone today, the planned FPV/VR
+   view later). Persisted values stay `solo` / `iphone-hud` — display labels only.
 2. **PIT WALL** *(iPhone mode, Windows)* — scan and join a WiFi network, or start a local
    hotspot (SSID `W17-GRID` by default; Mobile Hotspot backend preferred, legacy
-   `hostednetwork` fallback for the RT5370 dongle). Includes the client-isolation warning —
-   pick a network that allows device-to-device traffic. Enter/confirm the iPhone's IP
-   (validated; a suggestion chip appears when the log-only head-track listener is hearing
-   the phone). On macOS/Linux this step is guide-mode: instructions + verify.
+   `hostednetwork` fallback for the RT5370 dongle). The client-isolation warning is a
+   one-line hint (full text on hover) — pick a network that allows device-to-device
+   traffic. Enter/confirm the iPhone's IP (validated; a suggestion chip appears when the
+   log-only head-track listener is hearing the phone). On macOS/Linux this step is
+   guide-mode: instructions + verify.
 3. **SEAT FIT** — pick which gamepad the HUD mirrors (persisted) and a layout preset
    (DualShock / Xbox / generic) with a live test strip. Keyboard fallback remains.
 4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
@@ -58,10 +60,10 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    works — the viewer must never lock you out of driving. Then five red lights… lights out.
 
 Choices persist in `settings.json` under Electron's userData dir; **env vars always
-override persisted settings** (dev/CI behavior unchanged). The ⚙ menu holds radio-sound
-(off by default), the log-only head-track toggle, the elrs-joystick-control path
-(launch-only: this app starts it detached and can never stop it), and telemetry
-source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
+override persisted settings** (dev/CI behavior unchanged). The ⚙ menu is a modal
+(backdrop click / Escape closes) holding radio-sound (off by default), the log-only
+head-track toggle, the elrs-joystick-control path (launch-only: this app starts it
+detached and can never stop it), and telemetry source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
 iPhone discovery (needs the iPhone-side, Codex-owned change first).
 
 The OS-touching pieces (netsh scan/join, both hotspot backends, elrs detection) are
@@ -88,7 +90,7 @@ The bridge is a second consumer of the existing telemetry flow plus a read-only 
 mirror of the HUD's gamepad/camera state, so the on-screen HUD is unaffected and nothing
 flows back. With `W17_IPHONE_BRIDGE` unset the app behaves exactly as before.
 
-The setup flow can also enable it without env vars: *iPhone HUD* mode + a confirmed
+The setup flow can also enable it without env vars: *iPhone Cockpit* mode + a confirmed
 iPhone IP starts the same sender. If `W17_IPHONE_BRIDGE` is set (even to `0`), the env
 var wins outright.
 

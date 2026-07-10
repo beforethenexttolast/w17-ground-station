@@ -82,67 +82,84 @@
   <!-- Pre-ride setup flow (renderer/setupFlow.js). GARAGE -> PIT WALL ->
        SEAT FIT -> GRID -> start lights -> HUD. -->
   <div class="gate" id="gate">
-    <h1>W17 <em>FPV</em></h1>
-    <div class="sub" id="gateSub">Mercedes-AMG Petronas · No.63 · pre-race setup</div>
+    <div class="gatehead">
+      <h1>W17 <em>FPV</em></h1>
+      <div class="sub" id="gateSub">Mercedes-AMG Petronas · No.63 · pre-race setup</div>
+    </div>
 
     <div class="radioLog" id="radioLog"></div>
 
     <section class="setup-screen" data-step="garage">
       <div class="stepname">GARAGE · SELECT SESSION</div>
       <div class="modecards">
-        <button class="modecard" data-mode="solo"><b>SOLO FPV</b><span>laptop HUD only</span></button>
-        <button class="modecard" data-mode="iphone-hud"><b>IPHONE HUD</b><span>+ live telemetry to the iPhone companion</span></button>
+        <button class="modecard" data-mode="solo"><b>DESKTOP FPV</b><span>full HUD on this screen · laptop only</span></button>
+        <button class="modecard" data-mode="iphone-hud"><b>IPHONE COCKPIT</b><span>live HUD on the iPhone · FPV/VR view later</span></button>
       </div>
     </section>
 
-    <section class="setup-screen" data-step="pitwall">
+    <section class="setup-screen wide" data-step="pitwall">
       <div class="stepname">PIT WALL · NETWORK</div>
-      <div class="netnote">The PC and the iPhone must share a network that allows device-to-device traffic —
-        guest/office WiFi often blocks it (client isolation). The GRID reachability check is the real test.</div>
-      <div class="nettabs" id="netTabs">
-        <button class="pill" data-nettab="join">JOIN NETWORK</button>
-        <button class="pill" data-nettab="hotspot">HOTSPOT</button>
-      </div>
-      <div class="netpane" id="paneJoin">
-        <div class="netlist" id="netList"></div>
-        <div class="netjoinrow hidden" id="netPwRow">
-          <input type="password" id="netPassword" placeholder="network password" />
-          <button class="minibtn" id="netJoinBtn">JOIN</button>
+      <div class="cols">
+        <div class="col">
+          <div class="colhead">PC NETWORK</div>
+          <div class="nettabs" id="netTabs">
+            <button class="pill" data-nettab="join">JOIN NETWORK</button>
+            <button class="pill" data-nettab="hotspot">HOTSPOT</button>
+          </div>
+          <div class="netpane" id="paneJoin">
+            <div class="netlist" id="netList"></div>
+            <div class="netjoinrow hidden" id="netPwRow">
+              <input type="password" id="netPassword" placeholder="network password" />
+              <button class="minibtn" id="netJoinBtn">JOIN</button>
+            </div>
+            <button class="minibtn" id="netRescan">RESCAN</button>
+            <div class="netstatus" id="joinStatus"></div>
+          </div>
+          <div class="netpane hidden" id="paneHotspot">
+            <div class="hsrow"><label>SSID</label><input id="hsSsid" spellcheck="false" /></div>
+            <div class="hsrow"><label>PASS</label><input id="hsPass" spellcheck="false" /></div>
+            <button class="minibtn" id="hsStart">START HOTSPOT</button>
+            <div class="netstatus" id="hsStatus"></div>
+          </div>
+          <div class="netpane hidden" id="paneGuide">
+            <div class="hint">Wi-Fi control is Windows-only. Join the PC and the iPhone to the
+              same network in the OS settings, then verify.</div>
+            <button class="minibtn" id="guideVerify">VERIFY</button>
+            <div class="netstatus" id="guideStatus"></div>
+          </div>
         </div>
-        <button class="minibtn" id="netRescan">RESCAN</button>
-        <div class="netstatus" id="joinStatus"></div>
-      </div>
-      <div class="netpane hidden" id="paneHotspot">
-        <div class="hsrow"><label>SSID</label><input id="hsSsid" spellcheck="false" /></div>
-        <div class="hsrow"><label>PASS</label><input id="hsPass" spellcheck="false" /></div>
-        <button class="minibtn" id="hsStart">START HOTSPOT</button>
-        <div class="netstatus" id="hsStatus"></div>
-      </div>
-      <div class="netpane hidden" id="paneGuide">
-        <div class="netnote">This machine can't drive WiFi from here (Windows-only). Join the PC and the iPhone
-          to the same network in the OS settings, then verify below.</div>
-        <button class="minibtn" id="guideVerify">VERIFY</button>
-        <div class="netstatus" id="guideStatus"></div>
-      </div>
-      <div class="addrrow">
-        <label>IPHONE IP</label>
-        <input id="iphoneAddr" placeholder="192.168.x.x" spellcheck="false" />
-        <button class="minibtn hidden" id="addrSuggest"></button>
-        <button class="minibtn" id="addrCheck">CHECK</button>
-        <span class="netstatus" id="addrStatus"></span>
+        <div class="col">
+          <div class="colhead">IPHONE LINK</div>
+          <div class="addrrow">
+            <label>IPHONE IP</label>
+            <input id="iphoneAddr" placeholder="192.168.x.x" spellcheck="false" />
+            <button class="minibtn hidden" id="addrSuggest"></button>
+            <button class="minibtn" id="addrCheck">CHECK</button>
+            <span class="netstatus" id="addrStatus"></span>
+          </div>
+          <div class="hint" title="Guest/office Wi-Fi often isolates clients, so the PC can never reach the phone even though both are online. The GRID reachability check is the real test.">&#9432; needs device-to-device traffic — a hotspot or home Wi-Fi works best</div>
+        </div>
       </div>
     </section>
 
-    <section class="setup-screen" data-step="seatfit">
+    <section class="setup-screen wide" data-step="seatfit">
       <div class="stepname">SEAT FIT · CONTROLLER</div>
-      <div class="padlist" id="padList"></div>
-      <div class="presetrow" id="presetRow"></div>
-      <div class="teststrip panel" id="testStrip">
-        <div class="bar"><b>STR</b><div class="steerbar"><div class="steerdot" id="tsSteer"></div></div></div>
-        <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="tsThr"></div></div></div>
-        <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="tsBrk"></div></div></div>
+      <div class="cols">
+        <div class="col">
+          <div class="colhead">DEVICE</div>
+          <div class="padlist" id="padList"></div>
+          <div class="colhead">LAYOUT</div>
+          <div class="presetrow" id="presetRow"></div>
+          <div class="hint">No controller? Keyboard works: arrows steer/throttle/brake · E/Q gear · D DRS · B boost · O overtake</div>
+        </div>
+        <div class="col">
+          <div class="teststrip panel" id="testStrip">
+            <div class="bar"><b>STR</b><div class="steerbar"><div class="steerdot" id="tsSteer"></div></div></div>
+            <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="tsThr"></div></div></div>
+            <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="tsBrk"></div></div></div>
+          </div>
+        </div>
       </div>
-      <div class="keys">No controller? Keyboard works: arrows steer/throttle/brake · E/Q gear · D DRS · B boost · O overtake</div>
     </section>
 
     <section class="setup-screen" data-step="grid">
@@ -162,23 +179,25 @@
 
     <div class="lights hidden" id="lights"></div>
 
-    <div class="keys" id="gateFootnote">The car is driven by elrs-joystick-control. This window mirrors your inputs and overlays telemetry — it does not command the car.</div>
+    <div class="keys footnote" id="gateFootnote">Viewer only — elrs-joystick-control drives the car; this window mirrors inputs and overlays telemetry.</div>
   </div>
 
   <div class="demoToggle"><button id="demoBtn">▶ Demo mode</button></div>
 
   <button class="gearbtn" id="settingsBtn" title="settings">⚙</button>
-  <div class="settings panel hidden" id="settingsMenu">
-    <div class="settitle">RACE OPS · SETTINGS</div>
-    <label class="setrow"><input type="checkbox" id="setSound" /> RADIO SOUNDS</label>
-    <label class="setrow"><input type="checkbox" id="setW3" /> HEAD-TRACK LOGGING <small>diagnostic only — no camera control</small></label>
-    <div class="setrow"><label>ELRS PATH</label><input id="setElrsPath" spellcheck="false" placeholder="C:\...\elrs-joystick-control.exe" /></div>
-    <div class="setrow"><label>TELEMETRY</label>
-      <select id="setTelemetrySource"><option value="none">none</option><option value="replay">replay</option><option value="crsf-serial">crsf-serial</option></select>
-      <input id="setTelemetryPort" spellcheck="false" placeholder="COM5" />
+  <div class="scrim hidden" id="settingsScrim">
+    <div class="settings panel" id="settingsMenu">
+      <div class="settitle">RACE OPS · SETTINGS</div>
+      <label class="setrow"><input type="checkbox" id="setSound" /> RADIO SOUNDS</label>
+      <label class="setrow"><input type="checkbox" id="setW3" /> HEAD-TRACK LOGGING <small>diagnostic only — no camera control</small></label>
+      <div class="setrow"><label>ELRS PATH</label><input id="setElrsPath" spellcheck="false" placeholder="C:\...\elrs-joystick-control.exe" /></div>
+      <div class="setrow"><label>TELEMETRY</label>
+        <select id="setTelemetrySource"><option value="none">none</option><option value="replay">replay</option><option value="crsf-serial">crsf-serial</option></select>
+        <input id="setTelemetryPort" spellcheck="false" placeholder="COM5" />
+      </div>
+      <button class="minibtn" id="setRerun">RE-RUN SETUP</button>
+      <div class="netstatus" id="setStatus"></div>
     </div>
-    <button class="minibtn" id="setRerun">RE-RUN SETUP</button>
-    <div class="netstatus" id="setStatus"></div>
   </div>
 
   <script type="module" src="setupFlow.js"></script>

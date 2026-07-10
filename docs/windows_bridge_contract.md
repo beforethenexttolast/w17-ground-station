@@ -604,8 +604,8 @@ Non-normative. How this repo implements the Windows side of the contract above.
 | `W17_IPHONE_RATE_HZ` | snapshot send cadence | `10` |
 
 Since the pre-ride setup flow (2026-07), the same sender can be enabled without env
-vars: persisted settings (`settings.json` in Electron userData; "iPhone HUD" mode + a
-user-confirmed IPv4) resolve through `shared/settings.js`. Precedence: **a set
+vars: persisted settings (`settings.json` in Electron userData; "iPhone Cockpit" mode —
+persisted value `iphone-hud` — + a user-confirmed IPv4) resolve through `shared/settings.js`. Precedence: **a set
 `W17_IPHONE_BRIDGE` (any value, including `0`) wins over settings**; unset falls
 through. Packet shape, port defaults, and cadence semantics are unchanged — this is
 configuration sourcing only, not a contract change. Address discovery remains manual:

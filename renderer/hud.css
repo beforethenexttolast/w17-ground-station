@@ -26,7 +26,9 @@ body{background:#000;color:var(--silver);
 .panel{background:var(--panel);border:1px solid var(--panel-edge);backdrop-filter:blur(3px);
   clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);}
 
-.top{position:absolute;top:var(--gap);left:var(--gap);right:var(--gap);
+/* right edge leaves a clear column for the fixed ⚙ button (no overlap with
+   the session/Live panel) */
+.top{position:absolute;top:var(--gap);left:var(--gap);right:calc(var(--gap) + 3em);
   display:flex;justify-content:space-between;align-items:flex-start;gap:var(--gap);}
 .driver{padding:.5em .9em;display:flex;align-items:center;gap:.7em}
 .numplate{font-style:italic;font-weight:800;font-size:clamp(20px,2.6vw,34px);color:var(--carbon);
@@ -114,12 +116,14 @@ body{background:#000;color:var(--silver);
 .ersfill.low{background:linear-gradient(90deg,#7a0f0f,var(--red))}
 @keyframes ersglow{to{filter:brightness(1.5)}}
 
-.gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2em;
+.gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.1em;
   background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,.86),rgba(2,4,4,.96));text-align:center;padding:2em;}
 .gate.hidden{display:none}
-.gate h1{font-style:italic;font-weight:800;font-size:clamp(30px,6vw,64px);transform:skewX(-6deg)}
+/* compact header: title + subtitle share one baseline row instead of stacking */
+.gatehead{display:flex;align-items:baseline;justify-content:center;gap:1em;flex-wrap:wrap}
+.gate h1{font-style:italic;font-weight:800;font-size:clamp(24px,4vw,44px);transform:skewX(-6deg)}
 .gate h1 em{color:var(--teal);font-style:italic}
-.gate .sub{color:var(--muted);letter-spacing:.28em;text-transform:uppercase;font-size:clamp(10px,1.3vw,14px)}
+.gate .sub{color:var(--muted);letter-spacing:.28em;text-transform:uppercase;font-size:clamp(9px,1.1vw,12px)}
 .gate .status{font-weight:800;letter-spacing:.18em;text-transform:uppercase;font-size:clamp(12px,1.6vw,18px)}
 .gate .status.ok{color:var(--green)}
 .gate .status.no{color:var(--amber)}
@@ -140,9 +144,20 @@ body{background:#000;color:var(--silver);
 .gate.fade{opacity:0}
 .setup-screen{display:none;flex-direction:column;align-items:center;gap:1em;max-width:min(72ch,86vw)}
 .setup-screen.active{display:flex}
+.setup-screen.wide{max-width:min(120ch,94vw)}
+/* side-by-side step layout: uses the horizontal room instead of one tall column */
+.cols{display:flex;gap:clamp(1.5em,4vw,3.5em);align-items:flex-start;justify-content:center;flex-wrap:wrap;text-align:left}
+.col{display:flex;flex-direction:column;gap:.7em;align-items:flex-start;min-width:30ch;max-width:48ch}
+.cols .netpane{align-items:flex-start}
+.colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(9px,1vw,11px);text-transform:uppercase}
+.colhead small{color:var(--muted);letter-spacing:.08em;font-weight:400;text-transform:none;margin-left:.6em}
+.hint{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.05em;line-height:1.55;max-width:46ch}
+.hint[title]{cursor:help}
 .stepname{color:var(--teal);letter-spacing:.4em;font-weight:800;text-transform:uppercase;
   font-size:clamp(11px,1.4vw,15px)}
-.radioLog{display:flex;flex-direction:column;gap:.35em;min-height:4.6em;justify-content:flex-end;align-items:center}
+/* team radio: out of the main vertical flow — pinned to the bottom-left corner */
+.radioLog{position:absolute;left:1.2em;bottom:3.6em;display:flex;flex-direction:column-reverse;
+  gap:.35em;align-items:flex-start;max-width:44ch;pointer-events:none;text-align:left}
 .radio-msg{background:var(--panel);border:1px solid var(--panel-edge);color:var(--silver);
   letter-spacing:.16em;text-transform:uppercase;font-weight:700;font-size:clamp(9px,1.1vw,12px);
   padding:.4em 1.1em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
@@ -156,7 +171,6 @@ body{background:#000;color:var(--silver);
 .modecard:hover{border-color:var(--teal);transform:translateY(-2px)}
 .modecard b{display:block;font-style:italic;font-weight:800;letter-spacing:.14em;font-size:clamp(14px,1.8vw,20px)}
 .modecard span{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.12em;text-transform:uppercase}
-.netnote{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.06em;line-height:1.6;max-width:56ch}
 .nettabs{display:flex;gap:.5em}
 .nettabs .pill,.presetrow .pill{cursor:pointer;font-family:inherit;pointer-events:auto}
 .pill.on{color:var(--carbon);background:var(--teal);border-color:var(--teal)}
@@ -205,6 +219,10 @@ body{background:#000;color:var(--silver);
 .setup-nav{display:flex;gap:1em}
 .setup-nav.hidden{display:none}
 .keys.hidden{display:none}
+/* one-line disclaimer pinned above the demo toggle, out of the step flow */
+.keys.footnote{position:absolute;left:50%;bottom:2.6em;transform:translateX(-50%);
+  max-width:90ch;line-height:1.4;white-space:nowrap}
+@media (max-width:900px){.keys.footnote{white-space:normal;max-width:60ch}}
 
 /* start-lights gantry: 5 columns, lit left to right, all out together */
 .lights{display:flex;gap:clamp(10px,2vw,26px)}
@@ -222,9 +240,11 @@ body{background:#000;color:var(--silver);
   border:1px solid var(--panel-edge);color:var(--muted);padding:.35em .55em;
   clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
 .gearbtn:hover{color:var(--teal)}
-.settings{position:fixed;top:3.2em;right:.6em;z-index:11;pointer-events:auto;display:flex;flex-direction:column;
+/* modal backdrop: click anywhere outside the panel to close */
+.scrim{position:fixed;inset:0;z-index:12;pointer-events:auto;background:rgba(3,6,7,.55);backdrop-filter:blur(2px)}
+.scrim.hidden{display:none}
+.settings{position:fixed;top:3.2em;right:.6em;pointer-events:auto;display:flex;flex-direction:column;
   gap:.7em;padding:1em 1.2em;min-width:min(38ch,88vw)}
-.settings.hidden{display:none}
 .settitle{color:var(--teal);letter-spacing:.34em;font-weight:800;font-size:clamp(9px,1.1vw,12px);text-transform:uppercase}
 .setrow{display:flex;gap:.6em;align-items:center;flex-wrap:wrap;color:var(--silver);
   letter-spacing:.12em;font-size:clamp(10px,1.2vw,13px);text-transform:uppercase;font-weight:700}

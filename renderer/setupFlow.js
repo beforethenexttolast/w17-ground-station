@@ -74,7 +74,7 @@ for (const card of document.querySelectorAll('.modecard')) {
   card.addEventListener('click', async () => {
     mode = card.dataset.mode;
     await save({ fpvMode: mode });
-    radio(mode === 'solo' ? 'GARAGE: SOLO FPV SESSION' : 'GARAGE: IPHONE HUD SESSION');
+    radio(mode === 'solo' ? 'GARAGE: DESKTOP FPV SESSION' : 'GARAGE: IPHONE COCKPIT SESSION');
     showStep(nextStep('garage', mode));
   });
 }
@@ -426,12 +426,19 @@ function runLights() {
   }, stepMs * 5 + holdMs);
 }
 
-// ---------- settings menu ----------
-const settingsMenu = el('settingsMenu'), setStatus = el('setStatus');
+// ---------- settings menu (modal: backdrop click / Escape closes) ----------
+const settingsScrim = el('settingsScrim'), setStatus = el('setStatus');
 
 el('settingsBtn').addEventListener('click', () => {
-  settingsMenu.classList.toggle('hidden');
-  if (!settingsMenu.classList.contains('hidden')) populateSettingsMenu();
+  const opening = settingsScrim.classList.contains('hidden');
+  settingsScrim.classList.toggle('hidden');
+  if (opening) populateSettingsMenu();
+});
+settingsScrim.addEventListener('click', (e) => {
+  if (e.target === settingsScrim) settingsScrim.classList.add('hidden');
+});
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') settingsScrim.classList.add('hidden');
 });
 
 function populateSettingsMenu() {
@@ -463,7 +470,7 @@ async function telemetryChanged() {
 el('setTelemetrySource').addEventListener('change', telemetryChanged);
 el('setTelemetryPort').addEventListener('change', telemetryChanged);
 el('setRerun').addEventListener('click', () => {
-  settingsMenu.classList.add('hidden');
+  settingsScrim.classList.add('hidden');
   gate.classList.remove('hidden', 'fade');
   el('gateFootnote').classList.remove('hidden');
   showStep('garage');
