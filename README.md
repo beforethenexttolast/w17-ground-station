@@ -64,6 +64,11 @@ override persisted settings** (dev/CI behavior unchanged). The ⚙ menu holds ra
 source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
 iPhone discovery (needs the iPhone-side, Codex-owned change first).
 
+The OS-touching pieces (netsh scan/join, both hotspot backends, elrs detection) are
+unit-tested against canned command output but **not yet validated on the Windows
+bench** — `docs/setup_flow_bench_checklist.md` is the step-by-step runbook with
+evidence boxes; treat those paths as unproven until it's executed.
+
 ### iPhone telemetry bridge (optional, off by default)
 
 Windows can also stream the normalized telemetry snapshot to the companion iPhone FPV
