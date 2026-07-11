@@ -34,6 +34,10 @@ npm run build               # package a Windows .exe (electron-builder; unsigned
                             #   default -- code-signing is opt-in, see docs/CODESIGNING.md)
 ```
 
+(Two different "demos": the floating **▶ HUD preview · simulated** button on the setup
+gate just plays simulated inputs/physics into the HUD, while `npm run demo` feeds the
+replay **telemetry** source — live-looking car data, no car.)
+
 Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just the
 deployment target). Cross-platform is proven by CI + the pure-core tests; the GUI + WebRTC
 video are verified on the target machine.

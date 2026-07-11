@@ -180,6 +180,7 @@ body{background:#000;color:var(--silver);
 .modecard:hover{border-color:var(--teal);transform:translateY(-2px)}
 .modecard b{display:block;font-style:italic;font-weight:800;letter-spacing:.14em;font-size:clamp(14px,1.8vw,20px)}
 .modecard span{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.12em;text-transform:uppercase}
+.modecard .needs{display:block;margin-top:.5em;color:var(--teal);font-size:clamp(8px,1vw,11px);letter-spacing:.18em}
 .nettabs{display:flex;gap:.5em}
 .nettabs .pill,.presetrow .pill{cursor:pointer;font-family:inherit;pointer-events:auto}
 .pill.on{color:var(--carbon);background:var(--teal);border-color:var(--teal)}

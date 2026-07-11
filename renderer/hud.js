@@ -66,11 +66,13 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 addEventListener('gamepadconnected', refreshPad);
 addEventListener('gamepaddisconnected', refreshPad);
-// Demo mode bypasses the setup flow entirely: instant HUD, replay-style sim.
+// HUD preview (the floating gate button) bypasses the setup flow entirely:
+// instant HUD on simulated inputs/physics. Unrelated to `npm run demo`,
+// which feeds the replay TELEMETRY source. (Internal names stay `demo*`.)
 demoBtn.addEventListener('click', () => {
   demo = !demo;
   demoBtn.classList.toggle('on', demo);
-  demoBtn.textContent = demo ? '■ Demo running' : '▶ Demo mode';
+  demoBtn.textContent = demo ? '■ Preview running' : '▶ HUD preview · simulated';
   if (demo) start();
 });
 
