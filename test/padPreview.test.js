@@ -21,6 +21,19 @@ describe('padPreviewSvg', () => {
     }
   });
 
+  it('carries a data-role hook for each mirrored button (live highlight), nothing more', () => {
+    for (const key of Object.keys(PRESETS)) {
+      const svg = padPreviewSvg(key);
+      const roles = [...svg.matchAll(/data-role="([^"]+)"/g)].map((m) => m[1]);
+      expect(roles.sort(), key).toEqual(
+        ['boost', 'brake', 'drs', 'gearDown', 'gearUp', 'overtake', 'throttle'],
+      );
+      // The left stick and the dim placeholder circle stay role-less.
+      expect(svg, key).toContain('<circle class="pp-ctl" cx="110"');
+      expect(svg, key).toContain('<circle class="pp-ctl dim"');
+    }
+  });
+
   it('never depicts the right stick or camera/pan/tilt (safety boundary)', () => {
     for (const key of Object.keys(PRESETS)) {
       const svg = padPreviewSvg(key).toLowerCase();

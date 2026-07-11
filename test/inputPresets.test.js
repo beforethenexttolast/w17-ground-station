@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PRESETS, DEFAULT_PRESET, getPreset, selectGamepad, detectPresetFromId } from '../shared/inputPresets.mjs';
+import {
+  PRESETS, DEFAULT_PRESET, getPreset, selectGamepad, detectPresetFromId, pressedRoles,
+} from '../shared/inputPresets.mjs';
 
 // The HUD's original hardcoded gamepad layout — the dualshock preset must
 // stay bit-identical to it (regression pin for readInputs behavior).
@@ -47,6 +49,46 @@ describe('selectGamepad', () => {
     expect(selectGamepad([null, padA, padB], '')).toBe(padA);
     expect(selectGamepad([null, null], '')).toBeNull();
     expect(selectGamepad(undefined, '')).toBeNull();
+  });
+});
+
+describe('pressedRoles — SEAT FIT live highlight (display only)', () => {
+  // Fake Gamepad: 17 buttons, all released, plus deflected axes to prove
+  // axes can never produce a role.
+  const fakePad = (pressedByIndex = {}) => ({
+    id: 'fake',
+    axes: [1, 1, 1, 1], // fully deflected — must not matter
+    buttons: Array.from({ length: 17 }, (_, i) => {
+      const p = pressedByIndex[i];
+      return typeof p === 'number' ? { pressed: false, value: p } : { pressed: !!p, value: p ? 1 : 0 };
+    }),
+  });
+
+  it('maps pressed buttons to roles through the chosen preset map', () => {
+    // dualshock/legacy indices: throttle 7, brake 6, gearUp 5, gearDown 4,
+    // drs 3, boost 1, overtake 2.
+    expect(pressedRoles(fakePad({ 7: true, 4: true }), 'dualshock'))
+      .toEqual(['throttle', 'gearDown']);
+    expect(pressedRoles(fakePad({}), 'dualshock')).toEqual([]);
+  });
+
+  it('analog triggers count via the value threshold, digital via pressed', () => {
+    expect(pressedRoles(fakePad({ 6: 0.5 }), 'dualshock')).toEqual(['brake']); // value only
+    expect(pressedRoles(fakePad({ 6: 0.03 }), 'dualshock')).toEqual([]); // below threshold
+  });
+
+  it('everything pressed yields exactly the seven button roles — axes and camera can never appear', () => {
+    const all = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [i, true]));
+    const roles = pressedRoles(fakePad(all), 'dualshock');
+    expect([...roles].sort()).toEqual(
+      ['boost', 'brake', 'drs', 'gearDown', 'gearUp', 'overtake', 'throttle'],
+    );
+  });
+
+  it('no pad / padless call clears to an empty set (disconnect behavior)', () => {
+    expect(pressedRoles(null, 'dualshock')).toEqual([]);
+    expect(pressedRoles(undefined, 'xbox')).toEqual([]);
+    expect(pressedRoles({ id: 'x' }, 'dualshock')).toEqual([]); // no buttons array
   });
 });
 

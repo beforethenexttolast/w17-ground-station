@@ -251,6 +251,8 @@ body{background:#000;color:var(--silver);
 .pp-pill{fill:#10181a;stroke:#233033}
 .pp-ctl{fill:#10181a;stroke:var(--teal);stroke-width:1.5}
 .pp-ctl.dim{stroke:#233033}
+/* live press highlight (SEAT FIT): same teal as the test strip */
+.pp-pill.on,.pp-ctl.on{fill:rgba(0,210,190,.3);stroke:var(--teal)}
 .pp-dot{fill:var(--teal)}
 .pp-name{fill:var(--teal);font-weight:700;font-size:10px;font-family:var(--mono);letter-spacing:.05em}
 .pp-role{fill:var(--muted);font-size:9px;letter-spacing:.15em;font-weight:700}

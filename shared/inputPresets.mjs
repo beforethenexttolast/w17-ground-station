@@ -69,6 +69,32 @@ export function detectPresetFromId(id) {
     return null;
 }
 
+// SEAT FIT live highlight: which mirrored BUTTON roles are currently pressed
+// on this pad, through the chosen preset map. Read-only display support —
+// buttons only, deliberately: the camera/right-stick axes are excluded, the
+// same pan/tilt boundary the preview itself pins (renderer/padPreview.js).
+const BUTTON_ROLES = Object.freeze({
+    throttle: 'throttleBtn',
+    brake: 'brakeBtn',
+    gearUp: 'gearUpBtn',
+    gearDown: 'gearDownBtn',
+    drs: 'drsBtn',
+    boost: 'boostBtn',
+    overtake: 'overtakeBtn',
+});
+const PRESS_THRESHOLD = 0.05; // analog triggers count as pressed past this
+
+export function pressedRoles(pad, presetKey) {
+    if (!pad || !pad.buttons) return [];
+    const map = getPreset(presetKey).map;
+    const roles = [];
+    for (const [role, mapKey] of Object.entries(BUTTON_ROLES)) {
+        const b = pad.buttons[map[mapKey]];
+        if (b && (b.pressed || b.value > PRESS_THRESHOLD)) roles.push(role);
+    }
+    return roles;
+}
+
 // Pick the pad the HUD mirrors. Exact id match wins (persisted choice);
 // otherwise first connected pad — the original behavior. Gamepad.id is stable
 // per model but not per unit, so two identical pads fall back gracefully.

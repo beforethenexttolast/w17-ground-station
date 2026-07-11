@@ -12,7 +12,7 @@ import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
 import { adapterRowState, scanStatusText } from '../shared/wifiView.mjs';
 import { summaryLine } from '../shared/setupSummary.mjs';
-import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId } from '../shared/inputPresets.mjs';
+import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId, pressedRoles } from '../shared/inputPresets.mjs';
 import { padPreviewSvg } from './padPreview.js';
 import { sounds, setSoundEnabled } from './sounds.js';
 
@@ -372,6 +372,13 @@ function seatfitTick() {
   el('tsSteer').style.left = `${50 + steer * 42}%`;
   el('tsThr').style.width = `${(thr * 100).toFixed(0)}%`;
   el('tsBrk').style.width = `${(brk * 100).toFixed(0)}%`;
+  // Light up pressed buttons in the mapping preview (class toggles only —
+  // applyChoice() re-renders the SVG, so no stale highlights survive it).
+  // No pad -> empty set -> everything clears, including on disconnect.
+  const active = new Set(pressedRoles(p, chosenPreset));
+  for (const part of padPreview.querySelectorAll('[data-role]')) {
+    part.classList.toggle('on', active.has(part.dataset.role));
+  }
 }
 
 // ---------- GRID ----------
