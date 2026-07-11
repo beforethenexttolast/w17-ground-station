@@ -56,6 +56,12 @@ body{background:#000;color:var(--silver);
 .gp.on{color:var(--green)}
 .link.live{color:var(--teal)}
 .link.lost{color:var(--amber)}
+/* W3 diagnostic listener status: truthful label only — there is no control
+   path to indicate (log-only by architecture; see noControlPath tests). */
+.w3chip{display:inline-block;margin-top:.4em;padding:.15em .5em;color:var(--amber);
+  border:1px solid var(--amber);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
+  text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+.w3chip.hidden{display:none}
 /* Last-known real values held (dimmed) while the telemetry stream is stale
    ('TELEMETRY LOST') -- the HUD never silently resumes simulated numbers. */
 .stale{opacity:.35}

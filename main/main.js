@@ -138,6 +138,9 @@ function registerIpcHandlers() {
     platform: process.platform,
     setupCompleted: lastEffective ? lastEffective.ui.setupCompleted : false,
     envOverridden: lastEffective ? lastEffective.envOverridden : {},
+    // W3 receiver EXISTENCE only, for the LOG-ONLY status chip — the same
+    // boolean applySession returns. Never receiver data (guard-tested).
+    w3Active: !!headTracking,
     feel: {
       gears: feel.GEARS,
       topSpeedKmh: feel.TOP_SPEED_KMH,

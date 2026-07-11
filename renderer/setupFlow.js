@@ -6,7 +6,7 @@
 // glue over the pure step/checklist/address modules in shared/. It never
 // touches control — the START buttons only dismiss a viewer overlay.
 
-import { startRide, hudStatus, setControllerChoice } from './hud.js';
+import { startRide, hudStatus, setControllerChoice, setW3Chip } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
@@ -387,6 +387,7 @@ async function enterGrid() {
     radio('NOTE: SOME SETTINGS ARE LOCKED BY ENV VARS');
   }
   const applied = gs ? await gs.applySession() : { telemetry: 'none' };
+  setW3Chip(!!applied.w3);
   // What's configured, at a glance — verify without stepping back through
   // the flow. (After applySession so the leave-hook saves have settled.)
   el('setupSummary').textContent = summaryLine(settings);
@@ -567,6 +568,7 @@ el('setW3').addEventListener('change', async (e) => {
   await save({ w3DiagnosticEnabled: e.target.checked });
   const applied = await gs.applySession();
   setStatus.textContent = applied.w3 ? 'HEAD-TRACK LOGGING ON (log-only)' : 'HEAD-TRACK LOGGING OFF';
+  setW3Chip(!!applied.w3);
 });
 el('setElrsPath').addEventListener('change', async (e) => { await save({ elrsPath: e.target.value.trim() }); });
 async function telemetryChanged() {

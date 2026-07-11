@@ -19,6 +19,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   ersEl = el('ers'), ersPctEl = el('ersPct'), battVEl = el('battV'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
+  w3ChipEl = el('w3Chip'),
   gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote');
 
@@ -98,6 +99,9 @@ setInterval(refreshPad, 600); refreshPad();
 // --- Hooks for the setup flow (renderer/setupFlow.js drives the gate). ---
 // startRide: dismiss the gate and go live (called after lights-out).
 export function startRide() { start(); }
+// W3 LOG-ONLY chip: shows the diagnostic listener EXISTS (the w3 boolean from
+// config/applySession). Existence only — receiver data has no path here.
+export function setW3Chip(active) { w3ChipEl.classList.toggle('hidden', !active); }
 // hudStatus: the GRID checklist's local probes — read-only display state.
 export function hudStatus() {
   return {
@@ -299,6 +303,7 @@ async function init() {
   if (!window.groundStation) return; // opened outside Electron (bench preview)
   const cfg = await window.groundStation.getConfig();
   if (cfg.feel) { FEEL = { ...FEEL, ...cfg.feel }; computeCaps(); S.ers = 100; }
+  setW3Chip(!!cfg.w3Active);
 
   // Apply the persisted controller choice (SEAT FIT step); defaults keep the
   // original first-pad + DualShock-layout behavior.
