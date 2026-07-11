@@ -18,6 +18,15 @@ describe('buildChecklist — which checks apply', () => {
     expect(c.every((x) => x.required)).toBe(true);
     expect(c.every((x) => x.status === 'pending')).toBe(true);
   });
+
+  it('every check carries a non-empty fix hint, preserved through applyProbes', () => {
+    const c = buildChecklist({ mode: 'iphone-hud', telemetryConfigured: true, elrsConfigured: true });
+    expect(c.every((x) => typeof x.hint === 'string' && x.hint.length > 0)).toBe(true);
+    const probed = applyProbes(c, { 'iphone-reachable': false });
+    const red = probed.find((x) => x.id === 'iphone-reachable');
+    expect(red.status).toBe('fail');
+    expect(red.hint).toMatch(/hotspot/); // the client-isolation escape hatch
+  });
 });
 
 describe('applyProbes / canStart', () => {

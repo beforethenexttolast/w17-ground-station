@@ -102,7 +102,7 @@ describe('no-control-path regression (contract A + E)', () => {
       '../shared/settings.js', '../main/settingsStore.js', '../main/sessionRuntime.js',
       '../shared/wifiParse.js', '../shared/processList.js', '../shared/inputPresets.mjs',
       '../shared/setupSteps.mjs', '../shared/checklist.mjs', '../shared/addressProviders.mjs',
-      '../shared/wifiView.mjs',
+      '../shared/wifiView.mjs', '../shared/setupSummary.mjs',
       '../renderer/setupFlow.js', '../renderer/sounds.js', '../renderer/padPreview.js',
       '../main/runCommand.js', '../main/wifiManager.js', '../main/hotspot.js',
       '../main/wifiSim.js',

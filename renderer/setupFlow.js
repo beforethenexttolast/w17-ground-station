@@ -11,6 +11,7 @@ import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
 import { adapterRowState, scanStatusText } from '../shared/wifiView.mjs';
+import { summaryLine } from '../shared/setupSummary.mjs';
 import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId } from '../shared/inputPresets.mjs';
 import { padPreviewSvg } from './padPreview.js';
 import { sounds, setSoundEnabled } from './sounds.js';
@@ -386,6 +387,9 @@ async function enterGrid() {
     radio('NOTE: SOME SETTINGS ARE LOCKED BY ENV VARS');
   }
   const applied = gs ? await gs.applySession() : { telemetry: 'none' };
+  // What's configured, at a glance — verify without stepping back through
+  // the flow. (After applySession so the leave-hook saves have settled.)
+  el('setupSummary').textContent = summaryLine(settings);
   checks = buildChecklist({
     mode,
     telemetryConfigured: applied.telemetry !== 'none',
@@ -456,6 +460,14 @@ function renderChecks() {
         radio(res.ok ? 'ELRS CONTROL LAUNCHED' : `ELRS LAUNCH FAILED: ${res.error}`);
       });
       row.append(btn);
+    }
+    // The fix hint (from checklist.mjs) shows only while the check fails —
+    // a red row always says what to do about it.
+    if (c.status === 'fail' && c.hint) {
+      const hint = document.createElement('div');
+      hint.className = 'checkhint';
+      hint.textContent = c.hint;
+      row.append(hint);
     }
     return row;
   }));

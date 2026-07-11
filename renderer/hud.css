@@ -212,9 +212,13 @@ body{background:#000;color:var(--silver);
 .teststrip .steerbar{position:relative;flex:1;height:clamp(6px,.8vw,10px);background:#10181a;
   clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .checklist{display:flex;flex-direction:column;gap:.35em;width:min(42ch,78vw)}
-.checkrow{display:flex;align-items:center;gap:.8em;justify-content:space-between;background:var(--panel);
+.setupsummary{color:var(--muted);letter-spacing:.14em;text-transform:uppercase;
+  font-size:clamp(9px,1vw,11px);width:min(42ch,78vw);line-height:1.5}
+.checkrow{display:flex;align-items:center;gap:.8em;justify-content:space-between;flex-wrap:wrap;background:var(--panel);
   border:1px solid #233033;padding:.5em 1em;letter-spacing:.16em;text-transform:uppercase;
   font-size:clamp(10px,1.2vw,13px);clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
+.checkhint{flex-basis:100%;color:var(--muted);font-weight:400;text-transform:none;
+  font-size:clamp(9px,1vw,11px);letter-spacing:.05em;line-height:1.4}
 .checkrow b{font-weight:800}
 .checkrow span{font-weight:800;color:var(--muted)}
 .checkrow.ok{border-color:rgba(0,230,118,.5)}
