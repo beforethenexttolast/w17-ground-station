@@ -82,8 +82,9 @@ describe('sim run through the real managers', () => {
             platform: 'win32',
             sleep: async () => {},
         });
-        const nets = await wifi.scan();
-        expect(nets.find((n) => n.ssid === 'PaddockNet').known).toBe(true);
+        const scan = await wifi.scan();
+        expect(scan.ok).toBe(true);
+        expect(scan.networks.find((n) => n.ssid === 'PaddockNet').known).toBe(true);
         const res = await wifi.join({ ssid: 'Cafe Guest 2.4' });
         expect(res).toEqual({ ok: true });
         const st = await wifi.status();
@@ -103,8 +104,13 @@ describe('sim run through the real managers', () => {
 
     it('netsh-fail degrades exactly like a broken WLAN service', async () => {
         const wifi = new WifiManager({ run: createSimRun('netsh-fail'), platform: 'win32', sleep: async () => {} });
-        expect(await wifi.listInterfaces()).toEqual([]);
-        expect(await wifi.scan()).toEqual([]);
+        const list = await wifi.listInterfaces();
+        expect(list.ok).toBe(false);
+        expect(list.ifaces).toEqual([]);
+        expect(list.error).toContain('wlansvc');
+        const scan = await wifi.scan();
+        expect(scan.ok).toBe(false);
+        expect(scan.error).toContain('wlansvc');
         const hotspot = new HotspotManager({ run: createSimRun('netsh-fail'), platform: 'win32' });
         const res = await hotspot.start({ ssid: 'W17-GRID', password: 'pitwall99' });
         expect(res.ok).toBe(false);

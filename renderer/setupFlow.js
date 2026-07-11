@@ -128,7 +128,8 @@ async function enterPitwall() {
 // WLAN adapter picker: shown only when more than one adapter exists (built-in
 // vs USB dongle); the choice pins netsh scan/join to that interface.
 async function refreshAdapters() {
-  const ifaces = gs && gs.wifiInterfaces ? await gs.wifiInterfaces() : [];
+  const res = gs && gs.wifiInterfaces ? await gs.wifiInterfaces() : { ok: true, ifaces: [] };
+  const ifaces = res.ifaces || [];
   adapterRow.classList.toggle('hidden', ifaces.length < 2);
   if (ifaces.length < 2) { adapterSelect.replaceChildren(); return; }
   adapterSelect.replaceChildren(...ifaces.map((i) => {
@@ -176,8 +177,13 @@ function generatePassword() {
 async function rescan() {
   if (!gs || !caps?.canScan) return;
   joinStatus.textContent = 'SCANNING…';
-  const nets = await gs.wifiScan({ iface: chosenAdapter() });
-  joinStatus.textContent = nets.length ? '' : 'NO NETWORKS FOUND';
+  const res = await gs.wifiScan({ iface: chosenAdapter() });
+  const nets = res.networks || [];
+  // A failed scan (radio off, WLAN service down) is NOT an empty airspace —
+  // show the reason instead of a misleading "no networks".
+  joinStatus.textContent = res.ok
+    ? (nets.length ? '' : 'NO NETWORKS FOUND')
+    : `SCAN FAILED — ${res.error || 'unknown error'}`;
   netList.replaceChildren(...nets.map((n) => {
     const row = document.createElement('button');
     row.className = 'netrow';

@@ -24,6 +24,10 @@ const { runCommand } = require('./runCommand.js');
 const JOIN_POLL_MS = 1000;
 const JOIN_TIMEOUT_MS = 20000;
 
+// Failure reason for the UI: netsh writes errors to either stream; cap the
+// length so a rambling localized message can't blow up a status line.
+const failReason = (res) => String(res.stderr || res.stdout || '').trim().slice(0, 200) || 'command failed';
+
 class WifiManager {
     constructor({ tmpDir = os.tmpdir(), run = runCommand, log = () => {}, platform = process.platform, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
         this._tmpDir = tmpDir;
@@ -39,37 +43,45 @@ class WifiManager {
     }
 
     // All WLAN adapters on the machine (built-in + dongles) so the setup UI
-    // can offer a picker when there is more than one. Empty off-Windows.
+    // can offer a picker when there is more than one. A netsh failure returns
+    // ok:false WITH the reason — the UI must be able to tell "listing broke"
+    // from "no adapters". Off-Windows is ok:true/empty (no capability is not
+    // an error; the renderer shows guide mode).
     async listInterfaces() {
-        if (this._platform !== 'win32') return [];
+        if (this._platform !== 'win32') return { ok: true, ifaces: [] };
         const res = await this._run('netsh', ['wlan', 'show', 'interfaces']);
         if (!res.ok) {
-            this._log(`[wifi] interface list failed: ${res.stderr || res.stdout}`);
-            return [];
+            const error = failReason(res);
+            this._log(`[wifi] interface list failed: ${error}`);
+            return { ok: false, ifaces: [], error };
         }
-        return parseNetshInterfacesList(res.stdout);
+        return { ok: true, ifaces: parseNetshInterfacesList(res.stdout) };
     }
 
     // `iface` (optional) pins the operation to one WLAN adapter; netsh uses
-    // its default interface when omitted — the pre-picker behavior.
+    // its default interface when omitted — the pre-picker behavior. Like
+    // listInterfaces, a failed scan is ok:false WITH the reason — "SCAN
+    // FAILED" and "no networks in the air" are different answers.
     async scan({ iface } = {}) {
-        if (this._platform !== 'win32') return [];
+        if (this._platform !== 'win32') return { ok: true, networks: [] };
         const ifaceArg = iface ? [`interface=${iface}`] : [];
         const [networksRes, profilesRes] = await Promise.all([
             this._run('netsh', ['wlan', 'show', 'networks', 'mode=bssid', ...ifaceArg]),
             this._run('netsh', ['wlan', 'show', 'profiles']),
         ]);
         if (!networksRes.ok) {
-            this._log(`[wifi] scan failed: ${networksRes.stderr || networksRes.stdout}`);
-            return [];
+            const error = failReason(networksRes);
+            this._log(`[wifi] scan failed: ${error}`);
+            return { ok: false, networks: [], error };
         }
         const known = new Set(
             (profilesRes.ok ? parseNetshProfiles(profilesRes.stdout) : []).map((n) => n.toLowerCase()),
         );
-        return parseNetshNetworks(networksRes.stdout).map((n) => ({
+        const networks = parseNetshNetworks(networksRes.stdout).map((n) => ({
             ...n,
             known: known.has(n.ssid.toLowerCase()),
         }));
+        return { ok: true, networks };
     }
 
     // Join a network. With a password, install a WPA2-PSK profile first via a

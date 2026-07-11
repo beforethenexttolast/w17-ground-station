@@ -48,7 +48,8 @@ describe('WifiManager.capabilities / non-Windows guardrails', () => {
       .toEqual({ platform: 'win32', canScan: true, canJoin: true });
     const { wifi, calls } = manager({}, 'darwin');
     expect(wifi.capabilities()).toEqual({ platform: 'darwin', canScan: false, canJoin: false });
-    expect(await wifi.scan()).toEqual([]);
+    // No capability is not an error: ok:true with nothing found.
+    expect(await wifi.scan()).toEqual({ ok: true, networks: [] });
     expect((await wifi.join({ ssid: 'X' })).ok).toBe(false);
     expect(calls.filter((c) => c.cmd === 'netsh')).toHaveLength(0);
   });
@@ -60,16 +61,17 @@ describe('WifiManager.scan', () => {
       'wlan show networks': ok(fixture('netsh_networks_en.txt')),
       'wlan show profiles': ok(fixture('netsh_profiles_en.txt')),
     });
-    const nets = await wifi.scan();
-    expect(nets.map((n) => [n.ssid, n.known])).toEqual([
+    const res = await wifi.scan();
+    expect(res.ok).toBe(true);
+    expect(res.networks.map((n) => [n.ssid, n.known])).toEqual([
       ['PaddockNet', true],
       ['Cafe Guest 2.4', false],
     ]);
   });
 
-  it('scan failure degrades to an empty list, never throws', async () => {
+  it('scan failure returns ok:false WITH the reason, never throws', async () => {
     const { wifi } = manager({ 'wlan show networks': fail('radio off') });
-    expect(await wifi.scan()).toEqual([]);
+    expect(await wifi.scan()).toEqual({ ok: false, networks: [], error: 'radio off' });
   });
 
   it('a chosen adapter is passed to netsh as interface=; omitted otherwise', async () => {
@@ -90,17 +92,18 @@ describe('WifiManager.scan', () => {
 describe('WifiManager.listInterfaces', () => {
   it('lists every WLAN adapter on win32', async () => {
     const { wifi } = manager({ 'wlan show interfaces': ok(fixture('netsh_interfaces_two_en.txt')) });
-    const ifaces = await wifi.listInterfaces();
-    expect(ifaces.map((i) => [i.name, i.connected])).toEqual([
+    const res = await wifi.listInterfaces();
+    expect(res.ok).toBe(true);
+    expect(res.ifaces.map((i) => [i.name, i.connected])).toEqual([
       ['Wi-Fi', true],
       ['Wi-Fi 2', false],
     ]);
   });
 
-  it('non-Windows and netsh failure both degrade to an empty list', async () => {
-    expect(await manager({}, 'darwin').wifi.listInterfaces()).toEqual([]);
+  it('non-Windows is ok:true/empty; a netsh failure is ok:false WITH the reason', async () => {
+    expect(await manager({}, 'darwin').wifi.listInterfaces()).toEqual({ ok: true, ifaces: [] });
     const { wifi } = manager({ 'wlan show interfaces': fail('wlan svc down') });
-    expect(await wifi.listInterfaces()).toEqual([]);
+    expect(await wifi.listInterfaces()).toEqual({ ok: false, ifaces: [], error: 'wlan svc down' });
   });
 });
 
