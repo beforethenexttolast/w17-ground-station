@@ -11,12 +11,16 @@ necessary goes back through review first. W3 stays LOG-ONLY throughout; active
 pan/tilt is out of scope. When done, summarize results into `../CURRENT_STATUS.md`
 (the workspace status file), not into this document's rules.
 
-Prereqs: Windows GS host at checkpoint ≥ `b63479f`, `npm install` + `npm test` green,
+**`W17_WIFI_SIM` must be UNSET for every item below.** The simulation backend is a
+dev preview against canned netsh output (the app shows a SIMULATED WIFI tag when it
+is active) — it is never valid bench evidence; only the real OS layer counts here.
+
+Prereqs: Windows GS host at checkpoint ≥ `802df74`, `npm install` + `npm test` green,
 RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
 
 ## 1. Baseline
 
-- [ ] `git rev-parse --short HEAD`, `npm test` output (expect 217/217).
+- [ ] `git rev-parse --short HEAD`, `npm test` output (expect 263/263 at `802df74`).
 - [ ] `npm start` boots to GARAGE; `⚙` menu opens; `settings.json` appears under
       `%APPDATA%/w17-ground-station/` after any change.
 - Evidence: console excerpt + screenshot of GARAGE.
@@ -30,7 +34,18 @@ RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
 - [ ] Join a **new** network (password prompt) → connects; confirm no leftover
       `w17-wlan-*.xml` in `%TEMP%` (key material must be deleted).
 - [ ] Non-English Windows only: scan list still populates (structure-based parsing).
-- Evidence: screenshot of list + `netsh wlan show interfaces` after join.
+- [ ] ADAPTER row: with only the built-in WLAN adapter, the row shows a readonly
+      confirmation (name — description · connected SSID), no picker.
+- [ ] Plug in the RT5370 → RESCAN → the row becomes a picker listing both adapters;
+      choose the dongle and rescan/join — results now come from that interface
+      (spot-check against `netsh wlan show networks interface="Wi-Fi 2"`).
+- [ ] Unplug the dongle while it is the saved choice → RESCAN → picker falls back to
+      the remaining adapter with a `saved adapter … not found` hint; with zero WLAN
+      adapters the row shows the amber NO WLAN ADAPTER DETECTED dongle hint.
+- [ ] WLAN radio off (or WLAN AutoConfig stopped): join pane shows `SCAN FAILED —
+      <reason>` (never "NO NETWORKS FOUND") and the row shows ADAPTER LIST FAILED.
+- Evidence: screenshot of list + `netsh wlan show interfaces` after join, plus one
+  screenshot of the ADAPTER row in each state above.
 
 ## 3. Hotspot — Mobile Hotspot backend
 
@@ -71,6 +86,8 @@ RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
 
 - [ ] Real DualShock: listed by id; live test strip follows steer/throttle/brake;
       preset persists across app restart (HUD mirrors without re-selecting).
+- [ ] Mapping preview lights pressed buttons live (R2/L2/R1/L1/△/○/□ highlight their
+      pill/circle; releasing clears; right stick lights nothing).
 - [ ] Two pads connected: selection sticks to the chosen id.
 - Evidence: screenshot of SEAT FIT with the strip mid-input.
 
@@ -89,6 +106,8 @@ RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
       CRSF, or control effect anywhere** (there is no code path; observe anyway).
 - [ ] With packets flowing, PIT WALL shows the `USE <ip> · from HUD traffic` chip;
       chip fills the field; suggestion disappears ~30 s after packets stop.
+- [ ] While logging is enabled, the HUD session panel (after START) shows the amber
+      `HEAD-TRACK LOG · NO CONTROL` chip; disabling in `⚙` hides it.
 - Evidence: console lines + PIT WALL screenshot with the chip visible.
 
 ## 10. Full flow + lights

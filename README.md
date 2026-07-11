@@ -63,11 +63,14 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
 3. **SEAT FIT** — connected gamepads are detected automatically (first pad tagged *auto*)
    with a manual override; the layout preset (DualShock / Xbox / generic) is auto-suggested
    from the pad type and shown as a visual button-mapping preview (informational only — no
-   camera/pan-tilt mapping) next to a live test strip. Keyboard fallback remains.
+   camera/pan-tilt mapping) next to a live test strip. Pressing a button lights it up in
+   the preview, proving the mapping instantly. Keyboard fallback remains.
 4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
    iPhone reachability (iPhone mode), elrs-joystick-control detected (with a LAUNCH
-   button). START enables when required checks pass; an amber **START ANYWAY** always
-   works — the viewer must never lock you out of driving. Then five red lights… lights out.
+   button). A summary strip shows what's configured (mode · network · adapter · pad) and
+   every failing check carries a one-line fix hint. START enables when required checks
+   pass; an amber **START ANYWAY** always works — the viewer must never lock you out of
+   driving. Then five red lights… lights out.
 
 Choices persist in `settings.json` under Electron's userData dir; **env vars always
 override persisted settings** (dev/CI behavior unchanged). The ⚙ menu is a modal
@@ -133,9 +136,11 @@ transitions (`idle/inactive/not_centered/active_log_only/stale/invalid`).
 
 The ⚙ settings menu has the same switch ("head-track logging — diagnostic only, no
 camera control"), off by default; a set `W17_HEADTRACK` env var (even `0`) overrides it.
-Either way the receiver stays LOG-ONLY — its only side effect beyond logs is exposing
-the last sender's IP as an address *suggestion* in the setup flow (user-confirmed,
-never packet contents).
+While the listener is active, the HUD session panel shows an amber
+`HEAD-TRACK LOG · NO CONTROL` chip — driven by the listener's on/off state only, never
+by received packets. Either way the receiver stays LOG-ONLY — its only side effect
+beyond logs is exposing the last sender's IP as an address *suggestion* in the setup
+flow (user-confirmed, never packet contents).
 
 ### Troubleshooting (dev environment)
 
