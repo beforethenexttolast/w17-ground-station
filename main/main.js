@@ -26,6 +26,7 @@ const { createSettingsStore } = require('./settingsStore.js');
 const { SessionRuntime } = require('./sessionRuntime.js');
 const { WifiManager } = require('./wifiManager.js');
 const { HotspotManager } = require('./hotspot.js');
+const { simScenario, createSimRun } = require('./wifiSim.js');
 const { ElrsLauncher } = require('./elrsLauncher.js');
 const { HostProbe } = require('./hostProbe.js');
 const { createRemoteAddrHint } = require('./remoteAddrHint.js');
@@ -53,9 +54,17 @@ let settingsStore = null;
 let runtime = null;
 let lastEffective = null;
 
-// Setup-flow platform services (thin IO; all soft-fail with reasons).
-const wifi = new WifiManager({ log: (m) => console.log(m) });
-const hotspot = new HotspotManager({ log: (m) => console.log(m) });
+// Setup-flow platform services (thin IO; all soft-fail with reasons). With
+// W17_WIFI_SIM set (dev preview only) both managers run against the canned
+// netsh/powershell runner from wifiSim.js — same managers, same parsers, no OS.
+const wifiSim = simScenario(process.env, (m) => console.log(m));
+const simRun = wifiSim ? createSimRun(wifiSim, (m) => console.log(m)) : null;
+const wifi = simRun
+  ? new WifiManager({ run: simRun, platform: 'win32', log: (m) => console.log(m) })
+  : new WifiManager({ log: (m) => console.log(m) });
+const hotspot = simRun
+  ? new HotspotManager({ run: simRun, platform: 'win32', log: (m) => console.log(m) })
+  : new HotspotManager({ log: (m) => console.log(m) });
 const elrs = new ElrsLauncher({ log: (m) => console.log(m) });
 const hostProbe = new HostProbe();
 // Last accepted W3 datagram's SENDER IP (transport metadata only) — feeds the
@@ -151,7 +160,7 @@ function registerIpcHandlers() {
   ipcMain.handle('wifi:capabilities', async () => {
     const caps = wifi.capabilities();
     const backends = await hotspot.probeBackends();
-    return { ...caps, canHotspot: backends.canHotspot, hotspotBackend: backends.preferred };
+    return { ...caps, canHotspot: backends.canHotspot, hotspotBackend: backends.preferred, sim: !!simRun };
   });
   ipcMain.handle('wifi:interfaces', () => wifi.listInterfaces());
   ipcMain.handle('wifi:scan', (_event, opts) => wifi.scan(opts || {}));

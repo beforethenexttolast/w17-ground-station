@@ -110,6 +110,9 @@ async function enterPitwall() {
   el('hsSsid').value = settings?.network?.hotspot?.ssid || 'W17-GRID';
   el('hsPass').value = settings?.network?.hotspot?.password || generatePassword();
   caps = gs ? await gs.wifiCapabilities() : { canScan: false, canHotspot: false };
+  // Dev preview (W17_WIFI_SIM): canned netsh output — flag it so a simulated
+  // network step can never be mistaken for the real OS layer.
+  el('wifiSimTag').classList.toggle('hidden', !caps.sim);
   netTabs.classList.toggle('hidden', !caps.canScan && !caps.canHotspot);
   if (!caps.canScan && !caps.canHotspot) {
     showNetTab('guide');

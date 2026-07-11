@@ -151,6 +151,8 @@ body{background:#000;color:var(--silver);
 .cols .netpane{align-items:flex-start}
 .colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(9px,1vw,11px);text-transform:uppercase}
 .colhead small{color:var(--muted);letter-spacing:.08em;font-weight:400;text-transform:none;margin-left:.6em}
+.colhead .simtag{color:var(--amber);letter-spacing:.2em;font-weight:700;text-transform:uppercase}
+.colhead .simtag.hidden{display:none}
 .hint{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.05em;line-height:1.55;max-width:46ch}
 .hint[title]{cursor:help}
 .adapterrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap}

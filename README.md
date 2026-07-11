@@ -75,6 +75,13 @@ unit-tested against canned command output but **not yet validated on the Windows
 bench** — `docs/setup_flow_bench_checklist.md` is the step-by-step runbook with
 evidence boxes; treat those paths as unproven until it's executed.
 
+Any OS can *preview* the network step against that same canned output:
+`W17_WIFI_SIM=two-adapters npm start` (also `one-adapter`, `no-adapter`,
+`netsh-fail`) runs the real WiFi/hotspot managers and parsers on a simulated
+netsh/powershell, so PIT WALL scan/join/hotspot work on the macOS dev machine with
+no hardware. A **SIMULATED WIFI** tag marks the step; this is a dev preview only and
+never counts as bench evidence.
+
 ### iPhone telemetry bridge (optional, off by default)
 
 Windows can also stream the normalized telemetry snapshot to the companion iPhone FPV
