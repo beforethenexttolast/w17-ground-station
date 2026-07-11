@@ -47,8 +47,11 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    view later). Persisted values stay `solo` / `iphone-hud` — display labels only.
 2. **PIT WALL** *(iPhone mode, Windows)* — scan and join a WiFi network, or start a local
    hotspot (SSID `W17-GRID` by default; Mobile Hotspot backend preferred, legacy
-   `hostednetwork` fallback for the RT5370 dongle). With more than one WLAN adapter an
-   ADAPTER picker appears and pins netsh scan/join to the chosen interface (persisted).
+   `hostednetwork` fallback for the RT5370 dongle). An ADAPTER row always shows which
+   WLAN adapter netsh will use: readonly with one adapter, a picker with several
+   (pinning scan/join to the chosen interface, persisted), and a dongle
+   troubleshooting hint when none is detected or listing fails. RESCAN re-detects
+   adapters as well as networks, so plugging the dongle in mid-step just works.
    The client-isolation warning is a one-line hint (full text on hover) — pick a network
    that allows device-to-device traffic. Enter/confirm the iPhone's IP (validated; a
    suggestion chip appears when the log-only head-track listener is hearing the phone).

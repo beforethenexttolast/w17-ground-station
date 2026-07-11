@@ -10,6 +10,7 @@ import { startRide, hudStatus, setControllerChoice } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
+import { adapterRowState, scanStatusText } from '../shared/wifiView.mjs';
 import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId } from '../shared/inputPresets.mjs';
 import { padPreviewSvg } from './padPreview.js';
 import { sounds, setSoundEnabled } from './sounds.js';
@@ -86,6 +87,8 @@ const netList = el('netList'), netPwRow = el('netPwRow'), netPassword = el('netP
 const joinStatus = el('joinStatus'), hsStatus = el('hsStatus'), guideStatus = el('guideStatus');
 const addrInput = el('iphoneAddr'), addrSuggest = el('addrSuggest'), addrStatus = el('addrStatus');
 const adapterRow = el('adapterRow'), adapterSelect = el('adapterSelect');
+const adapterLabel = el('adapterLabel'), adapterHint = el('adapterHint');
+let adapterMode = 'missing'; // wifiView row mode; only 'select' offers a picker
 let netKind = 'join';
 let joinTarget = null;
 let hintTimer = null;
@@ -125,25 +128,39 @@ async function enterPitwall() {
   pollAddrHint();
 }
 
-// WLAN adapter picker: shown only when more than one adapter exists (built-in
-// vs USB dongle); the choice pins netsh scan/join to that interface.
+// ADAPTER row — always visible where netsh exists (Windows/sim): it confirms
+// which WLAN adapter scan/join will use, becomes a picker when several exist
+// (built-in vs USB dongle; the choice pins netsh to that interface), and
+// says so with a hint when none is detected or listing failed. All decisions
+// live in shared/wifiView.mjs; this only renders the returned state.
 async function refreshAdapters() {
   const res = gs && gs.wifiInterfaces ? await gs.wifiInterfaces() : { ok: true, ifaces: [] };
-  const ifaces = res.ifaces || [];
-  adapterRow.classList.toggle('hidden', ifaces.length < 2);
-  if (ifaces.length < 2) { adapterSelect.replaceChildren(); return; }
-  adapterSelect.replaceChildren(...ifaces.map((i) => {
-    const o = document.createElement('option');
-    o.value = i.name;
-    o.textContent = `${i.name}${i.description ? ` — ${i.description}` : ''}${i.connected ? ` · ${i.ssid}` : ''}`;
-    return o;
-  }));
-  const saved = settings?.network?.adapter;
-  if (saved && ifaces.some((i) => i.name === saved)) adapterSelect.value = saved;
+  const state = adapterRowState(res, settings?.network?.adapter);
+  adapterMode = state.mode;
+  adapterRow.classList.toggle('hidden', !caps?.canScan);
+  adapterSelect.classList.toggle('hidden', state.mode !== 'select');
+  adapterLabel.classList.toggle('hidden', state.mode === 'select');
+  adapterLabel.classList.toggle('warn', state.mode === 'missing' || state.mode === 'failed');
+  adapterLabel.textContent = state.mode === 'select' ? '' : state.label;
+  adapterHint.textContent = state.hint || '';
+  adapterHint.classList.toggle('hidden', !caps?.canScan || !state.hint);
+  if (state.mode === 'select') {
+    adapterSelect.replaceChildren(...state.options.map((o) => {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      return opt;
+    }));
+    adapterSelect.value = state.selected;
+  } else {
+    adapterSelect.replaceChildren();
+  }
 }
 
+// Single adapter passes undefined — netsh's default interface, the exact
+// pre-picker behavior; only an actual picker choice pins the interface.
 function chosenAdapter() {
-  return adapterRow.classList.contains('hidden') ? undefined : (adapterSelect.value || undefined);
+  return adapterMode === 'select' ? (adapterSelect.value || undefined) : undefined;
 }
 
 adapterSelect.addEventListener('change', () => {
@@ -179,11 +196,7 @@ async function rescan() {
   joinStatus.textContent = 'SCANNING…';
   const res = await gs.wifiScan({ iface: chosenAdapter() });
   const nets = res.networks || [];
-  // A failed scan (radio off, WLAN service down) is NOT an empty airspace —
-  // show the reason instead of a misleading "no networks".
-  joinStatus.textContent = res.ok
-    ? (nets.length ? '' : 'NO NETWORKS FOUND')
-    : `SCAN FAILED — ${res.error || 'unknown error'}`;
+  joinStatus.textContent = scanStatusText(res);
   netList.replaceChildren(...nets.map((n) => {
     const row = document.createElement('button');
     row.className = 'netrow';
@@ -195,7 +208,9 @@ async function rescan() {
     return row;
   }));
 }
-el('netRescan').addEventListener('click', () => { sounds.uiTick(); rescan(); });
+// RESCAN re-detects adapters too — plugging the dongle in while sitting on
+// PIT WALL must not require leaving the step.
+el('netRescan').addEventListener('click', async () => { sounds.uiTick(); await refreshAdapters(); rescan(); });
 
 function selectNetwork(n, row) {
   sounds.uiTick();

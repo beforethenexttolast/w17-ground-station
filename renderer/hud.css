@@ -158,6 +158,10 @@ body{background:#000;color:var(--silver);
 .adapterrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap}
 .adapterrow label{color:var(--muted);letter-spacing:.22em;font-size:clamp(8px,1vw,11px);font-weight:700}
 .adapterrow.hidden{display:none}
+.adapterrow span{color:var(--silver);font-size:clamp(9px,1.1vw,12px);letter-spacing:.05em}
+.adapterrow span.warn{color:var(--amber)}
+.adapterrow span.hidden,.adapterrow select.hidden{display:none}
+.hint.hidden{display:none}
 .stepname{color:var(--teal);letter-spacing:.4em;font-weight:800;text-transform:uppercase;
   font-size:clamp(11px,1.4vw,15px)}
 /* team radio: out of the main vertical flow — pinned to the bottom-left corner */
