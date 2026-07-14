@@ -431,6 +431,15 @@ describe('registerIpcHandlers — delegation and renderer-visible answers (audit
             expect(JSON.stringify(res.effective)).not.toContain('grid-secret-1');
             expect(JSON.stringify(res.envOverridden)).not.toContain('grid-secret-1');
             expect(res.settings.network.hotspot.password).toBe('grid-secret-1');
+            // audit E1: the non-secret credential status rides settings:get, and
+            // it carries NEITHER the value NOR any ciphertext/safeStorage detail.
+            expect(Object.keys(res.credential).sort()).toEqual(['encryptionAvailable', 'hasPassword', 'state']);
+            const credJson = JSON.stringify(res.credential);
+            expect(credJson).not.toContain('grid-secret-1');
+            expect(credJson).not.toContain('w17cred:');
+            expect(credJson).not.toContain('passwordEnc');
+            // No ciphertext token anywhere in the whole settings:get answer.
+            expect(JSON.stringify(res)).not.toContain('w17cred:');
         } finally { t.cleanup(); }
     });
 

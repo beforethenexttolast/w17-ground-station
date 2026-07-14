@@ -10,7 +10,7 @@
 // settings (shared/settings.js `resolveEffective`); with no env vars and a
 // fresh settings file the app behaves exactly like the pre-settings build.
 
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -20,6 +20,7 @@ const { IphoneTelemetryBridge } = require('./IphoneTelemetryBridge.js');
 const { HeadTrackingReceiver } = require('./HeadTrackingReceiver.js');
 const { w3ConfigFor } = require('./headTrackingConfig.js');
 const { createSettingsStore } = require('./settingsStore.js');
+const { createCredentialStore } = require('./credentialStore.js');
 const { SessionRuntime } = require('./sessionRuntime.js');
 const { createQuitPolicy } = require('./quitPolicy.js');
 const { ElrsLauncher } = require('./elrsLauncher.js');
@@ -119,9 +120,14 @@ app.whenReady().then(async () => {
   mediamtx = new MediamtxSupervisor({ binaryPath, configPath, log });
   mediamtx.start();
 
+  // The hotspot password is encrypted at rest via Electron safeStorage (OS
+  // keystore: DPAPI / Keychain / libsecret) — audit E1 / decision Q6. safeStorage
+  // is main-process only and never crosses preload; when it is unavailable the
+  // store keeps the credential in memory for the session only, never as plaintext.
   settingsStore = createSettingsStore({
     dir: app.getPath('userData'),
     log,
+    credentialStore: createCredentialStore({ safeStorage, log }),
   });
 
   // linkState lives in an ES module (shared/linkState.mjs, consumed by the

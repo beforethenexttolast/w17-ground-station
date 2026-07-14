@@ -1244,3 +1244,58 @@ describe('renderer boot/config integration (audit D2)', () => {
     }
   });
 });
+
+describe('hotspot credential — transient join key + honest storage status (audit E1)', () => {
+  it('a Wi-Fi join never persists the join password (it rides wifi:join only)', async () => {
+    const gs = mockGs();
+    await loadPitwall(gs);
+    document.querySelector('#netList .netrow').click(); // unknown net -> password row
+    el('netPassword').value = PASSWORD;
+    el('netJoinBtn').click();
+    await tick();
+    expect(gs.wifiJoin).toHaveBeenCalled();
+    // The join key is NEVER written to settings — no setSettings patch carries it.
+    const persistedJoinKey = gs.setSettings.mock.calls.some(
+      (c) => JSON.stringify(c[0] || {}).includes(PASSWORD),
+    );
+    expect(persistedJoinKey).toBe(false);
+  });
+
+  it('shows a session-only note (never the value) when secure storage is unavailable', async () => {
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({
+        settings: defaultSettings(), envOverridden: {},
+        credential: { state: 'session-only', encryptionAvailable: false, hasPassword: true },
+      })),
+    });
+    await loadPitwall(gs);
+    const note = el('hsCredNote');
+    expect(note.classList.contains('hidden')).toBe(false);
+    expect(note.textContent).toMatch(/session only/i);
+    expect(note.textContent).not.toContain(HS_PASSWORD);
+  });
+
+  it('shows an "enter it again" note when the saved credential is undecryptable', async () => {
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({
+        settings: defaultSettings(), envOverridden: {},
+        credential: { state: 'undecryptable', encryptionAvailable: true, hasPassword: false },
+      })),
+    });
+    await loadPitwall(gs);
+    expect(el('hsCredNote').classList.contains('hidden')).toBe(false);
+    expect(el('hsCredNote').textContent).toMatch(/enter it again/i);
+  });
+
+  it('shows no credential note when the credential is safely persisted', async () => {
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({
+        settings: defaultSettings(), envOverridden: {},
+        credential: { state: 'persisted', encryptionAvailable: true, hasPassword: true },
+      })),
+    });
+    await loadPitwall(gs);
+    expect(el('hsCredNote').classList.contains('hidden')).toBe(true);
+    expect(el('hsCredNote').textContent).toBe('');
+  });
+});

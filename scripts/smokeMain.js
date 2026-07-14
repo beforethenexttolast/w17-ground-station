@@ -251,6 +251,15 @@ async function run() {
     if (st.settings.setupCompleted !== false) fail('ipc-roundtrip', 'fresh profile settings report setupCompleted=true');
     if (st.settings.network.hotspot.password !== '') fail('ipc-roundtrip', 'fresh profile carries a hotspot password');
     if (/"password"\s*:\s*"[^"]/.test(JSON.stringify(st))) fail('ipc-roundtrip', 'a non-empty password rode the settings:get answer');
+    // audit E1: no ciphertext / safeStorage token ever rides the renderer answer,
+    // and the non-secret credential status is present with no password set.
+    const stJson = JSON.stringify(st);
+    if (stJson.includes('passwordEnc') || stJson.includes('w17cred:')) {
+      fail('ipc-roundtrip', 'a credential ciphertext token rode the settings:get answer');
+    }
+    if (!st.credential || typeof st.credential.encryptionAvailable !== 'boolean' || st.credential.hasPassword !== false) {
+      fail('ipc-roundtrip', 'settings:get credential status missing or wrong for the fresh smoke profile');
+    }
     if (!st.effective || st.effective.telemetrySource !== 'none' || st.effective.w3 !== false) {
       fail('ipc-roundtrip', 'settings:get effective block missing or wrong for the smoke environment');
     }

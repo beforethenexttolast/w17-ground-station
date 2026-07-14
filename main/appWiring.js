@@ -178,8 +178,16 @@ function registerIpcHandlers({ ipcMain, services }) {
 
     reg('settings:get', () => {
         const effective = sessionApplier.effective();
+        // load() decrypts the hotspot credential (for the PIT WALL pre-fill) and
+        // refreshes the credential status; read the status right after.
+        const settings = settingsStore.load();
         return {
-            settings: settingsStore.load(),
+            settings,
+            // Non-secret credential status (audit E1): state is one of
+            // none | persisted | session-only | unavailable | undecryptable |
+            // migration-failed, plus whether OS encryption is available and
+            // whether a password is set. NEVER the ciphertext or the value.
+            credential: settingsStore.credentialStatus(),
             envOverridden: effective ? effective.envOverridden : {},
             // Effective values for the env-locked ⚙ controls (audit C3): the ⚙
             // menu shows THESE (not the ignored persisted values) when locked.

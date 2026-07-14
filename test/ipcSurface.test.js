@@ -159,6 +159,17 @@ describe('preload minimalism (audit D2)', () => {
         ]);
     });
 
+    it('exposes no safeStorage or raw credential/crypto primitive (audit E1)', () => {
+        // The hotspot credential is encrypted ONLY in the main process; the
+        // renderer sees decrypted plaintext (pre-fill) + a non-secret status via
+        // settings:get, never a keystore primitive or a dedicated crypto channel.
+        for (const forbidden of ['safeStorage', 'encryptString', 'decryptString', 'credentialStore']) {
+            expect(preloadSrc, `preload must not mention ${forbidden}`).not.toContain(forbidden);
+        }
+        expect(preloadInvokes).not.toContain('credential:get');
+        expect(preloadInvokes).not.toContain('credential:set');
+    });
+
     it('event subscriptions return an unsubscribe (no listener-leak surface)', () => {
         // Both on* methods must removeListener on the returned disposer.
         const onBlocks = preloadSrc.split('ipcRenderer.on(').slice(1);

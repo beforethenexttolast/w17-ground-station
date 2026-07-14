@@ -31,6 +31,7 @@ const lightsEl = el('lights');
 let settings = null;
 let envOverridden = {};
 let envEffective = {}; // effective values for env-locked ⚙ controls (audit C3)
+let credential = null; // non-secret hotspot-credential status from main (audit E1)
 let mode = 'solo';
 let step = 'garage';
 let lightsRunning = false;
@@ -135,7 +136,7 @@ const adapterPick = el('adapterPick'), adapterPickLabel = el('adapterPickLabel')
 const adapterSelNote = el('adapterSelNote'), adapterRescan = el('adapterRescan');
 const hsSsidInput = el('hsSsid'), hsPassInput = el('hsPass');
 const hsStartBtn = el('hsStart'), hsStopBtn = el('hsStop');
-const hsHint = el('hsHint'), hsRecheck = el('hsRecheck');
+const hsHint = el('hsHint'), hsRecheck = el('hsRecheck'), hsCredNote = el('hsCredNote');
 let adapterMode = 'missing'; // wifiView card mode; only 'select' offers a picker
 let adapterRes = null;       // last listInterfaces result — re-render on picker change without re-querying netsh
 let netKind = 'join';
@@ -165,6 +166,7 @@ async function enterPitwall() {
   addrInput.value = settings?.iphoneAddr || '';
   hsSsidInput.value = settings?.network?.hotspot?.ssid || 'W17-GRID';
   hsPassInput.value = settings?.network?.hotspot?.password || generatePassword();
+  renderCredNote();
   // wifi:capabilities answers instantly now (platform + sim flag only): the
   // slow WinRT hotspot probe moved to its own non-blocking channel (audit N3),
   // so PIT WALL renders and stays usable while that probe runs.
@@ -341,6 +343,38 @@ function generatePassword() {
   crypto.getRandomValues(rnd);
   for (const r of rnd) out += chars[r % chars.length];
   return out;
+}
+
+// Hotspot credential status note (audit E1). Truthful, non-secret: the note
+// only reflects the STORAGE state main reports — it never shows the password.
+function credNoteText(c) {
+  if (!c) return '';
+  switch (c.state) {
+    case 'session-only':
+    case 'unavailable':
+      return 'Secure storage is unavailable here — the hotspot password is kept for this session only and will not be saved when you close the app.';
+    case 'undecryptable':
+      return 'The saved hotspot password could not be read on this machine — enter it again to use the hotspot.';
+    case 'migration-failed':
+      return 'The saved hotspot password could not be secured — it will be re-secured next time it is saved.';
+    default:
+      return '';
+  }
+}
+
+function renderCredNote() {
+  const text = credNoteText(credential);
+  hsCredNote.textContent = text;
+  hsCredNote.classList.toggle('hidden', !text);
+}
+
+// Re-pull the non-secret credential status after a save that (re)sets the
+// password, so e.g. an "enter it again" note clears once the credential is
+// secured. No secret rides this — only the status field.
+async function refreshCredential() {
+  if (!gs || !gs.getSettings) return;
+  const r = await ipc(gs.getSettings(), null, 'settings:get:cred');
+  if (r && r.credential) { credential = r.credential; renderCredNote(); }
 }
 
 async function rescan() {
@@ -540,7 +574,8 @@ hsStartBtn.addEventListener('click', async () => {
   );
   if (res.ok) {
     radio(`PIT WALL: HOTSPOT ${res.ssid} IS LIVE`);
-    save({ network: { kind: 'hotspot', hotspot: { ssid, password } } });
+    await save({ network: { kind: 'hotspot', hotspot: { ssid, password } } });
+    refreshCredential();
   } else if (res.rejected && step === 'pitwall') {
     hsStatus.textContent = 'HOTSPOT FAILED — the network layer did not respond; retry';
   }
@@ -1010,6 +1045,7 @@ async function boot() {
   settings = res.settings;
   envOverridden = res.envOverridden || {};
   envEffective = res.effective || {};
+  credential = res.credential || null;
   mode = settings.fpvMode;
   setSoundEnabled(settings.soundEnabled);
   if (settings.setupCompleted) {

@@ -183,8 +183,14 @@ REQUIRES HARDWARE / REQUIRES USER DECISION. Since the tree is unchanged from
 - Evidence: `renderer/setupFlow.js:173-184` (`leavePitwall` saves `hotspot.password`
   every visit) → `settings.json` under userData. Wi-Fi *join* passwords are NOT persisted
   (only via netsh profile; temp XML deleted). Acceptable for a hobby tool; on disk though.
-- **Revalidation: STILL PRESENT — REQUIRES USER DECISION** (storage policy). Never-log
-  guarantee is objective and will be enforced regardless. Batch: **E1**.
+- **Revalidation: STILL PRESENT → FIXED in E1** (decision Q6). The hotspot password is
+  now encrypted at rest via Electron safeStorage (DPAPI/Keychain/libsecret) — on disk only
+  as a versioned `network.hotspot.passwordEnc` ciphertext token, plaintext blanked
+  (incl. `.bak`); no plaintext fallback; legacy plaintext migrated (encrypt or quarantine);
+  session-only when encryption is unavailable; undecryptable/corrupt degrades to re-enter
+  without a crash and with unrelated settings intact; the value and ciphertext are never
+  logged. Wi-Fi *join* passwords remain transient (never persisted). Real Windows DPAPI
+  behavior REQUIRES HARDWARE. Batch: **E1 — DONE (code), DPAPI bench-pending**.
 
 ### DESIGN QUESTIONS (all REQUIRE USER DECISION)
 
@@ -317,7 +323,7 @@ Windows). Tests: `test/runCommand.test.js` (timeout result shape, cross-platform
 | D2 | V2/N1 setup-flow DOM tests (smallest env; likely jsdom via vitest) | objective — **DONE** |
 | D3 | V2 Electron boot smoke (Windows CI job) | objective — **DONE** (local; CI execution pending push) |
 | D4 | Command-generation tests (spaces, non-ASCII SSIDs, special-char passwords, argv separation, XML escaping) | objective — **DONE** |
-| E1 | L6 credential storage policy + never-log guarantee | **user decision: policy** (never-log objective) |
+| E1 | L6 credential storage policy + never-log guarantee | **user decision: policy** (never-log objective) — **DONE (code), DPAPI bench-pending** |
 | F | L5 + all doc sync (checklist prereqs, CURRENT_STATUS pointer, readiness-doc stale note, adapter/hotspot/sim/permission docs; contract §1–§7 untouched) | objective |
 | G | Wider proposal pass (proposals only, no unapproved implementation) | proposals |
 
@@ -787,55 +793,97 @@ including on a localized Windows build.
   dirs; `git diff --check` clean; working tree = **1 M `test/appWiring.test.js`** (+ this
   audit update). **E1 remains GATED until the pushed rerun of the windows-latest job is
   green.** NOT committed.
+- 2026-07-14 — **D3 Windows-CI test correction COMMITTED by the user as `8ceb931`**
+  ("test: make mediamtx path assertions cross-platform") — now HEAD, pushed to
+  `origin/main`. **Windows CI is GREEN:** run `29361964757` (push of `8ceb931`) succeeded
+  end-to-end — the windows-latest `package-smoke` job ran `npm ci` → `ensure-electron` →
+  `npm test` (now passing on Windows) → **`npm run smoke:electron` (the boot smoke's FIRST
+  remote execution — PASS)** → the electron-builder `--dir` package step. The D3 gate is
+  fully closed: the last unexercised piece (the windows-latest CI job itself, incl. the real
+  boot smoke on Windows) has now run green. **E1 is UNGATED.** (The earlier checkpoint text
+  that frames D3 CI as red/pending is superseded by this entry.)
+- 2026-07-14 — **Batch E1 complete (code) — hotspot credential at-rest encryption
+  (L6 / decision Q6).** The one persisted secret (the hotspot password) is now encrypted
+  via Electron **safeStorage** (OS keystore: Windows DPAPI / macOS Keychain / Linux
+  libsecret) and **never written to disk as plaintext**. New `main/credentialStore.js`
+  (versioned `w17cred:v1:` token wrapper around an injected safeStorage; main-process only,
+  never exposed through preload; `available`/`protect`/`reveal`, reveal fails SAFE with a
+  stable non-secret `kind`, never throws, never logs the value). `main/settingsStore.js`
+  rewritten to own serialization + at-rest encryption: on disk the hotspot lives ONLY as
+  `network.hotspot.passwordEnc` (ciphertext) with the plaintext `password` field blanked
+  (and blanked in `.bak` too); in memory / over IPC the LOGICAL object still carries the
+  decrypted `password` for the PIT WALL pre-fill; legacy plaintext is migrated on first load
+  (encrypt when possible, else quarantine off disk, kept in memory for the session);
+  undecryptable/foreign/corrupt tokens degrade to a controlled "re-enter" with every
+  unrelated setting intact and no crash; migration write failure returns a controlled
+  `migration-failed` status without destroying the recoverable value; the credential value
+  and ciphertext are NEVER logged. `main/main.js` injects `createCredentialStore({ safeStorage })`.
+  `main/appWiring.js` `settings:get` gains a non-secret `credential` status
+  (`{ state, encryptionAvailable, hasPassword }`) — never ciphertext or the value.
+  `renderer/index.html` + `renderer/setupFlow.js` add a truthful `#hsCredNote`
+  (session-only / re-enter / migration-failed messages; never the value).
+  `scripts/smokeMain.js` gains E1 assertions (no `passwordEnc`/`w17cred:` token in the
+  settings:get answer; non-secret credential status present; fresh profile `hasPassword:false`).
+  New `test/credentialStore.test.js` (**10**, DI fake safeStorage), `test/settings.test.js`
+  +14 E1 store cases (19→**33**), `test/setupFlowDom.test.js` +4 (66), `test/appWiring.test.js`
+  settings:get extended (credential shape/no-secret), `test/ipcSurface.test.js` +1
+  (preload exposes no safeStorage/crypto primitive, 15→**16**). Focused credential/settings/
+  DOM/guard **124/124**; wifi/hotspot + D2/D3 regressions **361/361**; full suite `npm test`
+  **686/686 (38 files, 0 skips)**; real `npm run smoke:electron` **4/4 PASS**; a scratchpad
+  real-Electron acceptance harness confirmed on live macOS Keychain: save→no plaintext on
+  disk + versioned token, restart→recovered, clear→token removed, unavailable→session-only
+  (lost on restart, no plaintext), corrupt ciphertext→no crash + unrelated settings intact
+  (never printed a decrypted secret). `git diff --check` clean. Real **Windows DPAPI**
+  behavior REQUIRES HARDWARE (bench). NOT committed. See the Batch E1 status section below.
 
 ---
 
 ## Current transfer checkpoint
 
 **Purpose: a self-contained handoff for a fresh model with NO conversation history or
-session memory. Describes the ACTUAL working tree after Batches A1 + A2 + A3, the A3
-adapter-card follow-up (Q7 Option 2), Batch B1 + B2 + N3 (hotspot lifecycle, quit policy,
-non-blocking probe, locale-neutral errors, sequence-race fix), Batch B3 + B4 (Wi-Fi
-security scope + reachability probe classification), **Batch C** (C1 video-state model,
-C2 replay chip, C3 env-locked settings, C5 W2-on-GRID docs; C4 re-validated), **Batch
-D1 + D4** (no-control-path directory sweep + command-generation hardening), **Batch D2**
-(main-process + setup-flow integration coverage, composition-root refactor — now
-COMMITTED as `0564141`), and **Batch D3** (deterministic Electron boot smoke + Windows
-CI step — now COMMITTED by the user as `297ca79`) — not the intended design. Authoritative
-cross-account handoff (session memory is a convenience copy). **D1, D4, D2, and D3 are
-DONE and COMMITTED. Next up is Batch E1 (Q6 credential encryption) and/or Batch F (doc
-sync)** — do not start until the D3 Windows CI rerun is green and the user resumes. G
-remains untouched. **The FIRST Windows CI run of `297ca79` (`29361212326`) FAILED at the
-`npm test` step — three POSIX-separator expectations in the `mediamtxPaths` tests, NOT a
-production defect** (`mediamtxPaths` correctly returns host-native paths; details in the
-2026-07-14 change-log entries above). A test-only correction is applied and PENDING
-commit/push; **E1 stays GATED until the rerun is green.** The boot-smoke step has still
-not run remotely (it was skipped when `npm test` failed).**
+session memory. Describes the ACTUAL working tree after Batches A1–D3 (all COMMITTED) plus
+**Batch E1** (hotspot credential at-rest encryption — code complete, UNCOMMITTED). D1/D4,
+D2 (`0564141`), and D3 (`297ca79`) landed; the D3 Windows-CI test correction landed as
+`8ceb931` (now HEAD) and **Windows CI is GREEN** (run `29361964757` — `npm test` + the boot
+smoke both ran green on windows-latest, closing the last D3 gate). Authoritative
+cross-account handoff (session memory is a convenience copy). **Next up after E1 review is
+Batch F (doc sync); G remains untouched.** E1 stays uncommitted for user review — do not
+commit or push; do not start F or G.**
 
 ### Repository state
 
 - Repo: `w17-ground-station` (nested git repo under `.../Documents/projects/`).
-- Branch: `main`. **HEAD commit: `297ca79`** ("test: add deterministic Electron boot
-  smoke", **committed by the user**) — exactly the 3 M + 4 ?? Batch D3 delta the previous
-  checkpoint listed as uncommitted (`.github/workflows/ci.yml`, this audit file,
-  `package.json`, `scripts/electron-smoke.js`, `scripts/smokeMain.js`,
-  `scripts/smokeShared.js`, `test/electronSmoke.test.js`). Parents: `0564141` ("test:
-  harden main-process integration wiring", the 5-file D2 completion set) ← `79fa2e0`
-  ("a lot of chagnes", the user's 62-file A1→D1/D4 + partial-D2 + contract-mirror commit)
-  ← `cf038c2` (the commit this audit originally examined; every finding above still
-  references that baseline).
-- **Uncommitted right now (the D3 Windows-CI test correction — 1 M, nothing else):**
+- Branch: `main`. **HEAD commit: `8ceb931`** ("test: make mediamtx path assertions
+  cross-platform", **committed by the user**, pushed) — the test-only correction that made
+  Windows CI green. Parents: `297ca79` ("test: add deterministic Electron boot smoke", D3)
+  ← `0564141` ("test: harden main-process integration wiring", D2) ← `79fa2e0` ("a lot of
+  chagnes", the user's 62-file A1→D1/D4 + partial-D2 + contract-mirror commit) ← `cf038c2`
+  (the commit this audit originally examined; every finding above still references that
+  baseline).
+- **Windows CI is GREEN at HEAD** (`8ceb931`, run `29361964757`): the windows-latest
+  `package-smoke` job ran `npm ci` → `ensure-electron` → `npm test` → `npm run smoke:electron`
+  (the boot smoke's first remote execution, PASS) → the `electron-builder --dir` package step.
+  The ubuntu `test` job is green too. D3 is fully closed.
+- **Uncommitted right now — Batch E1 (10 M + 2 ??):**
   ```
-   M test/appWiring.test.js   (3 mediamtxPaths asserts now build expected paths with node:path join)
+   M main/appWiring.js          (settings:get returns non-secret `credential` status)
+   M main/main.js               (inject createCredentialStore({ safeStorage }))
+   M main/settingsStore.js      (serialize + at-rest encryption + migration + status)
+   M renderer/index.html        (#hsCredNote)
+   M renderer/setupFlow.js      (capture credential; render #hsCredNote; refreshCredential)
+   M scripts/smokeMain.js       (E1 no-ciphertext + credential-status assertions)
+   M test/appWiring.test.js     (settings:get credential shape / no-secret)
+   M test/ipcSurface.test.js    (preload exposes no safeStorage/crypto primitive)
+   M test/settings.test.js      (+14 E1 store encryption/migration/session-only/corrupt)
+   M test/setupFlowDom.test.js  (+4 transient join key + credential-note states)
+  ?? main/credentialStore.js    (versioned safeStorage token wrapper, main-only)
+  ?? test/credentialStore.test.js (10, DI fake safeStorage)
   ```
-  (plus this audit-doc update, `M docs/audits/2026-07-12-pre-hardware-hardening-audit.md`).
-  The three `mediamtxPaths` assertions were the sole cause of the first Windows CI failure
-  on `297ca79`; they now compute expected values with the same `join` the production code
-  uses, so they pass on POSIX and Windows alike. `main/appWiring.js` is UNCHANGED — its
-  host-native `path.join` output was correct. Verified locally: appWiring 43/43, full
-  `npm test` 658/658 (37 files, 0 skips), `npm run smoke:electron` 4/4 PASS, no
-  orphans/temp dirs, `git diff --check` clean. **E1 stays GATED until the pushed rerun is
-  green.** NOT committed.
+  (plus this audit-doc update, `M docs/audits/2026-07-12-pre-hardware-hardening-audit.md`.)
+  Verified locally: focused credential/settings/DOM/guard 124/124, wifi/hotspot + D2/D3
+  regressions 361/361, full `npm test` **686/686 (38 files, 0 skips)**, real
+  `npm run smoke:electron` **4/4 PASS**, real-Electron E1 acceptance PASS on live macOS
+  Keychain, no orphans/temp dirs, `git diff --check` clean. NOT committed.
 - HISTORICAL — the Batch D3 delta (now inside `297ca79`):
   ```
    M .github/workflows/ci.yml   (package-smoke job: ensure-electron + npm test + smoke + artifact-on-failure)
@@ -978,7 +1026,7 @@ not run remotely (it was skipped when `npm test` failed).**
   `main/wifiManager.js` (3rd touch — mkdtemp temp dir), `main/runCommand.js` (2nd touch —
   `winTreeKillArgs` export); **new** `test/commandGeneration.test.js`.
 
-### Batch D3 status: COMPLETE + COMMITTED as `297ca79` — first Windows CI run RED (POSIX-separator test-only bug), correction pending; remote rerun still pending
+### Batch D3 status: COMPLETE + COMMITTED (`297ca79`) — Windows CI GREEN after the `8ceb931` test-only correction (boot smoke ran remotely, PASS)
 
 Scope was exactly **D3** (V2 closure: a REAL Electron boot smoke + a Windows CI step). It
 closes the last V2 gap the D2 unit layer could not — the actual Electron binding: live
@@ -1092,21 +1140,115 @@ runtime and prove preload execution via the exact-API stage instead; (3) `PWD`/`
 false-positived the secret redactor → exempted; (4) an unbounded parser pending-line →
 256 KB cap.
 
-**Remaining hardware-only / remote work (not closed by D3):** the windows-latest CI job
-itself must run once on push (the only D3 piece not yet exercised); everything else stays
-the §5 bench inventory (real netsh/WinRT/ping/localized-Windows, camera→mediamtx→WHEP,
-crsf-serial telemetry, iPhone W2/Local-Network + W3 log-only runbook). Sim/dev-preview is
-never bench evidence.
+**Remaining hardware-only / remote work (not closed by D3):** everything is now the §5
+bench inventory (real netsh/WinRT/ping/localized-Windows, camera→mediamtx→WHEP, crsf-serial
+telemetry, iPhone W2/Local-Network + W3 log-only runbook); the windows-latest CI job has now
+run green (D3 fully closed). Sim/dev-preview is never bench evidence.
 
-**Exact E/F starting point (next, do NOT start until the user resumes).** **E1** — Q6
-credential encryption (safeStorage/DPAPI, transparent plaintext→encrypted migration,
-ciphertext incl. `.bak`, in-memory-only session fallback when OS encryption is unavailable,
-undecryptable-secret recovery, never-log guarantee + redaction tests); the persisted
-hotspot password reaching the renderer only inside `settings.network.hotspot` is the
-documented E1 residual to close. **F** — L5 + doc sync (`../CURRENT_STATUS.md` pointer,
-`docs/setup_flow_bench_checklist.md` prereqs incl. `npm run setup`,
-`docs/iphone_bridge_readiness.md` stale-timeout note; `docs/windows_bridge_contract.md`
-§1–§7 untouched). **G** — proposals only. G remains untouched.
+**Exact F starting point (E1 is DONE; do NOT start F until the user resumes).** **E1** is
+complete (see the Batch E1 status section below) and uncommitted. **F** — L5 + doc sync:
+`../CURRENT_STATUS.md` pointer (records `3c16954`/217; HEAD is `8ceb931`/686 — the
+checkpoint-hash + test-count drift the user has been deferring), `docs/setup_flow_bench_checklist.md`
+prereqs (missing `npm run setup` mediamtx fetch + the `mediamtx.yml` camera-source edit),
+`docs/iphone_bridge_readiness.md` §4 stale-timeout note (400 ms/re-arm → contract's 300 ms/no
+re-arm), and an E1 note in `README.md`/`docs/SETUP.md` (credential is DPAPI-encrypted at rest;
+session-only when secure storage is unavailable). **`docs/windows_bridge_contract.md` §1–§7
+stays untouched.** **G** — proposals only. G remains untouched.
+
+### Batch E1 status: COMPLETE (code) — hotspot credential at-rest encryption; real Windows DPAPI bench-pending
+
+Scope was exactly **E1** (L6 / decision Q6): encrypt the one persisted secret — the hotspot
+password — at rest, migrate legacy plaintext, fall back to session-only when OS encryption is
+unavailable, recover gracefully from undecryptable ciphertext, and never leak the credential
+through logs/errors/diagnostics/snapshots/IPC metadata/tests/smoke logs. No control-path,
+CRSF-encoder, pan/tilt, camera, or W3-wiring change; W3/5602 stays log-only (the no-control
+directory sweep auto-includes the new `main/credentialStore.js` and stays green); contract
+§1–§7 untouched. The product network workflow is unchanged.
+
+**Architecture.** `main/credentialStore.js` (new, main-process only, NEVER exposed through
+preload) wraps an injected Electron `safeStorage`:
+
+| Member | Behavior |
+|---|---|
+| `available()` | `safeStorage.isEncryptionAvailable()`, guarded (throws → false). |
+| `protect(plaintext)` | `w17cred:v1:` + base64(`encryptString`). Requires `available()`; a throw surfaces (without the plaintext) so the caller falls back to session-only. The app invents/persists NO key — safeStorage owns the OS-account key (DPAPI / Keychain / libsecret). |
+| `reveal(token)` | `{ ok, value }` or `{ ok:false, kind }` where kind ∈ `bad-format` (not our token / unknown version) \| `unavailable` \| `decrypt-failed` (foreign account / moved settings / corrupt). NEVER throws; NEVER returns or logs the secret. |
+
+`main/settingsStore.js` owns serialization + at-rest encryption (injectable `credentialStore`
+and `fs`; default `nullCredentialStore` = never-available, so tests/omitted injection never
+write plaintext). `main/main.js` injects `createCredentialStore({ safeStorage })` (constructed
+after `app.whenReady`, so Linux's ready-gated backend is valid).
+
+**Persisted format.** On disk the hotspot is `{ ssid, password:"", passwordEnc:"w17cred:v1:<base64>" }`
+— the plaintext `password` field is ALWAYS blanked on disk (and in `.bak`), and the versioned
+ciphertext token is present only when a credential is persisted. In memory / over IPC the
+LOGICAL settings object carries the DECRYPTED `network.hotspot.password` (the PIT WALL
+pre-fill needs it — the smallest exposure that preserves the existing UX); `passwordEnc`
+NEVER leaves the store (`normalizeSettings` drops it, and the store overlays only the
+decrypted plaintext). The renderer-visible residual is therefore the decrypted plaintext
+inside `settings.network.hotspot` (unchanged from pre-E1), never ciphertext.
+
+**Migration ordering (crash-safe).** `load()` detects a non-empty legacy plaintext `password`
+and, once, rewrites the file: encrypt→`passwordEnc` when available, else quarantine (strip
+plaintext, keep the value in memory for the session). The write is `tmp`→(sanitized-`.bak`)→
+`rename`, where the backup copy blanks any legacy plaintext BEFORE it can land in `.bak`. A
+crash before `rename` leaves the legacy plaintext only in the original file (re-migrated next
+boot) — no plaintext is ever ADDED anywhere. Migration is best-effort: a write failure returns
+`migration-failed`, keeps the value in memory, never throws, never logs the value. An
+undecryptable-`passwordEnc`-only record has no legacy plaintext, so `load()` does NOT rewrite
+it (read-only) — the recoverable record is not destroyed prematurely; it is replaced only when
+the user saves a new password.
+
+**safeStorage-unavailable policy.** No plaintext is ever written. A password set while
+encryption is unavailable is held in memory for the session (`state:'session-only'`), never
+persisted, and is gone on restart (a fresh instance reports `state:'unavailable'`). If
+encryption becomes available on a later launch, the previously session-only value did not
+persist; a re-entered password is then encrypted.
+
+**Corrupt / undecryptable behavior.** Foreign-account / moved-settings / corrupt / bad-format
+/ unknown-version tokens → `state:'undecryptable'`, password blanked (ciphertext is never
+shown as a password), unrelated settings fully intact, no crash, a single stable non-secret
+diagnostic (never spammy, never the value). The broken record can be cleared or replaced.
+
+**Renderer-visible status model.** `settings:get` adds `credential: { state, encryptionAvailable,
+hasPassword }` — `state ∈ none | persisted | session-only | unavailable | undecryptable |
+migration-failed`. It carries NEITHER the value NOR ciphertext/safeStorage detail. The
+renderer shows a truthful `#hsCredNote` (session-only "kept for this session only", undecryptable
+"enter it again", migration-failed "will be re-secured") and never the value. Preload exposes
+no safeStorage primitive and no credential channel (the 20-method surface is unchanged; the
+status rides `settings:get`). The transient **Wi-Fi join** password is unchanged: it rides
+`wifi:join` only and is never persisted.
+
+**Never-log guarantee.** credentialStore never logs the value or ciphertext (diagnostics carry
+a `kind` only); the store's migration/corruption logs carry no value; the renderer's N1 IPC
+guard already withholds detail on credential-carrying channels; the D3 smoke's log sanitizer
+already redacts `W17_HOTSPOT_PASS`-class env values. Redaction was NOT broadened into a
+sanitizer that would hide non-secret diagnostics (unnecessary — no path logs the credential).
+
+**Tests + acceptance evidence.** `test/credentialStore.test.js` (**10**, DI fake safeStorage,
+tricky secrets: spaces/quotes/&/<>/unicode/path-like/token-resembling — round-trip + safe-fail
++ never-log). `test/settings.test.js` +14 (encrypt+persist, decrypt-after-restart, no plaintext
+on disk incl. `.bak`, versioned format, clear, replace, legacy migration, migration write
+failure, unavailable→session-only, becomes-available-later, undecryptable, corrupt record,
+unrelated-settings-intact, env-credential-never-persisted). `test/appWiring.test.js` (settings:get
+credential shape / no ciphertext / no value). `test/ipcSurface.test.js` +1 (preload exposes no
+safeStorage/crypto primitive). `test/setupFlowDom.test.js` +4 (transient join key not persisted;
+session-only / undecryptable / persisted note states). Focused **124/124**; wifi/hotspot + D2/D3
+regressions **361/361**; full suite `npm test` **686/686 (38 files, 0 skips)**; real
+`npm run smoke:electron` **4/4 PASS** (fresh profile: no ciphertext in the answer, credential
+status present, `hasPassword:false`). A scratchpad real-Electron acceptance harness (never
+committed; prints only non-secret booleans/states) confirmed on **live macOS Keychain**:
+save→no plaintext on disk + `w17cred:v1:` token + status `persisted`; restart→recovered;
+clear→token removed + status `none`; unavailable→no plaintext + no token + status `session-only`
++ held-this-session + lost-on-restart; corrupt ciphertext→no crash + password blank + status
+`undecryptable` + `fpvMode`/`iphoneAddr` intact.
+
+**Remaining Windows-only verification (after this pass).** Real **Windows DPAPI** behavior on
+the bench: encrypt/decrypt round-trip in the packaged app under the actual user account; a
+credential saved on one Windows account is `undecryptable` (re-enter) on another account /
+machine; `settings.json` on disk shows `passwordEnc` (a DPAPI blob) and an empty `password`;
+Windows firewall/UAC do not interfere. Sim/dev-preview and macOS Keychain evidence are NOT
+Windows-DPAPI evidence.
 
 ### Batch D2 status: COMPLETE (code) — real-Electron boot proof landed in D3 (above)
 
