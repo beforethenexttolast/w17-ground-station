@@ -14,6 +14,7 @@ import {
     createNetworkServices,
     telemetrySourceFor,
     createSessionApplier,
+    createKeyedInstance,
     mediamtxPaths,
     registerIpcHandlers,
     wireHotspotPush,
@@ -292,6 +293,73 @@ describe('createSessionApplier — startup and effective configuration (audit D2
             expect(applyW3).toHaveBeenCalledTimes(1);
             expect(applyW3.mock.calls[0][0].envOverridden.w3).toBe(true);
         } finally { t.cleanup(); }
+    });
+});
+
+// ---------- keyed instance: the W3 receiver's restart choreography ----------
+
+describe('createKeyedInstance — idempotent keyed restart (audit D2, the W3 holder)', () => {
+    function harness() {
+        const events = [];
+        const made = [];
+        const holder = createKeyedInstance({
+            construct: (cfg) => {
+                events.push('construct');
+                const inst = {
+                    cfg,
+                    started: 0,
+                    stopped: 0,
+                    start() { this.started += 1; events.push('start'); },
+                    stop() { this.stopped += 1; events.push('stop'); },
+                };
+                made.push(inst);
+                return inst;
+            },
+        });
+        return { holder, events, made };
+    }
+
+    it('re-applying an identical config keeps the same instance running (no restart on GRID re-entry)', () => {
+        const { holder, made } = harness();
+        expect(holder.apply({ port: 5602, staleMs: 300 })).toBe(true);
+        expect(holder.apply({ port: 5602, staleMs: 300 })).toBe(true);
+        expect(holder.apply({ port: 5602, staleMs: 300 })).toBe(true);
+        expect(made.length).toBe(1);
+        expect(made[0].started).toBe(1);
+        expect(made[0].stopped).toBe(0);
+    });
+
+    it('a changed config stops the OLD instance before constructing the new one', () => {
+        const { holder, events, made } = harness();
+        holder.apply({ port: 5602 });
+        holder.apply({ port: 5700 });
+        expect(events).toEqual(['construct', 'start', 'stop', 'construct', 'start']);
+        expect(made.length).toBe(2);
+        expect(made[0].stopped).toBe(1);
+        expect(made[1].cfg).toEqual({ port: 5700 });
+        expect(made[1].stopped).toBe(0);
+    });
+
+    it('a null config stops and clears; repeated null stays stopped (idempotent off — the teardown path)', () => {
+        const { holder, made } = harness();
+        holder.apply({ port: 5602 });
+        expect(holder.apply(null)).toBe(false);
+        expect(made[0].stopped).toBe(1);
+        expect(holder.apply(null)).toBe(false); // no second stop, no construct
+        expect(made.length).toBe(1);
+        expect(made[0].stopped).toBe(1);
+        expect(holder.active()).toBe(false);
+    });
+
+    it('off -> on -> off -> on creates exactly one instance per on-phase', () => {
+        const { holder, made } = harness();
+        expect(holder.apply(null)).toBe(false); // starts off: nothing constructed
+        holder.apply({ port: 5602 });
+        holder.apply(null);
+        holder.apply({ port: 5602 });
+        expect(made.length).toBe(2);
+        expect(made.every((i) => i.started === 1)).toBe(true);
+        expect(holder.active()).toBe(true);
     });
 });
 

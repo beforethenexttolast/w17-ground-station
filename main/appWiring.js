@@ -82,6 +82,36 @@ function createSessionApplier({ settingsStore, runtime, env = process.env, apply
     };
 }
 
+// Keyed single-instance holder (audit D2): (re)applies a config-derived
+// instance, keeping the running one while the config key is unchanged
+// (idempotent re-apply — a GRID re-entry must not restart it), stopping the
+// old instance BEFORE constructing the new on a change, and stopping outright
+// on a null config. main.js uses this for the W3 receiver, so the restart
+// choreography is testable with fakes while CONSTRUCTION stays at the one
+// sanctioned wiring site — this module never names the receiver and carries
+// no data path: it only holds, starts, and stops what `construct` returns.
+function createKeyedInstance({ construct, keyOf = (cfg) => JSON.stringify(cfg) }) {
+    let instance = null;
+    let key = null;
+    return {
+        apply(cfg) {
+            const nextKey = cfg ? keyOf(cfg) : null;
+            if (nextKey === key) return !!instance;
+            if (instance) {
+                instance.stop();
+                instance = null;
+            }
+            key = nextKey;
+            if (cfg) {
+                instance = construct(cfg);
+                instance.start();
+            }
+            return !!instance;
+        },
+        active: () => !!instance,
+    };
+}
+
 // mediamtx location: next to the app in dev, an unpacked extraResource in the
 // packaged build, or an explicit W17_MEDIAMTX_DIR override (points at a
 // directory containing the binary + mediamtx.yml — used by the boot smoke to
@@ -271,6 +301,7 @@ module.exports = {
     createNetworkServices,
     telemetrySourceFor,
     createSessionApplier,
+    createKeyedInstance,
     mediamtxPaths,
     registerIpcHandlers,
     wireHotspotPush,

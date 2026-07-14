@@ -227,6 +227,13 @@ default proposed by auditor, user may veto).
   index.html, real modules, mocked preload surface (the D2 harness, pulled forward).
   `main.js` remains uncovered. Batches: **D2** (extend DOM coverage), **D3** (boot
   smoke, Windows CI job preferred).
+- **→ D2 COMPLETE (2026-07-14):** `main.js` decomposed onto dependency-injected seams
+  (`main/appWiring.js` + `w3ConfigFor` in `main/headTrackingConfig.js`) that unit-test
+  with fakes; IPC/preload/renderer symmetry pinned from all three sides
+  (`test/ipcSurface.test.js`); session/config/shutdown integration covered
+  (`test/appWiring.test.js`); renderer boot/timer/subscription races covered + two
+  orphaned-interval defects FIXED. Remaining: a REAL Electron boot (preload execution,
+  live ipcMain, sandbox flags at runtime) = **D3**. Batch: **D2 — DONE**.
 
 **V3 — IPHONE REACHABLE green ≠ HUD can receive UDP 5601.**
 - ICMP proves L3 reachability; iOS Local Network permission can still block UDP receive.
@@ -298,7 +305,7 @@ Windows). Tests: `test/runCommand.test.js` (timeout result shape, cross-platform
 | C4 | V3 reachability wording | **DONE** (landed in B4, re-validated in C) |
 | C5 | D2 W2-on-GRID timing | Q5 logged — **DONE** (documented, unchanged) |
 | D1 | V1 directory-sweep no-control-path guard (existing assertions preserved) | objective — **DONE** |
-| D2 | V2/N1 setup-flow DOM tests (smallest env; likely jsdom via vitest) | objective |
+| D2 | V2/N1 setup-flow DOM tests (smallest env; likely jsdom via vitest) | objective — **DONE** |
 | D3 | V2 Electron boot smoke (Windows CI job) | objective |
 | D4 | Command-generation tests (spaces, non-ASCII SSIDs, special-char passwords, argv separation, XML escaping) | objective — **DONE** |
 | E1 | L6 credential storage policy + never-log guarantee | **user decision: policy** (never-log objective) |
@@ -642,6 +649,46 @@ including on a localized Windows build.
   `test/commandGeneration.test.js` (git status 52→**53**). Full suite `npm test` **542/542
   (34 files)** (was 520/33); `git diff --check` clean. Real-Windows command behavior remains
   bench-only. NOT committed. See the Batch D status section below.
+- 2026-07-14 — **BASELINE SHIFT: the user committed the entire pass as `79fa2e0`**
+  ("a lot of chagnes", 62 files) — everything from A1 through D1/D4 PLUS the partial D2
+  work of the interrupted 2026-07-14 session PLUS the separate 2026-07-14 contract-mirror
+  docs session (`docs/windows_bridge_contract.md` sync from canonical `iPhone_rc@84532ed`,
+  `docs/camera_aim_display_semantics.md`, `docs/video_topology_baseline.md`,
+  readiness-doc superseded note). The "everything uncommitted at `cf038c2`" rule ended by
+  the user's own action; work from here stays uncommitted ON TOP of `79fa2e0`.
+- 2026-07-14 — **Batch D2 complete (code) — main-process + setup-flow integration coverage
+  (V2/N1).** Started in the interrupted 2026-07-14 session (committed inside `79fa2e0`),
+  completed in the recovery session (4 uncommitted files: `main/main.js`,
+  `main/appWiring.js`, `test/appWiring.test.js`, `test/ipcSurface.test.js`).
+  `main/main.js` (222 lines) remains the composition root and the ONLY W3 wiring site,
+  but every wiring seam moved to the new **`main/appWiring.js`** and unit-tests with
+  fakes: `createNetworkServices` (sim routing + the ONE `HotspotLifecycle` authority),
+  `telemetrySourceFor`, `createSessionApplier` (settings+env → `resolveEffective` →
+  runtime + injected `applyW3`), `createKeyedInstance` (the W3 receiver's idempotent
+  restart choreography — construction stays in main.js), `mediamtxPaths` (+
+  `W17_MEDIAMTX_DIR` override, the D3 smoke seam), `registerIpcHandlers` (single-sited,
+  duplicate-proof, returns the channel lists), `wireHotspotPush` (+ `PUSH_CHANNELS`
+  constants), `createWindowOptions`, `installNavigationPolicy`, `createTeardown`.
+  `w3ConfigFor(effective, env)` moved to `main/headTrackingConfig.js` (pure,
+  allowlisted). **Objective defects found + fixed (4):** (1) `enterGrid`
+  orphaned-interval race — leaving GRID while `session:apply` was in flight let the
+  stale continuation start the 1 s checklist poll forever (ping + elrs probes from the
+  wrong screen); fixed with a `gridEpoch` guard; (2) the same class in `enterPitwall`
+  (2 s addr-hint poll + stale DOM writes after the capability/adapter awaits); fixed
+  with entry-epoch guards; (3) `will-quit` teardown was not failure-isolated — a
+  throwing stop skipped the remaining steps (orphaned mediamtx); fixed via
+  `createTeardown` (idempotent + per-step isolation); (4) the BrowserWindow had no
+  window-open/navigation policy — `installNavigationPolicy` now denies `window.open`
+  and renderer-initiated navigation outright (the app is one local page; `loadFile` is
+  unaffected). New tests: `test/appWiring.test.js` (**43**), `test/ipcSurface.test.js`
+  (**15**, static pins comment-stripped so a channel name in a comment can neither
+  satisfy nor trip them), `test/headTracking.test.js` +5 `w3ConfigFor` (33→**38**),
+  `test/setupFlowDom.test.js` +5 D2 renderer block (57→**62**: config-rejection
+  resilience, subscription singletons, both race fixes under fake timers installed
+  BEFORE the interval exists, exactly-one-interval accounting across leave/re-entry).
+  Full suite `npm test` **610/610 (36 files)** (was 542/34); `git diff --check` clean.
+  D3 NOT started (stop-for-review after the composition-root refactor). See the Batch
+  D2 status section below.
 
 ---
 
@@ -652,20 +699,34 @@ session memory. Describes the ACTUAL working tree after Batches A1 + A2 + A3, th
 adapter-card follow-up (Q7 Option 2), Batch B1 + B2 + N3 (hotspot lifecycle, quit policy,
 non-blocking probe, locale-neutral errors, sequence-race fix), Batch B3 + B4 (Wi-Fi
 security scope + reachability probe classification), **Batch C** (C1 video-state model,
-C2 replay chip, C3 env-locked settings, C5 W2-on-GRID docs; C4 re-validated), and **Batch
-D1 + D4** (no-control-path directory sweep + command-generation hardening) — not the
-intended design. Authoritative cross-account handoff (session memory is a convenience copy).
-**D1 and D4 are DONE. Next up is Batch D2 + D3** (setup-flow DOM coverage extension +
-Electron boot smoke) — do not start until the user resumes. E/F/G remain untouched.**
+C2 replay chip, C3 env-locked settings, C5 W2-on-GRID docs; C4 re-validated), **Batch
+D1 + D4** (no-control-path directory sweep + command-generation hardening), and **Batch
+D2** (main-process + setup-flow integration coverage, composition-root refactor) — not
+the intended design. Authoritative cross-account handoff (session memory is a
+convenience copy). **D1, D4, and D2 are DONE. Next up is Batch D3** (Electron boot
+smoke + Windows CI step) — do not start until the user reviews the D2 refactor and
+resumes. E/F/G remain untouched.**
 
 ### Repository state
 
 - Repo: `w17-ground-station` (nested git repo under `.../Documents/projects/`).
-- Branch: `main`. **HEAD commit: `cf038c2`** (`cf038c249d28f63372115f61afe4a1e010abe0e3`),
-  "docs: add adapter and simulation bench checks". Nothing has been committed.
-- **Baseline commit audited: `cf038c2`** (audit + all work start from here).
-- `git status --short` right now (A1 + A2 + A3 + B1/B2 + B3/B4 + **Batch C** + **Batch
-  D1/D4** combined — **53 entries, 22 M / 31 ??**). Batch D added ONE new untracked file
+- Branch: `main`. **HEAD commit: `79fa2e0`** ("a lot of chagnes", 2026-07-14 14:13,
+  **committed by the user** — 62 files carrying the entire A1→D1/D4 pass, the partial-D2
+  work of the interrupted 2026-07-14 session, and the separate 2026-07-14
+  contract-mirror docs). Parent: `cf038c2` — the commit this audit originally examined;
+  every finding/batch above still references that baseline.
+- **Uncommitted right now (D2 completion, this recovery session — 5 M, nothing else):**
+  ```
+   M docs/audits/2026-07-12-pre-hardware-hardening-audit.md   (this update)
+   M main/appWiring.js        (createKeyedInstance seam)
+   M main/main.js             (applyW3 -> keyed holder; w3Active/teardown via it)
+   M test/appWiring.test.js   (+4 keyed-instance tests -> 43)
+   M test/ipcSurface.test.js  (static pins comment-stripped + count pins)
+  ```
+- HISTORICAL — the uncommitted set that became `79fa2e0` (A1 + A2 + A3 + B1/B2 + B3/B4 +
+  **Batch C** + **Batch D1/D4** combined — **53 entries, 22 M / 31 ??**; the 4 extra
+  doc entries from the contract-mirror session joined at commit time). Batch D added ONE
+  new untracked file
   (`test/commandGeneration.test.js`) and re-edited three already-tracked files in place
   (`main/runCommand.js`, `main/wifiManager.js`, `test/noControlPath.test.js`), so only the
   one `??` entry is new versus the Batch C checkpoint:
@@ -777,11 +838,95 @@ Electron boot smoke) — do not start until the user resumes. E/F/G remain untou
   `test/wifiView.test.js` (3rd touch), `test/setupFlowDom.test.js` (3rd touch),
   `test/wifiSim.test.js` (2nd touch), `test/noControlPath.test.js` (2nd touch —
   guard-list +2).
-- **Everything is UNCOMMITTED by user instruction.** Do not commit or push until the user
-  reviews. `docs/windows_bridge_contract.md` §1–§7 must never be edited.
+- **Session work stays UNCOMMITTED by user instruction** (the user folded everything up
+  to partial-D2 into `79fa2e0` themselves; new work sits on top, uncommitted, until they
+  review). Do not commit or push. `docs/windows_bridge_contract.md` §1–§7 must never be
+  edited by a ground-station session (the 2026-07-14 change to it was a canonical→mirror
+  sync performed in its own docs session, recorded in that file's sync block).
 - D1/D4 files: **modified** `test/noControlPath.test.js` (2nd touch — sweep rewrite),
   `main/wifiManager.js` (3rd touch — mkdtemp temp dir), `main/runCommand.js` (2nd touch —
   `winTreeKillArgs` export); **new** `test/commandGeneration.test.js`.
+
+### Batch D2 status: COMPLETE (code) — real-Electron boot proof is D3
+
+Scope was exactly **D2** (V2/N1: main-process + setup-flow integration coverage). D3 was
+NOT started — the composition-root refactor below is deliberately stopped for review
+first. No control-path, CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays
+log-only (the directory sweep + the pinned symmetry tests keep proving it); contract
+§1–§7 untouched by this session.
+
+**Composition-root refactor.** `main/main.js` (222 lines) is still the composition root
+— Electron imports, window creation, quit-policy install, app lifecycle events, and the
+ONLY W3 receiver construction site — but every wiring seam now lives in
+**`main/appWiring.js`** (~310 lines) behind injected dependencies, so the integration
+layer unit-tests without booting Electron. `appWiring` holds NO production singletons
+(everything is factory-constructed by main.js), never names head-tracking (guard-swept),
+and registers the IPC surface in exactly one place.
+
+| Seam (`main/appWiring.js`) | What it pins | Tests |
+|---|---|---|
+| `PUSH_CHANNELS` | the two main→renderer push names; preload subscription equality | ipcSurface |
+| `createNetworkServices({env,log})` | `W17_WIFI_SIM` routing (sim managers as win32 vs real), ONE `HotspotLifecycle` authority | appWiring 2 |
+| `telemetrySourceFor(cfg,{platform,log})` | replay/crsf-serial/none → instance; COM5 / /dev/ttyUSB0 defaults | appWiring 4 |
+| `createSessionApplier({settingsStore,runtime,env,applyW3,warn})` | settings+env → `resolveEffective` → `runtime.applyConfig` → injected `applyW3`; retains `lastEffective` for config/settings answers | appWiring 13 |
+| `createKeyedInstance({construct,keyOf})` | W3 receiver restart choreography: idempotent re-apply, stop-before-replace, stop-on-null; CONSTRUCTION stays in main.js | appWiring 4 |
+| `mediamtxPaths({env,platform,isPackaged,resourcesPath,projectRoot})` | dev/packaged split + **`W17_MEDIAMTX_DIR`** override (built as the deterministic missing-binary seam for the D3 smoke) | appWiring 3 |
+| `registerIpcHandlers({ipcMain,services})` | the whole renderer-facing surface, single-sited + duplicate-throwing; returns channel lists for the symmetry test | appWiring 8 + ipcSurface |
+| `wireHotspotPush({lifecycle,broadcast})` | every lifecycle snapshot → `hotspot-state`, seq preserved, unsubscribe works | appWiring 2 |
+| `createWindowOptions({preloadPath,iconPath})` | contextIsolation ON / nodeIntegration OFF / sandbox ON / preload path — pinned | appWiring 2 |
+| `installNavigationPolicy(webContents,{log})` | `window.open` denied; renderer-initiated navigation prevented (one local page) | appWiring 2 |
+| `createTeardown({steps,log})` | idempotent, per-step failure-isolated shutdown; hotspot deliberately NOT a step | appWiring 4 |
+| `w3ConfigFor(effective,env)` (in `main/headTrackingConfig.js`, allowlisted) | env master force-off vs persisted wish vs sub-key overrides | headTracking +5 |
+
+**Final wiring map (all symmetric — pinned by `test/ipcSurface.test.js`).** 18 invoke
+channels + 1 fire-and-forget send + 2 push channels; 20 preload methods; every method has
+exactly one registered handler/event source AND at least one renderer consumer; the only
+`ipcMain` registration site is `registerIpcHandlers`; main.js sends only through
+`PUSH_CHANNELS`. Static pins run against comment-stripped code so a channel name in a
+comment can neither satisfy a contains-pin nor trip a bans-pin.
+
+| Area | Main wiring | IPC | Preload | Renderer consumer |
+|---|---|---|---|---|
+| Config snapshot | services → `config:get` (whepUrl, effective source, setupCompleted, envOverridden, w3Active, feel) | `config:get` | `getConfig` | `hud.js init()` |
+| Settings read | store.load + effective 3-field display block | `settings:get` | `getSettings` | `setupFlow boot()`, `hud init()` |
+| Settings write | store.save(patch) | `settings:set` | `setSettings` | `setupFlow save()` |
+| Session apply | `sessionApplier.apply()` (→ runtime + applyW3) | `session:apply` | `applySession` | `enterGrid`, ⚙ handlers |
+| Wi-Fi capability/adapters/scan/join/status | `wifi.*` (+sim flag) | `wifi:*` (5) | `wifiCapabilities/Interfaces/Scan/Join/Status` | PIT WALL |
+| Hotspot start/stop/state/probe | `hotspotLifecycle.*` (THE authority) | `wifi:hotspot-*` (4) | `hotspotStart/Stop/State/Probe` | HOTSPOT pane |
+| Hotspot push | `wireHotspotPush` → broadcast to all windows | push `hotspot-state` | `onHotspotState` | `adoptHotspotSnap` seq gate |
+| Addr hint / reachability | `addrHint.get` / `hostProbe.probe` | `setup:addr-hint`, `setup:probe-host` | `getAddrHint`, `probeHost` | addr row, GRID checks |
+| ELRS | `elrs.detectRunning/launchDetached` (path re-read from store per call) | `elrs:status`, `elrs:launch` | `elrsStatus`, `elrsLaunch` | GRID checklist |
+| Telemetry push | `runtime.setSnapshotSink` → window | push `telemetry` | `onTelemetry` | `hud.js` |
+| Command mirror | `ipcMain.on` → `runtime.onCommandMirror` (one-way, display-only) | send `command-mirror` | `sendCommandMirror` | `hud sendCommandMirror` |
+| Quit policy / shutdown | same `hotspotLifecycle` instance; `createTeardown` (no hotspot step) | — | — | — |
+
+**Objective defects found + fixed (4)** — see the 2026-07-14 change-log entry for detail:
+the `enterGrid` and `enterPitwall` orphaned-interval races (stale continuations after
+navigation could leak a forever-polling 1 s/2 s interval; fixed with entry-epoch guards +
+deterministic fake-timer tests), the non-failure-isolated `will-quit` teardown (one
+throwing stop orphaned the rest; fixed via `createTeardown`), and the missing
+window-open/navigation policy (now deny-all; the app is a single local page).
+
+**Coverage highlights (what D2 now proves without Electron):** clean/corrupted settings
+boot; env override + explicit `0` force-off + partial locks; replay/live source
+selection; desktop-never-starts-W2 / iphone+target-starts-W2 / missing-target-does-not;
+repeated apply idempotent; target change rekeys with exactly one live sender; W3
+persisted-wish vs env-master vs sub-key overrides; W3 receiver restart idempotence;
+secrets absent from effective/env metadata (the persisted hotspot password reaches the
+renderer ONLY inside `settings.network.hotspot` — the documented E1 residual); hotspot
+IPC delegates 1:1 with defaulted opts; snapshots push with rising seq and no credential;
+shutdown idempotent + failure-isolated + never the hotspot; renderer config-rejection
+resilience; module-lifetime subscription singletons; exactly-one-interval accounting
+across PIT WALL leave/re-entry and GRID leave-during-apply.
+
+**Remaining D2 limitations (all deliberate, D3 territory):** `registerIpcHandlers` is
+proven against a strict FAKE ipcMain — the real Electron binding, actual preload
+execution in a sandboxed renderer, runtime enforcement of the window flags, and
+"unknown channels unavailable" in a LIVE renderer need the D3 boot smoke. `applyW3` in
+main.js is now a one-line composition of two tested halves (`w3ConfigFor` +
+`createKeyedInstance`) but the line itself runs only in Electron. `createWindow`'s
+snapshot-sink-per-window behavior and the `activate` re-create path are likewise
+smoke-only. jsdom still proves wiring, not Chromium rendering.
 
 ### Batch D1 + D4 status: COMPLETE (code) — real-Windows command behavior bench-pending
 
@@ -911,12 +1056,31 @@ argv-array quoting, believed correct, still bench-unverified — audit §1 conte
 `taskkill /t /f` actually reaps a hung PowerShell tree (N4); confirm the mkdtemp profile path
 is accepted by netsh `filename=`. Sim/dev-preview is never bench evidence.
 
-**Exact D2 + D3 starting point (NOT started — next batch):** D2 = extend
-`test/setupFlowDom.test.js` (already the jsdom harness with the real `renderer/index.html` +
-real renderer modules + mocked preload) to raise `renderer/setupFlow.js` coverage and add any
-still-uncovered branch; `main/main.js` remains the untested glue. D3 = an Electron boot smoke
-test (a Windows CI job is preferred over local, per V2) proving the app boots past preload +
-`applySession()` without throwing. Neither may touch control, W3 log-only, or the contract.
+**~~Exact D2 + D3 starting point~~ — D2 is now DONE (2026-07-14, see the Batch D2 status
+section). Exact D3 starting point (NOT started):** a deterministic Electron boot smoke +
+the smallest reliable Windows CI step. Design direction already scoped (and partially
+seamed — `mediamtxPaths` honors `W17_MEDIAMTX_DIR` precisely so the smoke can exercise
+the missing-mediamtx soft-fail with an empty dir): (a) `scripts/smokeMain.js`, an
+Electron MAIN wrapper spawned as `electron scripts/smokeMain.js`, which sets a throwaway
+`userData`, `require`s the real unmodified `main/main.js`, then interrogates the booted
+app through public Electron APIs (window exists, did-finish-load, page-world
+`typeof require/process === 'undefined'`, `Object.keys(window.groundStation)` equals the
+preload parse, a real `getConfig()`/`getSettings()` answer with fresh-profile values and
+no secret in effective metadata, GARAGE readiness marker, `window.open` returns null),
+prints structured `W17_SMOKE` JSON lines, and quits — production files stay untouched;
+(b) `scripts/electron-smoke.js`, a plain-Node controller that spawns it with a scrubbed
+env (`W17_WIFI_SIM` set, telemetry/headtrack/bridge vars deleted, `W17_MEDIAMTX_DIR` →
+empty temp dir), enforces a hard timeout with a process-TREE kill (reuse
+`winTreeKillArgs`), requires result-ok AND clean exit 0, sanitizes captured logs, and
+runs a second pass with a pre-seeded CORRUPT `settings.json` (malformed settings must
+not blank the window); (c) vitest coverage of the CONTROLLER protocol with fake node
+children (happy/failed-check/crash/hang-timeout-kill/no-clean-exit) so `npm test` stays
+fast — the REAL smoke runs via a new `npm run smoke`; (d) CI: extend the existing
+`package-smoke` windows-latest job to `npm ci → npm test → npm run smoke
+(timeout-minutes) → app:rebuild → electron-builder --dir`; failure output prints the
+sanitized log tail inline (no artifact plumbing exists in this workflow). Boot smoke
+must not require camera/RT5370/iPhone/ELRS/admin/real hotspot/external network. Neither
+D3 piece may touch control, W3 log-only, or the contract.
 
 ### B3 status: COMPLETE (code) — real netsh open/WPA3/enterprise behavior bench-pending
 
@@ -1783,31 +1947,32 @@ sim preview is never bench evidence.
 2. ~~Batch C — C1 video state / C2 replay chip / C3 env-locks / C5 W2-on-GRID docs (C4
    re-validated)~~ — **DONE 2026-07-13** (this batch; see the Batch C status section + change
    log). Stop-for-review is in effect; do NOT start Batch D until the user resumes.
-3. **Exact next starting point — Batch D** (objective; none started):
-   - **D1** (V1, objective): the no-control-path guard is an ENUMERATED file list
-     (`test/noControlPath.test.js` `setupFlowFiles`/`runtimeFiles`), not a directory sweep —
-     a NEW `main/` or `renderer/` module importing `HeadTrackingReceiver` passes CI until
-     someone appends it. Replace with a glob over `main/`+`shared/`+`renderer/` with an
-     explicit allowlist (`main.js` only), KEEPING every existing assertion (strengthen-only).
-   - **D2** (V2/N1, objective): extend the setup-flow DOM coverage further; `main.js` still has
-     zero direct coverage (`applyW3`/`w3ConfigFor`/IPC shapes exercised only indirectly).
-   - **D3** (V2, objective): an Electron boot smoke test (a Windows CI job is preferred; the
-     `main.js` boot path is not exercised by the pure/jsdom tests). NOTE: this session proved an
-     offscreen Electron harness runs headless on macOS too (used for Batch C visual acceptance) —
-     a hidden-window boot smoke may be feasible in CI without a Windows runner.
-   - **D4** (objective): static command-generation tests — SSIDs with spaces / non-ASCII,
-     special-char passwords, argv separation, XML escaping (`buildWlanProfileXml` /
-     `buildOpenWlanProfileXml`).
-4. Then E1 (Q6 credential encryption — safeStorage/DPAPI, decision already logged), F (doc sync:
+3. ~~Batch D1 + D4~~ — **DONE 2026-07-13** (directory sweep + command-generation
+   hardening; see the Batch D1 + D4 status section).
+4. ~~Batch D2~~ — **DONE 2026-07-14** (main-process + setup-flow integration coverage,
+   composition-root refactor onto `main/appWiring.js`; see the Batch D2 status section).
+   **Stop-for-review is in effect: the D2 `main.js` refactor must be reviewed before D3
+   begins.**
+5. **Exact next starting point — Batch D3** (objective, NOT started): the Electron boot
+   smoke + Windows CI step. The full scoped design (smokeMain wrapper + controller +
+   controller-protocol vitest coverage + `npm run smoke` + windows-latest CI sequence)
+   is written out in the "Exact D3 starting point" paragraph of the Batch D1 + D4
+   status section above. NOTE (from the Batch C session): an offscreen Electron harness
+   ran headless on macOS, so a hidden-window boot smoke is feasible locally too; the CI
+   job stays windows-latest (the deployment target).
+6. Then E1 (Q6 credential encryption — safeStorage/DPAPI, decision already logged), F (doc sync:
    L5 CURRENT_STATUS pointer + checklist prereqs + readiness-doc stale note; contract §1–§7
    untouched), G (proposals only).
-5. Bench items accumulate in §5 + the per-batch bench notes; Batch C adds: real camera → mediamtx
+7. Bench items accumulate in §5 + the per-batch bench notes; Batch C adds: real camera → mediamtx
    → WHEP so the video-state model runs against genuine WebRTC drops/stalls, and a real iPhone
    confirming W2 telemetry appears on GRID entry (C5). Nothing new is hardware-proven.
 
 Recommended first actions for the next session: read this checkpoint + §4 decisions;
-`git status --short` (expect the **52-entry** listing above — 22 M / 30 ??); `npm test`
-(expect **520/520**, 33 files); `git diff --check` (clean).
+`git log --oneline -2` (expect HEAD **`79fa2e0`** "a lot of chagnes" on top of
+`cf038c2`); `git status --short` (expect the **5-M** uncommitted D2-completion set above
+— this audit file, `main/appWiring.js`, `main/main.js`, `test/appWiring.test.js`,
+`test/ipcSurface.test.js` — plus the session-memory file if updated); `npm test` (expect
+**610/610**, 36 files); `git diff --check` (clean).
 
 ### Hard boundaries (unchanged, apply always)
 

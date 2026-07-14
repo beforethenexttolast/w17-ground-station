@@ -31,6 +31,7 @@ const {
   createNetworkServices,
   telemetrySourceFor,
   createSessionApplier,
+  createKeyedInstance,
   mediamtxPaths,
   registerIpcHandlers,
   wireHotspotPush,
@@ -73,28 +74,20 @@ const addrHint = createRemoteAddrHint();
 // iPhone -> Windows head-tracking receiver (contract section 3): LOG-ONLY.
 // It is a dead end by construction -- nothing consumes its data; it logs and
 // counts. It must never feed CRSF, servos, pan/tilt, telemetry, or the
-// renderer (separate safety milestone required). Its wiring lives ONLY here.
-let headTracking = null;
-let headTrackingKey = null;
+// renderer (separate safety milestone required). Its wiring lives ONLY here:
+// the keyed holder carries just the restart choreography (idempotent
+// re-apply, stop-before-replace, stop-on-null — tested with fakes), while the
+// receiver itself is constructed in THIS file and nowhere else.
+const w3Receiver = createKeyedInstance({
+  construct: (cfg) => new HeadTrackingReceiver({
+    ...cfg,
+    log,
+    noteRemoteAddr: addrHint.note,
+  }),
+});
 
 function applyW3(effective) {
-  const cfg = w3ConfigFor(effective, process.env);
-  const key = cfg ? JSON.stringify(cfg) : null;
-  if (key === headTrackingKey) return !!headTracking;
-  if (headTracking) {
-    headTracking.stop();
-    headTracking = null;
-  }
-  headTrackingKey = key;
-  if (cfg) {
-    headTracking = new HeadTrackingReceiver({
-      ...cfg,
-      log,
-      noteRemoteAddr: addrHint.note,
-    });
-    headTracking.start();
-  }
-  return !!headTracking;
+  return w3Receiver.apply(w3ConfigFor(effective, process.env));
 }
 
 function createWindow() {
@@ -170,7 +163,7 @@ app.whenReady().then(async () => {
       runtime,
       settingsStore,
       sessionApplier,
-      w3Active: () => !!headTracking,
+      w3Active: () => w3Receiver.active(),
       wifi,
       sim,
       hotspotLifecycle,
@@ -212,7 +205,7 @@ app.on('before-quit', (event) => quitPolicy.onBeforeQuit(event));
 // its shutdown is decided by the quit policy above, never implicitly.
 const teardown = createTeardown({
   steps: [
-    ['head-tracking receiver', () => { if (headTracking) headTracking.stop(); }],
+    ['head-tracking receiver', () => w3Receiver.apply(null)],
     ['session runtime', () => { if (runtime) runtime.stopAll(); }],
     ['mediamtx', () => { if (mediamtx) mediamtx.stop(); }],
   ],

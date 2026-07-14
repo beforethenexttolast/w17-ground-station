@@ -10,8 +10,19 @@ import { readFileSync } from 'node:fs';
 import { PUSH_CHANNELS, registerIpcHandlers } from '../main/appWiring.js';
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+
+// Static assertions run against CODE ONLY: a channel name or API mentioned in
+// a comment must neither satisfy a contains-pin nor trip a bans-pin. Block
+// comments go first, then full-line and trailing `//` comments (a trailing
+// comment requires leading whitespace, so `http://…` URLs in code survive).
+const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/[ \t]\/\/[^\n]*/g, '');
+
 const preloadSrc = read('../main/preload.cjs');
 const mainSrc = read('../main/main.js');
+const mainCode = stripComments(mainSrc);
 const indexHtml = read('../renderer/index.html');
 
 const matchAll = (src, re) => [...src.matchAll(re)].map((m) => m[1]);
@@ -95,10 +106,10 @@ describe('IPC surface symmetry (audit D2)', () => {
     });
 
     it('main.js pushes ONLY through the PUSH_CHANNELS constants — no raw channel literals to drift', () => {
-        expect(mainSrc).toContain('PUSH_CHANNELS.telemetry');
-        expect(mainSrc).toContain('wireHotspotPush');
-        expect(mainSrc).not.toMatch(/send\('telemetry'/);
-        expect(mainSrc).not.toMatch(/send\('hotspot-state'/);
+        expect(mainCode).toContain('PUSH_CHANNELS.telemetry');
+        expect(mainCode.match(/wireHotspotPush\(/g).length).toBe(1); // exactly one push subscription
+        expect(mainCode).not.toMatch(/send\('telemetry'/);
+        expect(mainCode).not.toMatch(/send\('hotspot-state'/);
     });
 
     it('every renderer groundStation call names an exposed preload method (no phantom methods)', () => {
@@ -115,8 +126,9 @@ describe('IPC surface symmetry (audit D2)', () => {
         // main.js passes ipcMain into the one registration seam and registers
         // nothing itself; no other runtime module may touch ipcMain (the
         // no-control-path sweep already bans it from the W3 modules).
-        expect(mainSrc).not.toMatch(/ipcMain\.(handle|on)\(/);
-        expect(read('../main/appWiring.js').match(/ipcMain\.handle\(/g).length).toBe(1); // one reg helper, not scattered calls
+        expect(mainCode).not.toMatch(/ipcMain\.(handle|on)\(/);
+        expect(mainCode.match(/registerIpcHandlers\(/g).length).toBe(1); // exactly one registration call
+        expect(stripComments(read('../main/appWiring.js')).match(/ipcMain\.handle\(/g).length).toBe(1); // one reg helper, not scattered calls
     });
 });
 
@@ -158,17 +170,18 @@ describe('preload minimalism (audit D2)', () => {
 });
 
 describe('composition pins in main.js (audit D2)', () => {
-    it('the quit policy receives the SAME hotspot lifecycle authority the IPC surface uses', () => {
-        expect(mainSrc).toMatch(/createQuitPolicy\(\{\s*lifecycle:\s*hotspotLifecycle/);
-        expect(mainSrc).toMatch(/hotspotLifecycle,?\s*\n?\s*addrHint/); // services object hands the same instance to IPC
+    it('exactly one service construction and one lifecycle authority flow to IPC and the quit policy', () => {
+        expect(mainCode.match(/createNetworkServices\(/g).length).toBe(1);
+        expect(mainCode).toMatch(/createQuitPolicy\(\{\s*lifecycle:\s*hotspotLifecycle/);
+        expect(mainCode).toMatch(/hotspotLifecycle,?\s*\n?\s*addrHint/); // services object hands the same instance to IPC
     });
 
     it('shutdown never stops the hotspot — that decision belongs to the quit policy alone (Q1)', () => {
-        expect(mainSrc).not.toMatch(/hotspotLifecycle\.stop|hotspot\.stop/);
-        // The teardown steps are exactly the owned runtime children.
-        expect(mainSrc).toMatch(/head-tracking receiver/);
-        expect(mainSrc).toMatch(/session runtime/);
-        expect(mainSrc).toMatch(/mediamtx/);
+        expect(mainCode).not.toMatch(/hotspotLifecycle\.stop|hotspot\.stop/);
+        // The teardown step labels are code string literals, comment-stripped.
+        expect(mainCode).toMatch(/'head-tracking receiver'/);
+        expect(mainCode).toMatch(/'session runtime'/);
+        expect(mainCode).toMatch(/'mediamtx'/);
     });
 
     it('the renderer page pins a CSP whose connect-src is loopback-only (WHEP), scripts self-only', () => {
