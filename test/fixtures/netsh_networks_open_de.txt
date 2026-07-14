@@ -1,0 +1,12 @@
+Schnittstellenname : WLAN
+Es sind 1 Netzwerke sichtbar.
+
+SSID 1 : Gastnetz
+    Netzwerktyp             : Infrastruktur
+    Authentifizierung       : Offen
+    Verschlüsselung         : Keine
+
+    BSSID 1                 : 00:11:22:33:44:aa
+         Signal             : 88%
+         Funktyp            : 802.11n
+         Kanal              : 6

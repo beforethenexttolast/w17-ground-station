@@ -3,19 +3,31 @@
 // to a <video>. Video-only, minimum latency (playoutDelayHint = 0), and an
 // auto-retry loop because the 5.8GHz FPV WiFi link drops and a dead <video>
 // must recover on its own.
+//
+// Transport signals (audit C1): the client reports its connection lifecycle
+// through `onStatus` — 'connecting' at each (re)connect attempt, 'dropped' when
+// an established peer connection fails/disconnects, 'stopped' on teardown. The
+// HUD folds these plus the <video> media events into shared/videoState.mjs so
+// video_lock is confidently green ONLY while frames flow — a WebRTC drop, which
+// leaves the <video> frozen on its last frame WITHOUT firing a media event, is
+// reported here so the lock drops immediately instead of staying stale-green.
 
-export function startWhep(videoEl, whepUrl, { log = () => {} } = {}) {
+export function startWhep(videoEl, whepUrl, { log = () => {}, onStatus = () => {} } = {}) {
   let pc = null;
   let stopped = false;
   let retryTimer = null;
 
   async function connectOnce() {
-    pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    // Capture THIS attempt's peer connection: a stale callback from an earlier
+    // attempt (after a reconnect swapped `pc`) must not report a drop for the
+    // live one. `thisPc !== pc` identifies a superseded attempt.
+    const thisPc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    pc = thisPc;
     // Receive-only video; no audio track negotiated (FPV feed has none, and a
     // dead audio track just adds handshake surface + latency).
-    pc.addTransceiver('video', { direction: 'recvonly' });
+    thisPc.addTransceiver('video', { direction: 'recvonly' });
 
-    pc.ontrack = (e) => {
+    thisPc.ontrack = (e) => {
       // Minimum playout delay: prefer latency over smoothness for FPV.
       if ('playoutDelayHint' in e.receiver) {
         try {
@@ -28,13 +40,19 @@ export function startWhep(videoEl, whepUrl, { log = () => {} } = {}) {
       videoEl.play().catch(() => {});
     };
 
-    pc.onconnectionstatechange = () => {
-      const s = pc.connectionState;
-      if (s === 'failed' || s === 'disconnected' || s === 'closed') scheduleRetry();
+    thisPc.onconnectionstatechange = () => {
+      if (thisPc !== pc || stopped) return; // superseded attempt: ignore
+      const s = thisPc.connectionState;
+      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        // An ESTABLISHED connection dropped: the <video> may freeze silently,
+        // so signal it explicitly and reconnect.
+        onStatus('dropped');
+        scheduleRetry();
+      }
     };
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    const offer = await thisPc.createOffer();
+    await thisPc.setLocalDescription(offer);
 
     const res = await fetch(whepUrl, {
       method: 'POST',
@@ -43,7 +61,7 @@ export function startWhep(videoEl, whepUrl, { log = () => {} } = {}) {
     });
     if (!res.ok) throw new Error(`WHEP ${res.status}`);
     const answer = await res.text();
-    await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+    await thisPc.setRemoteDescription({ type: 'answer', sdp: answer });
   }
 
   function scheduleRetry() {
@@ -68,6 +86,9 @@ export function startWhep(videoEl, whepUrl, { log = () => {} } = {}) {
 
   async function connect() {
     if (stopped) return;
+    // Each attempt (initial + retries) is honestly "connecting" until frames
+    // arrive; the media 'playing' event is what promotes the HUD to LIVE.
+    onStatus('connecting');
     try {
       await connectOnce();
       log(`[video] WHEP connected: ${whepUrl}`);
@@ -84,6 +105,7 @@ export function startWhep(videoEl, whepUrl, { log = () => {} } = {}) {
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
       cleanupPc();
+      onStatus('stopped');
     },
   };
 }

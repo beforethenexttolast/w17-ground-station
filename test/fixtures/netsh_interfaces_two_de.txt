@@ -1,0 +1,39 @@
+Es sind 2 Schnittstellen auf dem System vorhanden:
+
+    Name                   : Drahtlosnetzwerk
+    Beschreibung           : Intel(R) Wi-Fi 6 AX201 160MHz
+    GUID                   : 12345678-1234-1234-1234-123456789abc
+    Physische Adresse      : aa:bb:cc:dd:ee:ff
+    Status                 : Verbunden
+    SSID                   : HOME
+    BSSID                  : aa:bb:cc:11:22:33
+    Netzwerktyp            : Infrastruktur
+    Funktyp                : 802.11ac
+    Authentifizierung      : WPA2-Personal
+    Verschlüsselung        : CCMP
+    Verbindungsmodus       : Automatische Verbindung
+    Kanal                  : 36
+    Empfangsrate (MBit/s)  : 866,7
+    Übertragungsrate (MBit/s) : 866,7
+    Signal                 : 84%
+    Profil                 : HOME
+
+    Name                   : Drahtlosnetzwerk 2
+    Beschreibung           : Ralink RT5370 USB Wireless Adapter
+    GUID                   : 87654321-4321-4321-4321-cba987654321
+    Physische Adresse      : 11:22:33:44:55:66
+    Status                 : Verbunden
+    SSID                   : W17-GRID
+    BSSID                  : dd:ee:ff:77:88:99
+    Netzwerktyp            : Infrastruktur
+    Funktyp                : 802.11n
+    Authentifizierung      : WPA2-Personal
+    Verschlüsselung        : CCMP
+    Verbindungsmodus       : Profil
+    Kanal                  : 6
+    Empfangsrate (MBit/s)  : 72,2
+    Übertragungsrate (MBit/s) : 72,2
+    Signal                 : 66%
+    Profil                 : W17-GRID
+
+    Status des gehosteten Netzwerks : Nicht verfügbar

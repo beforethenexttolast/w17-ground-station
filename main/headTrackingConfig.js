@@ -20,8 +20,24 @@ function headTrackingConfigFromEnv(env = {}) {
     return { port, bindHost, staleMs };
 }
 
+// The W3 receiver's effective config from the RESOLVED settings+env (audit
+// C3/D2): the env master var being SET wins outright (W17_HEADTRACK=0 is a
+// force-off even when the persisted toggle is on); otherwise the persisted
+// wish decides, still honoring env sub-key overrides (port/bind/stale) by
+// feeding them through the same pure resolver with a synthetic master flag.
+// Pure — main.js (the one sanctioned W3 wiring point) turns the returned
+// config into a receiver; this module never constructs anything.
+function w3ConfigFor(effective, env = {}) {
+    if (effective.envOverridden.w3) return headTrackingConfigFromEnv(env);
+    if (effective.w3Wish.enabled) {
+        return headTrackingConfigFromEnv({ ...env, W17_HEADTRACK: '1' });
+    }
+    return null;
+}
+
 module.exports = {
     headTrackingConfigFromEnv,
+    w3ConfigFor,
     DEFAULT_PORT,
     DEFAULT_BIND_HOST,
     DEFAULT_STALE_MS,

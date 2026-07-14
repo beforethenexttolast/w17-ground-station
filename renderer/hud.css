@@ -20,6 +20,12 @@ body{background:#000;color:var(--silver);
   pointer-events:none;user-select:none;}
 .feed-note.hidden{display:none}
 .feed-note small{display:block;letter-spacing:.2em;font-size:.7em;color:#1b262a;margin-top:.6em}
+/* Video-state tone (audit C1): the overlay is dim when idle, neutral while
+   connecting/buffering, amber when the stream stalls, red on a hard error.
+   'v-live' hides via the .hidden toggle, so it needs no color. */
+.feed-note.v-wait{color:#3f5a5e}
+.feed-note.v-warn{color:var(--amber)}
+.feed-note.v-error{color:var(--red)}
 .vignette{position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(180deg,rgba(0,0,0,.55),transparent 18% 78%,rgba(0,0,0,.6));}
 .hud{position:fixed;inset:0;pointer-events:none;}
@@ -62,6 +68,13 @@ body{background:#000;color:var(--silver);
   border:1px solid var(--amber);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
   text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .w3chip.hidden{display:none}
+/* Replay/synthetic telemetry marker (audit C2): violet so it is unmistakably
+   distinct from the amber W3 chip and the teal live indicators — a persistent,
+   non-dismissible "this is not live car data" flag while replay is active. */
+.replaychip{display:inline-block;margin-top:.4em;padding:.15em .5em;color:var(--violet);
+  border:1px solid var(--violet);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
+  text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+.replaychip.hidden{display:none}
 /* Last-known real values held (dimmed) while the telemetry stream is stale
    ('TELEMETRY LOST') -- the HUD never silently resumes simulated numbers. */
 .stale{opacity:.35}
@@ -148,6 +161,8 @@ body{background:#000;color:var(--silver);
 /* ---------- pre-ride setup flow (gate contents) ---------- */
 .gate{transition:opacity .45s ease}
 .gate.fade{opacity:0}
+.booterror{display:flex;flex-direction:column;align-items:center;gap:.8em}
+.booterror.hidden{display:none}
 .setup-screen{display:none;flex-direction:column;align-items:center;gap:1em;max-width:min(72ch,86vw)}
 .setup-screen.active{display:flex}
 .setup-screen.wide{max-width:min(120ch,94vw)}
@@ -161,12 +176,52 @@ body{background:#000;color:var(--silver);
 .colhead .simtag.hidden{display:none}
 .hint{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.05em;line-height:1.55;max-width:46ch}
 .hint[title]{cursor:help}
-.adapterrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap}
-.adapterrow label{color:var(--muted);letter-spacing:.22em;font-size:clamp(8px,1vw,11px);font-weight:700}
-.adapterrow.hidden{display:none}
-.adapterrow span{color:var(--silver);font-size:clamp(9px,1.1vw,12px);letter-spacing:.05em}
-.adapterrow span.warn{color:var(--amber)}
-.adapterrow span.hidden,.adapterrow select.hidden{display:none}
+/* Amber caution/rejection hint (audit B3: OPEN NETWORK warning, WPA3-only /
+   enterprise rejection in the join pane). */
+.hint.warn{color:var(--amber)}
+/* ADAPTER card (audit Q7 option 2): a compact panel-style card in the PIT WALL
+   vocabulary. One adapter reads as a readonly confirmation; several become a
+   native <select> (keyboard + screen-reader intact); degraded states carry the
+   amber status + RESCAN. Left accent: teal = a choice exists (interactive),
+   amber = warning/missing, neutral = readonly single adapter. */
+.adaptercard{display:flex;flex-direction:column;gap:.5em;width:min(46ch,80vw);max-width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--panel-edge);border-left:3px solid var(--panel-edge);
+  padding:.6em .9em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
+.adaptercard.hidden{display:none}
+.adaptercard.interactive{border-left-color:var(--teal)}
+.adaptercard.warn{border-left-color:var(--amber)}
+.adapterhead{display:flex;align-items:center;justify-content:space-between;gap:.8em}
+.adapterhead label{color:var(--muted);letter-spacing:.22em;font-size:clamp(8px,1vw,11px);font-weight:700}
+.adapterselnote{color:var(--teal);letter-spacing:.18em;font-size:clamp(8px,.9vw,10px);font-weight:700;text-transform:uppercase}
+.adapterselnote.hidden{display:none}
+.adapterdetail{display:flex;flex-direction:column;gap:.25em}
+.adapterdetail.hidden{display:none}
+.adapternameline{display:flex;align-items:baseline;gap:.6em;flex-wrap:wrap}
+.adaptername{font-weight:800;letter-spacing:.06em;color:var(--silver);font-size:clamp(11px,1.2vw,14px)}
+.adaptername.warn{color:var(--amber)}
+.statechip{display:inline-block;padding:.08em .5em;border:1px solid var(--muted);color:var(--muted);
+  letter-spacing:.16em;text-transform:uppercase;font-weight:700;font-size:clamp(7px,.85vw,10px);
+  clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%);}
+.statechip.hidden{display:none}
+.statechip.connected{border-color:var(--teal);color:var(--teal)}
+.statechip.missing{border-color:var(--amber);color:var(--amber)}
+.adapternet{color:var(--teal);font-weight:700;letter-spacing:.05em;font-size:clamp(9px,1.1vw,12px)}
+.adapternet.hidden{display:none}
+.adapterdesc{color:var(--muted);letter-spacing:.04em;font-size:clamp(9px,1vw,11px)}
+.adapterdesc.hidden{display:none}
+.adapterpick{display:flex;flex-direction:column;align-items:flex-start;gap:.3em;width:100%}
+.adapterpick.hidden{display:none}
+.picklabel{color:var(--teal);letter-spacing:.18em;font-size:clamp(8px,.95vw,11px);font-weight:700;text-transform:uppercase}
+.selwrap{position:relative;display:block;width:100%}
+.selwrap::after{content:"\25BE";position:absolute;right:.7em;top:50%;transform:translateY(-50%);color:var(--teal);pointer-events:none;font-size:.9em}
+.adaptercard select{appearance:none;-webkit-appearance:none;width:100%;max-width:100%;padding-right:2em;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.adaptercard select:hover{filter:brightness(1.3)}
+.adapterstatus{letter-spacing:.14em;text-transform:uppercase;font-weight:700;font-size:clamp(9px,1.1vw,12px);color:var(--silver)}
+.adapterstatus.hidden{display:none}
+.adapterstatus.warn{color:var(--amber)}
+.adaptercard .hint.hidden{display:none}
+.adaptercard .minibtn.hidden{display:none}
 .hint.hidden{display:none}
 .stepname{color:var(--teal);letter-spacing:.4em;font-weight:800;text-transform:uppercase;
   font-size:clamp(11px,1.4vw,15px)}
@@ -203,16 +258,26 @@ body{background:#000;color:var(--silver);
 .netrow .known{color:var(--muted);font-size:.85em;text-transform:uppercase;letter-spacing:.14em}
 .netjoinrow,.addrrow,.hsrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap;justify-content:center}
 .netjoinrow.hidden{display:none}
+/* Open networks hide the password field but keep the JOIN button (audit B3).
+   This stylesheet has no global `.hidden` rule, so the input needs its own. */
+#netPassword.hidden{display:none}
 .addrrow label,.hsrow label,.setrow label{color:var(--muted);letter-spacing:.22em;font-size:clamp(8px,1vw,11px);font-weight:700}
 .gate input,.gate select,.settings input,.settings select{font-family:var(--mono);font-size:clamp(11px,1.2vw,14px);
   background:#0d1416;border:1px solid var(--panel-edge);color:var(--silver);padding:.45em .7em;min-width:14ch;outline:none}
-.gate input:focus,.settings input:focus{border-color:var(--teal)}
+.gate input:focus,.gate select:focus,.settings input:focus,.settings select:focus{border-color:var(--teal)}
+.gate input:disabled{opacity:.45}
 .minibtn{font-family:inherit;cursor:pointer;background:rgba(16,22,24,.85);border:1px solid var(--panel-edge);
   color:var(--teal);letter-spacing:.2em;text-transform:uppercase;font-size:clamp(9px,1.1vw,12px);font-weight:700;
   padding:.45em 1.1em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .minibtn:hover{filter:brightness(1.3)}
 .minibtn.hidden{display:none}
+/* Lifecycle-driven controls (hotspot start/stop, audit B1): a disabled action
+   stays visible but reads clearly inert — no hover response. */
+.minibtn:disabled{opacity:.35;cursor:default}
+.minibtn:disabled:hover{filter:none}
+.hsbtns{display:flex;gap:.6em}
 .netstatus{color:var(--amber);font-size:clamp(9px,1.1vw,12px);letter-spacing:.12em;text-transform:uppercase;min-height:1.2em}
+.netstatus.live{color:var(--teal)}
 .padlist{display:flex;flex-direction:column;gap:.3em;width:min(46ch,80vw)}
 .presetrow{display:flex;gap:.5em}
 .teststrip{display:flex;flex-direction:column;gap:.4em;padding:.6em .9em;width:min(40ch,70vw);pointer-events:auto}
@@ -283,6 +348,17 @@ body{background:#000;color:var(--silver);
   letter-spacing:.12em;font-size:clamp(10px,1.2vw,13px);text-transform:uppercase;font-weight:700}
 .setrow small{color:var(--muted);letter-spacing:.08em;font-weight:400;text-transform:none}
 .setrow input[type="checkbox"]{accent-color:var(--teal);width:1.1em;height:1.1em}
+/* Env-locked ⚙ controls (audit C3/Q8): the ENV badge is amber + focusable so
+   keyboard users can reach the tooltip even when the control it explains is
+   disabled (and thus off the tab order). The control keeps the effective value
+   and stays READABLE — dimmed, not greyed to illegibility. */
+.setctl{display:inline-flex;align-items:center;gap:.35em}
+.envbadge{color:var(--amber);border:1px solid var(--amber);padding:.05em .4em;
+  font-size:.8em;letter-spacing:.14em;font-weight:700;cursor:help;border-radius:2px}
+.envbadge:focus{outline:none;border-color:var(--teal);color:var(--teal)}
+.envbadge.hidden{display:none}
+.settings input:disabled,.settings select:disabled,.settings input:read-only{opacity:.65}
+.settings input:read-only{cursor:default}
 
 @media (prefers-reduced-motion:reduce){.rev.redline i,.dot,.ersfill.deploy{animation:none}
   .gate{transition:none}.modecard,.startbtn{transition:none}}

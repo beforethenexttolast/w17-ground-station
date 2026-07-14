@@ -238,7 +238,11 @@ Structural, not aspirational:
 - **Stale timeout:** intent packets older than **400 ms** (receiver wall-clock since last
   accepted packet; > the required ~300 ms floor, distinct from the HUD's 1000 ms
   `TELEMETRY_FRESH_MS`) are rejected as `stale` and the session gate re-arms (a fresh
-  `centered` packet is required to resume acceptance). Rationale: head-tracking is a
+  `centered` packet is required to resume acceptance).
+  *(Superseded 2026-07-14: the ratified stale authority is **300 ms receive-time**,
+  matching the canonical contract §3 and the implemented `W17_HEADTRACK_STALE_MS`
+  default of 300. Deterministic boundary: age ≤ 300 ms fresh, > 300 ms stale. See
+  `w17-control-fw/project-review/head_tracking_unlock_plan.md §1.1`.)* Rationale: head-tracking is a
   future *rate-limited camera aim*, not a control loop; when mapping is eventually
   designed, stale intent must decay to center, never hold last value. In *this* phase the
   timeout only classifies log entries — but the constant and test land now so W-later

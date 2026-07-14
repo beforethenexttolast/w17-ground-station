@@ -6,7 +6,7 @@ import {
   DEFAULT_STALE_MS,
   MAX_PACKET_BYTES,
 } from '../shared/headTracking.js';
-import { headTrackingConfigFromEnv, DEFAULT_PORT } from '../main/headTrackingConfig.js';
+import { headTrackingConfigFromEnv, w3ConfigFor, DEFAULT_PORT } from '../main/headTrackingConfig.js';
 
 const require = createRequire(import.meta.url);
 const { HeadTrackingReceiver } = require('../main/HeadTrackingReceiver.js');
@@ -227,6 +227,40 @@ describe('headTrackingConfigFromEnv — disabled by default', () => {
     expect(headTrackingConfigFromEnv({
       W17_HEADTRACK: '1', W17_HEADTRACK_PORT: '6000', W17_HEADTRACK_BIND: '127.0.0.1', W17_HEADTRACK_STALE_MS: '9999',
     })).toEqual({ port: 6000, bindHost: '127.0.0.1', staleMs: 5000 });
+  });
+});
+
+// The settings-aware layer (audit C3/D2): env master var SET hands full control
+// to env (including force-off); otherwise the persisted wish decides, still
+// honoring env sub-key overrides. Pure — the receiver itself is constructed
+// only by main.js, the one sanctioned W3 wiring point.
+describe('w3ConfigFor — effective settings+env resolution (audit D2)', () => {
+  const eff = (fromEnv, enabled) => ({
+    envOverridden: { w3: fromEnv },
+    w3Wish: { fromEnv, enabled },
+  });
+
+  it('nothing set: no receiver config (app unchanged)', () => {
+    expect(w3ConfigFor(eff(false, false), {})).toBeNull();
+  });
+
+  it('W17_HEADTRACK=0 force-disables even when the persisted toggle is ON (explicit env off wins)', () => {
+    expect(w3ConfigFor(eff(true, true), { W17_HEADTRACK: '0' })).toBeNull();
+  });
+
+  it('the persisted wish alone enables the receiver with contract defaults (port 5602, 300 ms)', () => {
+    expect(w3ConfigFor(eff(false, true), {}))
+      .toEqual({ port: 5602, bindHost: '0.0.0.0', staleMs: 300 });
+  });
+
+  it('a settings-enabled receiver still honors env sub-key overrides (port/bind/stale)', () => {
+    expect(w3ConfigFor(eff(false, true), { W17_HEADTRACK_PORT: '5700', W17_HEADTRACK_STALE_MS: '250' }))
+      .toEqual({ port: 5700, bindHost: '0.0.0.0', staleMs: 250 });
+  });
+
+  it('env-enabled (W17_HEADTRACK=1) works with the persisted toggle OFF', () => {
+    expect(w3ConfigFor(eff(true, false), { W17_HEADTRACK: '1' }))
+      .toEqual({ port: 5602, bindHost: '0.0.0.0', staleMs: 300 });
   });
 });
 

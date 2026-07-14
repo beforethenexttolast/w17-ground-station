@@ -46,10 +46,16 @@ describe('createSimRun — canned output feeds the REAL parsers', () => {
         expect(parseNetshInterfacesList(none.stdout)).toHaveLength(0);
     });
 
-    it('scan output parses to visible networks with signal and auth', async () => {
+    it('scan output parses to visible networks with signal, auth, and normalized security (B3)', async () => {
         const res = await createSimRun('two-adapters')('netsh', ['wlan', 'show', 'networks', 'mode=bssid']);
         const nets = parseNetshNetworks(res.stdout);
-        expect(nets.map((n) => n.ssid)).toEqual(['PaddockNet', 'Cafe Guest 2.4']);
+        // The empty-SSID 5th block is dropped; the rest span the B3 branches.
+        expect(nets.map((n) => [n.ssid, n.security])).toEqual([
+            ['PaddockNet', 'wpa2-personal'],
+            ['Cafe Guest 2.4', 'open'],
+            ['Paddock 6E', 'wpa3-only'],
+            ['Team Corp', 'enterprise'],
+        ]);
         expect(nets[0].signalPct).toBe(87);
         expect(nets[1].auth).toBe('Open');
     });
@@ -92,6 +98,39 @@ describe('sim run through the real managers', () => {
         expect(st.ssid).toBe('Cafe Guest 2.4');
     });
 
+    it('an OPEN network join (security:open) installs an open profile and connects (B3)', async () => {
+        const wifi = new WifiManager({ run: createSimRun('two-adapters'), platform: 'win32', sleep: async () => {} });
+        expect(await wifi.join({ ssid: 'Cafe Guest 2.4', security: 'open', known: false })).toEqual({ ok: true });
+        expect((await wifi.status()).ssid).toBe('Cafe Guest 2.4');
+    });
+
+    it('WPA3-only and enterprise scanned networks are rejected without any netsh connect (B3)', async () => {
+        const wifi = new WifiManager({ run: createSimRun('two-adapters'), platform: 'win32', sleep: async () => {} });
+        expect((await wifi.join({ ssid: 'Paddock 6E', security: 'wpa3-only' })).kind).toBe('unsupported-wpa3');
+        expect((await wifi.join({ ssid: 'Team Corp', security: 'enterprise' })).kind).toBe('unsupported-enterprise');
+    });
+
+    it('a join PINNED to the dongle connects the dongle while the built-in keeps its own network', async () => {
+        const wifi = new WifiManager({
+            run: createSimRun('two-adapters'),
+            platform: 'win32',
+            sleep: async () => {},
+        });
+        expect(await wifi.join({ ssid: 'Cafe Guest 2.4', iface: 'Wi-Fi 2' })).toEqual({ ok: true });
+        // Verified against the dongle's own block — never the built-in's:
+        expect(await wifi.status({ iface: 'Wi-Fi 2' }))
+            .toMatchObject({ connected: true, ssid: 'Cafe Guest 2.4', signalPct: 72 });
+        expect(await wifi.status({ iface: 'Wi-Fi' }))
+            .toMatchObject({ connected: true, ssid: 'PaddockNet', signalPct: 90 });
+    });
+
+    it('connect pinned to an unknown interface fails like netsh instead of pretending', async () => {
+        const run = createSimRun('two-adapters');
+        const res = await run('netsh', ['wlan', 'connect', 'name=X', 'interface=Nope']);
+        expect(res.ok).toBe(false);
+        expect(res.stderr).toContain('no wireless interface');
+    });
+
     it('HotspotManager starts via the mobile backend in sim', async () => {
         const hotspot = new HotspotManager({ run: createSimRun('two-adapters'), platform: 'win32' });
         const probe = await hotspot.probeBackends();
@@ -100,6 +139,17 @@ describe('sim run through the real managers', () => {
         expect(res.ok).toBe(true);
         expect(res.method).toBe('mobile');
         expect((await hotspot.stop()).ok).toBe(true);
+    });
+
+    it('the elevation check (audit B2) answers ELEV_ADMIN deterministically, in every scenario', async () => {
+        // Elevation is independent of WLAN state — even the degraded scenarios
+        // answer, so a sim failure can never smuggle in the admin suggestion.
+        for (const scenario of SCENARIOS) {
+            const run = createSimRun(scenario);
+            const res = await run('powershell', ['-Command', 'WindowsPrincipal IsInRole probe']);
+            expect(res.ok).toBe(true);
+            expect(res.stdout).toContain('ELEV_ADMIN');
+        }
     });
 
     it('netsh-fail degrades exactly like a broken WLAN service', async () => {

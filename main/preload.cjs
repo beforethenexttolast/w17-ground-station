@@ -23,6 +23,16 @@ contextBridge.exposeInMainWorld('groundStation', {
   wifiStatus: () => ipcRenderer.invoke('wifi:status'),
   hotspotStart: (opts) => ipcRenderer.invoke('wifi:hotspot-start', opts),
   hotspotStop: () => ipcRenderer.invoke('wifi:hotspot-stop'),
+  // Hotspot runtime mirror (audit B1/N3): the main-process lifecycle is the
+  // only state authority — the renderer reads snapshots (on PIT WALL entry)
+  // and re-renders on pushed changes; it never invents hotspot state.
+  hotspotState: () => ipcRenderer.invoke('wifi:hotspot-state'),
+  hotspotProbe: (opts) => ipcRenderer.invoke('wifi:hotspot-probe', opts),
+  onHotspotState: (cb) => {
+    const handler = (_event, snapshot) => cb(snapshot);
+    ipcRenderer.on('hotspot-state', handler);
+    return () => ipcRenderer.removeListener('hotspot-state', handler);
+  },
   // Setup helpers: last-sender address suggestion (user-confirmed) + ping.
   getAddrHint: () => ipcRenderer.invoke('setup:addr-hint'),
   probeHost: (addr) => ipcRenderer.invoke('setup:probe-host', addr),

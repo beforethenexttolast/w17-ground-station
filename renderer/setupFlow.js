@@ -6,13 +6,16 @@
 // glue over the pure step/checklist/address modules in shared/. It never
 // touches control — the START buttons only dismiss a viewer overlay.
 
-import { startRide, hudStatus, setControllerChoice, setW3Chip } from './hud.js';
+import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
-import { adapterRowState, scanStatusText } from '../shared/wifiView.mjs';
+import { adapterRowState, scanStatusText, hotspotPaneState, joinPlan, networkBadge } from '../shared/wifiView.mjs';
+import { probeStatusLine, PATH_ONLY_NOTE } from '../shared/reachability.mjs';
 import { summaryLine } from '../shared/setupSummary.mjs';
 import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId, pressedRoles } from '../shared/inputPresets.mjs';
+import { makeEnterToAdvance, makeEnterToSubmit } from '../shared/keyboardFocus.mjs';
+import { envLockState } from '../shared/envLocks.mjs';
 import { padPreviewSvg } from './padPreview.js';
 import { sounds, setSoundEnabled } from './sounds.js';
 
@@ -27,6 +30,7 @@ const lightsEl = el('lights');
 
 let settings = null;
 let envOverridden = {};
+let envEffective = {}; // effective values for env-locked ⚙ controls (audit C3)
 let mode = 'solo';
 let step = 'garage';
 let lightsRunning = false;
@@ -41,10 +45,42 @@ function radio(msg) {
   sounds.radioOpen();
 }
 
+// ---------- IPC rejection guard (audit N1) ----------
+// EXPECTED operational failures come back from main as {ok:false,...} results
+// and are rendered by the callers; a REJECTED invoke (handler threw, IPC
+// broke) is unexpected. This guard is deliberately narrow — one IPC call per
+// use — so it cannot conceal defects in surrounding renderer logic: the real
+// error goes to the console (once per channel; some callers poll every 1-2 s)
+// and the caller gets a fixed, credential-free fallback to render.
+const ipcWarned = new Set();
+async function ipc(promise, fallback, label, { detail = true } = {}) {
+  try {
+    return await promise;
+  } catch (err) {
+    if (!ipcWarned.has(label)) {
+      ipcWarned.add(label);
+      // detail:false marks channels whose ARGUMENTS carry credentials
+      // (join/hotspot passwords): a main-side rejection message must never
+      // tow an echoed secret into the renderer log.
+      const msg = detail ? (err && err.message ? err.message : err) : '(detail withheld — call carries credentials)';
+      console.error(`[setup] ${label} failed:`, msg);
+    }
+    return fallback;
+  }
+}
+
 // ---------- persistence ----------
 async function save(patch) {
   if (!gs) return settings;
-  settings = await gs.setSettings(patch);
+  try {
+    settings = await gs.setSettings(patch);
+  } catch {
+    // Keep the in-memory settings and keep the flow usable; the failure is
+    // visible on the team radio. Fixed text only — the patch (and thus a
+    // rejection that echoes it) can carry the hotspot password.
+    console.error('[setup] settings:set failed (detail withheld — patch may carry credentials)');
+    radio('SETTINGS SAVE FAILED — CHANGES MAY NOT PERSIST');
+  }
   return settings;
 }
 
@@ -68,9 +104,13 @@ navNext.addEventListener('click', () => {
   if (n !== LIGHTS) showStep(n);
 });
 navBack.addEventListener('click', () => { sounds.uiTick(); showStep(prevStep(step, mode)); });
-addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !gate.classList.contains('hidden') && !navNext.classList.contains('hidden')) navNext.click();
-});
+// Enter advances the step ONLY from a non-interactive focus (audit M1):
+// Enter while typing in a field or on a focused button belongs to that
+// control — advancing then would discard what the user was doing.
+addEventListener('keydown', makeEnterToAdvance({
+  canAdvance: () => !gate.classList.contains('hidden') && !navNext.classList.contains('hidden'),
+  advance: () => navNext.click(),
+}));
 
 // ---------- GARAGE ----------
 for (const card of document.querySelectorAll('.modecard')) {
@@ -84,16 +124,26 @@ for (const card of document.querySelectorAll('.modecard')) {
 
 // ---------- PIT WALL ----------
 const netTabs = el('netTabs'), paneJoin = el('paneJoin'), paneHotspot = el('paneHotspot'), paneGuide = el('paneGuide');
-const netList = el('netList'), netPwRow = el('netPwRow'), netPassword = el('netPassword');
+const netList = el('netList'), netPwRow = el('netPwRow'), netPassword = el('netPassword'), netSecNote = el('netSecNote');
 const joinStatus = el('joinStatus'), hsStatus = el('hsStatus'), guideStatus = el('guideStatus');
-const addrInput = el('iphoneAddr'), addrSuggest = el('addrSuggest'), addrStatus = el('addrStatus');
+const addrInput = el('iphoneAddr'), addrSuggest = el('addrSuggest'), addrStatus = el('addrStatus'), addrNote = el('addrNote');
 const adapterRow = el('adapterRow'), adapterSelect = el('adapterSelect');
-const adapterLabel = el('adapterLabel'), adapterHint = el('adapterHint');
-let adapterMode = 'missing'; // wifiView row mode; only 'select' offers a picker
+const adapterHint = el('adapterHint'), adapterStatus = el('adapterStatus');
+const adapterDetail = el('adapterDetail'), adapterName = el('adapterName'), adapterChip = el('adapterChip');
+const adapterNet = el('adapterNet'), adapterDesc = el('adapterDesc');
+const adapterPick = el('adapterPick'), adapterPickLabel = el('adapterPickLabel');
+const adapterSelNote = el('adapterSelNote'), adapterRescan = el('adapterRescan');
+const hsSsidInput = el('hsSsid'), hsPassInput = el('hsPass');
+const hsStartBtn = el('hsStart'), hsStopBtn = el('hsStop');
+const hsHint = el('hsHint'), hsRecheck = el('hsRecheck');
+let adapterMode = 'missing'; // wifiView card mode; only 'select' offers a picker
+let adapterRes = null;       // last listInterfaces result — re-render on picker change without re-querying netsh
 let netKind = 'join';
 let joinTarget = null;
 let hintTimer = null;
 let caps = null;
+let hotspotSnap = null;  // last lifecycle snapshot from MAIN — a mirror, never renderer-invented state
+let pitwallEpoch = 0;    // bumped on PIT WALL entry/leave: stale async completions must not touch the DOM
 
 function showNetTab(kind) {
   netKind = kind;
@@ -110,52 +160,139 @@ netTabs.addEventListener('click', (e) => {
 });
 
 async function enterPitwall() {
+  pitwallEpoch += 1;
+  const epoch = pitwallEpoch;
   addrInput.value = settings?.iphoneAddr || '';
-  el('hsSsid').value = settings?.network?.hotspot?.ssid || 'W17-GRID';
-  el('hsPass').value = settings?.network?.hotspot?.password || generatePassword();
-  caps = gs ? await gs.wifiCapabilities() : { canScan: false, canHotspot: false };
+  hsSsidInput.value = settings?.network?.hotspot?.ssid || 'W17-GRID';
+  hsPassInput.value = settings?.network?.hotspot?.password || generatePassword();
+  // wifi:capabilities answers instantly now (platform + sim flag only): the
+  // slow WinRT hotspot probe moved to its own non-blocking channel (audit N3),
+  // so PIT WALL renders and stays usable while that probe runs.
+  const c = gs ? await ipc(gs.wifiCapabilities(), null, 'wifi:capabilities') : { canScan: false };
+  // Left PIT WALL while the capability check was in flight (audit D2): the
+  // DOM writes and the poll timer below belong to whatever step is active
+  // now — a stale continuation must not leak an interval or touch the page.
+  if (epoch !== pitwallEpoch) return;
+  if (!c) {
+    // Capability check rejected: fall to guide mode, but say why — a silent
+    // guide pane would misreport a broken IPC as "not Windows". Leaving and
+    // re-entering PIT WALL retries the check.
+    caps = { canScan: false, sim: false };
+    radio('PIT WALL: NETWORK CAPABILITY CHECK FAILED — GUIDE MODE ONLY');
+  } else {
+    caps = c;
+  }
   // Dev preview (W17_WIFI_SIM): canned netsh output — flag it so a simulated
   // network step can never be mistaken for the real OS layer.
   el('wifiSimTag').classList.toggle('hidden', !caps.sim);
-  netTabs.classList.toggle('hidden', !caps.canScan && !caps.canHotspot);
-  if (!caps.canScan && !caps.canHotspot) {
+  netTabs.classList.toggle('hidden', !caps.canScan);
+  await refreshAdapters();
+  if (epoch !== pitwallEpoch) return; // left while the adapter listing ran
+  if (!caps.canScan) {
     showNetTab('guide');
   } else {
-    await refreshAdapters();
-    showNetTab(settings?.network?.kind === 'hotspot' && caps.canHotspot ? 'hotspot' : 'join');
+    showNetTab(settings?.network?.kind === 'hotspot' ? 'hotspot' : 'join');
     rescan();
+  }
+  // Hotspot pane: pull the authoritative lifecycle snapshot (instant — it
+  // must reflect a hotspot left LIVE on a previous visit), then kick the
+  // capability probe WITHOUT awaiting it. The pane shows CHECKING HOTSPOT
+  // SUPPORT… until the probe lands (cached after the first run).
+  if (caps.canScan && gs && gs.hotspotState) {
+    // adopt (not assign): a pushed snapshot newer than this pull — or a
+    // usable one held from a previous visit when the pull itself rejects —
+    // must not be clobbered by a stale/absent pull result.
+    adoptHotspotSnap(await ipc(gs.hotspotState(), null, 'wifi:hotspot-state'));
+    if (epoch !== pitwallEpoch) return; // cache adopted; DOM/timers stay with the active step
+    renderHotspotPane();
+    kickHotspotProbe(false);
   }
   hintTimer = setInterval(pollAddrHint, 2000);
   pollAddrHint();
 }
 
-// ADAPTER row — always visible where netsh exists (Windows/sim): it confirms
-// which WLAN adapter scan/join will use, becomes a picker when several exist
+// ADAPTER row — always visible on PIT WALL: on Windows/sim it confirms which
+// WLAN adapter scan/join will use, becomes a picker when several exist
 // (built-in vs USB dongle; the choice pins netsh to that interface), and
-// says so with a hint when none is detected or listing failed. All decisions
-// live in shared/wifiView.mjs; this only renders the returned state.
+// says so with a hint when none is detected or listing failed; in guide mode
+// it says where adapter selection lives. All decisions live in
+// shared/wifiView.mjs; this only renders the returned state.
 async function refreshAdapters() {
-  const res = gs && gs.wifiInterfaces ? await gs.wifiInterfaces() : { ok: true, ifaces: [] };
-  const state = adapterRowState(res, settings?.network?.adapter);
+  // guide mode: no netsh on this OS, so host interfaces are NEVER listed as
+  // WLAN adapters (the {guide:true} sentinel). Otherwise a rejected listing
+  // renders the 'failed' card (wifiView.mjs) with RESCAN as the retry, same as
+  // a netsh {ok:false}. The raw result is cached so a picker change can
+  // re-render the card header without another netsh round-trip.
+  adapterRes = !caps?.canScan
+    ? { guide: true }
+    : (gs && gs.wifiInterfaces
+      ? await ipc(gs.wifiInterfaces(), { ok: false, error: 'adapter listing unavailable' }, 'wifi:interfaces')
+      : { ok: true, ifaces: [] });
+  renderAdapterCard(adapterRowState(adapterRes, settings?.network?.adapter));
+}
+
+// Renders the ADAPTER card from a wifiView state object. All decisions live in
+// shared/wifiView.mjs; this only shows/hides blocks and fills text. The card is
+// always visible on PIT WALL; the sub-blocks appear per mode.
+function renderAdapterCard(state) {
   adapterMode = state.mode;
-  adapterRow.classList.toggle('hidden', !caps?.canScan);
-  adapterSelect.classList.toggle('hidden', state.mode !== 'select');
-  adapterLabel.classList.toggle('hidden', state.mode === 'select');
-  adapterLabel.classList.toggle('warn', state.mode === 'missing' || state.mode === 'failed');
-  adapterLabel.textContent = state.mode === 'select' ? '' : state.label;
-  adapterHint.textContent = state.hint || '';
-  adapterHint.classList.toggle('hidden', !caps?.canScan || !state.hint);
-  if (state.mode === 'select') {
+  adapterRow.classList.remove('hidden');
+  // Left accent: teal = a choice exists (interactive); amber = warning/missing;
+  // neutral = readonly single adapter.
+  adapterRow.classList.toggle('interactive', state.mode === 'select' && !state.savedMissing);
+  adapterRow.classList.toggle('warn', state.mode === 'missing' || state.mode === 'failed' || !!state.savedMissing);
+
+  // Adapter detail — the single adapter, the selected one, or (amber) the
+  // vanished saved adapter. SSID/signal show only while connected.
+  const d = state.detail || null;
+  adapterDetail.classList.toggle('hidden', !d);
+  if (d) {
+    adapterName.textContent = d.name;
+    adapterName.classList.toggle('warn', d.chip.tone === 'missing');
+    adapterChip.textContent = d.chip.text;
+    adapterChip.className = `statechip ${d.chip.tone}`; // sets tone + clears 'hidden'
+    const net = d.connected && d.ssid
+      ? `${d.ssid}${d.signalPct != null ? ` · ${d.signalPct}%` : ''}`
+      : '';
+    adapterNet.textContent = net;
+    adapterNet.classList.toggle('hidden', !net);
+    adapterDesc.textContent = d.description || '';
+    adapterDesc.classList.toggle('hidden', !d.description);
+  }
+
+  // SELECTED indication — the single-adapter readonly confirmation only.
+  adapterSelNote.classList.toggle('hidden', !state.selectedNote);
+
+  // Picker — a native <select> (SELECT/CHANGE ADAPTER); only in select mode.
+  const isSelect = state.mode === 'select';
+  adapterPick.classList.toggle('hidden', !isSelect);
+  if (isSelect) {
+    adapterPickLabel.textContent = state.selectorLabel;
     adapterSelect.replaceChildren(...state.options.map((o) => {
       const opt = document.createElement('option');
       opt.value = o.value;
       opt.textContent = o.label;
+      if (o.disabled) opt.disabled = true;
       return opt;
     }));
     adapterSelect.value = state.selected;
   } else {
     adapterSelect.replaceChildren();
   }
+
+  // Headline for guide/failed/missing (there is no adapter to detail).
+  adapterStatus.classList.toggle('hidden', !state.status);
+  adapterStatus.classList.toggle('warn', !!state.warn);
+  adapterStatus.textContent = state.status || '';
+
+  adapterHint.textContent = state.hint || '';
+  adapterHint.classList.toggle('hidden', !state.hint);
+
+  // Card-level RESCAN for the degraded states; the join-pane RESCAN would be
+  // redundant there (and points at a network list you can't populate without a
+  // working adapter), so it hides while this one shows.
+  adapterRescan.classList.toggle('hidden', !state.rescan);
+  el('netRescan').classList.toggle('hidden', !!state.rescan);
 }
 
 // Single adapter passes undefined — netsh's default interface, the exact
@@ -164,13 +301,27 @@ function chosenAdapter() {
   return adapterMode === 'select' ? (adapterSelect.value || undefined) : undefined;
 }
 
+// True while the picker demands a decision: the SAVED adapter was not
+// detected, so nothing is selected yet. Scan/join must not proceed then —
+// falling through to netsh's default interface would silently use an adapter
+// the user never chose (audit M2/Q7).
+function adapterUnresolved() {
+  return adapterMode === 'select' && !adapterSelect.value;
+}
+
 adapterSelect.addEventListener('change', () => {
   sounds.uiTick();
-  save({ network: { adapter: adapterSelect.value } });
+  const value = adapterSelect.value;
+  save({ network: { adapter: value } });
+  // Reflect the newly chosen adapter in the card immediately (its connection
+  // state comes straight from the cached listing, never merged across
+  // adapters), then rescan pinned to it.
+  if (adapterRes) renderAdapterCard(adapterRowState(adapterRes, value));
   rescan();
 });
 
 function leavePitwall() {
+  pitwallEpoch += 1;
   clearInterval(hintTimer);
   hintTimer = null;
   const patch = {
@@ -194,8 +345,17 @@ function generatePassword() {
 
 async function rescan() {
   if (!gs || !caps?.canScan) return;
+  if (adapterUnresolved()) {
+    netList.replaceChildren();
+    joinStatus.textContent = 'SELECT AN ADAPTER — the saved adapter was not detected';
+    return;
+  }
   joinStatus.textContent = 'SCANNING…';
-  const res = await gs.wifiScan({ iface: chosenAdapter() });
+  const res = await ipc(
+    gs.wifiScan({ iface: chosenAdapter() }),
+    { ok: false, error: 'scan did not complete — RESCAN to retry' },
+    'wifi:scan',
+  );
   const nets = res.networks || [];
   joinStatus.textContent = scanStatusText(res);
   netList.replaceChildren(...nets.map((n) => {
@@ -204,37 +364,90 @@ async function rescan() {
     row.innerHTML = `<b></b><span class="sig"></span><span class="known"></span>`;
     row.querySelector('b').textContent = n.ssid;
     row.querySelector('.sig').textContent = `${n.signalPct ?? '--'}%`;
-    row.querySelector('.known').textContent = n.known ? 'known' : (n.auth || '');
+    // Right-aligned tag: KNOWN for a saved profile, else the normalized
+    // security kind (audit B3) — so the user sees what a row needs before
+    // clicking it, never a raw localized auth string.
+    row.querySelector('.known').textContent = networkBadge(n);
     row.addEventListener('click', () => selectNetwork(n, row));
     return row;
   }));
 }
-// RESCAN re-detects adapters too — plugging the dongle in while sitting on
-// PIT WALL must not require leaving the step.
-el('netRescan').addEventListener('click', async () => { sounds.uiTick(); await refreshAdapters(); rescan(); });
+// RESCAN — either the card's degraded-state button or the join pane's — always
+// re-detects adapters first, so plugging the dongle in while sitting on PIT
+// WALL must not require leaving the step.
+async function rescanAll() { sounds.uiTick(); await refreshAdapters(); rescan(); }
+el('netRescan').addEventListener('click', rescanAll);
+adapterRescan.addEventListener('click', rescanAll);
 
+// Selecting a network branches on the normalized security kind via joinPlan
+// (shared/wifiView.mjs), never on localized prose (audit B3 / Q3):
+//   reject   — WPA3-only / enterprise: a controlled message, no join.
+//   join     — a saved secured profile: connect directly (no password prompt).
+//   open     — OPEN NETWORK warning + JOIN, password field hidden (no key).
+//   password — a secured network with no saved profile: prompt for the key.
+function showSecNote(text, warn, diag) {
+  netSecNote.textContent = text;
+  netSecNote.classList.remove('hidden');
+  netSecNote.classList.toggle('warn', !!warn);
+  // The sanitized raw auth/enc (unknown-security rejects) rides a tooltip for
+  // diagnostics — never the primary message, never raw localized prose on screen.
+  if (diag) netSecNote.title = diag; else netSecNote.removeAttribute('title');
+}
 function selectNetwork(n, row) {
   sounds.uiTick();
   for (const r of netList.children) r.classList.toggle('on', r === row);
-  joinTarget = n;
-  if (n.known) { doJoin(); } else {
+  // Reset the join controls before applying the plan.
+  netSecNote.classList.add('hidden');
+  netPwRow.classList.add('hidden');
+  netPassword.classList.remove('hidden');
+  joinStatus.textContent = '';
+  const plan = joinPlan(n);
+  joinTarget = plan.action === 'reject' ? null : n;
+  if (plan.action === 'reject') { showSecNote(plan.reject, true, plan.diag); return; }
+  if (plan.action === 'join') { doJoin(); return; }
+  if (plan.action === 'open') {
+    // OPEN NETWORK: warn that it is unencrypted, hide the password field, and
+    // let the user confirm with JOIN. The manager installs an open profile
+    // when there is no saved one; no credential is entered or persisted.
+    showSecNote(plan.warn, true);
+    netPassword.classList.add('hidden');
     netPwRow.classList.remove('hidden');
-    netPassword.value = '';
-    netPassword.focus();
+    return;
   }
+  // password: a caution note for transition / unrecognized kinds, else none.
+  if (plan.note) showSecNote(plan.note, false);
+  netPwRow.classList.remove('hidden');
+  netPassword.value = '';
+  netPassword.focus();
 }
 
 async function doJoin() {
   if (!joinTarget) return;
+  if (adapterUnresolved()) {
+    joinStatus.textContent = 'SELECT AN ADAPTER — the saved adapter was not detected';
+    return;
+  }
   const ssid = joinTarget.ssid;
+  const plan = joinPlan(joinTarget);
   joinStatus.textContent = `JOINING ${ssid}…`;
-  const res = await gs.wifiJoin({
-    ssid,
-    password: joinTarget.known ? undefined : netPassword.value,
-    iface: chosenAdapter(),
-  });
+  // The rejection fallback message is FIXED text: no netsh output, and never
+  // anything derived from the password. The normalized security + known flags
+  // let main pick the right profile (open/WPA2/saved). JOIN/Enter retries.
+  const res = await ipc(
+    gs.wifiJoin({
+      ssid,
+      password: plan.action === 'password' ? netPassword.value : undefined,
+      iface: chosenAdapter(),
+      security: joinTarget.security,
+      known: !!joinTarget.known,
+    }),
+    { ok: false, error: 'JOIN FAILED — the network layer did not respond; retry' },
+    'wifi:join',
+    { detail: false },
+  );
   if (res.ok) {
     netPwRow.classList.add('hidden');
+    netSecNote.classList.add('hidden');
     joinStatus.textContent = `CONNECTED: ${ssid}`;
     radio(`PIT WALL: NETWORK CONFIRMED — ${ssid}`);
     save({ network: { kind: 'join', ssid } });
@@ -243,32 +456,129 @@ async function doJoin() {
   }
 }
 el('netJoinBtn').addEventListener('click', doJoin);
+// Enter in the password field = JOIN (approved M1 behavior). The global
+// Enter-advance handler already ignores editable targets; this makes Enter
+// submit the join instead of doing nothing.
+netPassword.addEventListener('keydown', makeEnterToSubmit(doJoin));
 
-el('hsStart').addEventListener('click', async () => {
+// ---------- hotspot lifecycle mirror (audit B1/N3) ----------
+// The MAIN process owns the runtime hotspot state (main/hotspotLifecycle.js);
+// this pane renders exclusively from its snapshots via hotspotPaneState
+// (shared/wifiView.mjs). The click handlers only issue requests — STARTING…,
+// LIVE, failures, and the quit dialog's stop attempts all arrive as pushed
+// snapshots, so navigating away and back can never fabricate a state.
+
+function renderHotspotPane() {
+  const v = hotspotPaneState(hotspotSnap);
+  hsStatus.textContent = v.status;
+  hsStatus.classList.toggle('live', v.live);
+  hsHint.textContent = v.hint;
+  hsHint.classList.toggle('hidden', !v.hint);
+  hsStartBtn.disabled = !v.start;
+  hsStopBtn.disabled = !v.stop;
+  hsSsidInput.disabled = !v.inputs;
+  hsPassInput.disabled = !v.inputs;
+  hsRecheck.classList.toggle('hidden', !v.recheck);
+}
+
+// Snapshot adoption gate for BOTH the pull and the push paths: snapshots
+// carry a monotonic `seq` from the main-process authority, and anything older
+// than the newest already held is dropped. Electron does not guarantee that
+// state pushes arrive in emit order (the sim acceptance pass caught a
+// 'probing' push landing AFTER its own completion snapshot, wedging the pane
+// on CHECKING…) — causal order comes from the authority, never from arrival.
+function adoptHotspotSnap(snap) {
+  if (!snap) return false;
+  if (hotspotSnap && typeof hotspotSnap.seq === 'number' && typeof snap.seq === 'number'
+      && snap.seq < hotspotSnap.seq) return false;
+  hotspotSnap = snap;
+  return true;
+}
+
+// Pushed on every lifecycle/probe change. Off PIT WALL only the cache is
+// updated — the DOM belongs to whatever step is active (stale-DOM guard);
+// re-entering PIT WALL re-pulls and re-renders the current truth.
+if (gs && gs.onHotspotState) {
+  gs.onHotspotState((snap) => {
+    if (!adoptHotspotSnap(snap)) return;
+    if (step === 'pitwall') renderHotspotPane();
+  });
+}
+
+// The probe result normally lands via the state push; awaiting it here only
+// backstops an IPC rejection (no push will ever come) with a controlled
+// failed state instead of a pane stuck on CHECKING… (audit N3). Duplicate
+// suppression lives in main (concurrent probes share one PowerShell run;
+// completed results are cached) — re-entering PIT WALL is free.
+async function kickHotspotProbe(refresh) {
+  if (!gs || !gs.hotspotProbe) return;
+  const epoch = pitwallEpoch;
+  const res = await ipc(gs.hotspotProbe({ refresh }), { status: 'failed' }, 'wifi:hotspot-probe');
+  if (epoch !== pitwallEpoch || step !== 'pitwall') return; // stale completion: leave the DOM alone
+  // Only synthesize the failed overlay when the AUTHORITY never delivered a
+  // result (IPC rejected). It is a renderer-local fallback layered on the
+  // freshest adopted snapshot, keeping its seq so a genuine newer push still
+  // wins through adoptHotspotSnap; if main already reported a probe status,
+  // that authoritative value stands.
+  if (res && res.status === 'failed' && hotspotSnap && hotspotSnap.probe?.status !== 'failed') {
+    hotspotSnap = { ...hotspotSnap, probe: { status: 'failed' } };
+    renderHotspotPane();
+  }
+}
+
+hsStartBtn.addEventListener('click', async () => {
   sounds.uiTick();
-  const ssid = el('hsSsid').value.trim();
-  const password = el('hsPass').value;
-  hsStatus.textContent = 'STARTING HOTSPOT…';
-  const res = await gs.hotspotStart({ ssid, password });
+  const ssid = hsSsidInput.value.trim();
+  const password = hsPassInput.value;
+  // Fixed rejection fallback — no output text, never the password. Everything
+  // non-rejected is rendered from the pushed lifecycle snapshots.
+  const res = await ipc(
+    gs.hotspotStart({ ssid, password }),
+    { ok: false, rejected: true },
+    'wifi:hotspot-start',
+    { detail: false },
+  );
   if (res.ok) {
-    hsStatus.textContent = `LIVE (${res.method}) — join "${res.ssid}" on the iPhone${res.hostIp ? ` · this PC: ${res.hostIp}` : ''}`;
     radio(`PIT WALL: HOTSPOT ${res.ssid} IS LIVE`);
     save({ network: { kind: 'hotspot', hotspot: { ssid, password } } });
-  } else {
-    hsStatus.textContent = res.error || 'HOTSPOT FAILED';
+  } else if (res.rejected && step === 'pitwall') {
+    hsStatus.textContent = 'HOTSPOT FAILED — the network layer did not respond; retry';
   }
 });
 
+hsStopBtn.addEventListener('click', async () => {
+  sounds.uiTick();
+  const res = await ipc(
+    gs.hotspotStop(),
+    { ok: false, rejected: true },
+    'wifi:hotspot-stop',
+  );
+  if (res.ok && !res.noop) {
+    radio('PIT WALL: HOTSPOT STOPPED');
+  } else if (res.rejected && step === 'pitwall') {
+    hsStatus.textContent = 'HOTSPOT STOP FAILED — the network layer did not respond; retry';
+  }
+});
+
+hsRecheck.addEventListener('click', () => { sounds.uiTick(); kickHotspotProbe(true); });
+
 el('guideVerify').addEventListener('click', async () => {
   sounds.uiTick();
-  const st = await gs.wifiStatus();
+  const st = await ipc(gs.wifiStatus(), null, 'wifi:status');
+  if (!st || st.ok === false) {
+    // Distinct from "not detected": the check itself failed (IPC rejection or
+    // a netsh error reported by the manager). VERIFY retries.
+    guideStatus.textContent = 'WIFI CHECK FAILED — VERIFY to retry';
+    return;
+  }
   const ips = (st.adapterIps || []).map((a) => `${a.name} ${a.addr}`).join(' · ');
   guideStatus.textContent = `${st.connected ? `WIFI: ${st.ssid}` : 'WIFI: not detected'}${ips ? ` — ${ips}` : ''}`;
 });
 
 async function pollAddrHint() {
   if (!gs) return;
-  const hint = await gs.getAddrHint();
+  // Background 2 s poll: a rejection just means "no suggestion this tick".
+  const hint = await ipc(gs.getAddrHint(), null, 'setup:addr-hint');
   const addr = suggestionFromHint(hint);
   const current = addrInput.value.trim();
   if (addr && addr !== current) {
@@ -283,10 +593,15 @@ async function pollAddrHint() {
 el('addrCheck').addEventListener('click', async () => {
   sounds.uiTick();
   const addr = addrInput.value.trim();
+  addrNote.classList.add('hidden');
   if (!isValidIpv4(addr)) { addrStatus.textContent = 'INVALID IP'; return; }
   addrStatus.textContent = 'PINGING…';
-  const res = await gs.probeHost(addr);
-  addrStatus.textContent = res.ok ? `REPLY ${res.rttMs}ms` : (res.error || 'NO REPLY').toUpperCase();
+  const res = await ipc(gs.probeHost(addr), { ok: false, status: 'command-error', error: 'check failed — retry' }, 'setup:probe-host');
+  // The line is honest per status class (audit B4); a reachable result says
+  // "network path only". On success also show the full path-only caveat, so a
+  // green check can never be read as "the iPhone HUD is receiving" (decision C4).
+  addrStatus.textContent = probeStatusLine(res);
+  if (res.ok) { addrNote.textContent = PATH_ONLY_NOTE; addrNote.classList.remove('hidden'); }
 });
 
 // ---------- SEAT FIT ----------
@@ -384,23 +699,53 @@ function seatfitTick() {
 // ---------- GRID ----------
 const checkList = el('checkList'), startBtn = el('startBtn'), startAnywayBtn = el('startAnywayBtn');
 let gridTimer = null;
+let gridEpoch = 0; // bumped on GRID entry/leave (audit D2): a session apply resolving after the user left must not start the poll timer or touch the DOM
 let checks = [];
 let probing = false;
 const announced = new Set();
 
+// W2-on-GRID preflight wording (audit C5/Q5): iPhone Cockpit mode begins the
+// telemetry stream on GRID entry (confirmed IP) so live data can be verified on
+// the phone before START; ping only proves the path, the phone screen is the
+// real evidence. No new preflight packet type — this is the existing W2 sender.
+const GRID_W2_NOTE = 'The iPhone HUD begins receiving telemetry on GRID so you can verify it before START. Ping proves the network path only — live data visible on the iPhone is the final evidence.';
+
 async function enterGrid() {
+  gridEpoch += 1;
+  const epoch = gridEpoch;
   radio('GRID: RUNNING FINAL CHECKS');
   if (envOverridden.telemetrySource || envOverridden.iphoneBridge || envOverridden.w3) {
     radio('NOTE: SOME SETTINGS ARE LOCKED BY ENV VARS');
   }
-  const applied = gs ? await gs.applySession() : { telemetry: 'none' };
-  setW3Chip(!!applied.w3);
-  // What's configured, at a glance — verify without stepping back through
-  // the flow. (After applySession so the leave-hook saves have settled.)
-  el('setupSummary').textContent = summaryLine(settings);
+  // Desktop FPV never streams to a phone, so the note is iPhone-mode only —
+  // desktop mode must not show misleading iPhone wording.
+  const gridNote = el('gridNote');
+  gridNote.textContent = mode === 'iphone-hud' ? GRID_W2_NOTE : '';
+  gridNote.classList.toggle('hidden', mode !== 'iphone-hud');
+  const applied = gs ? await ipc(gs.applySession(), null, 'session:apply') : { telemetry: 'none' };
+  // Left GRID while the session apply was in flight (audit D2): main has
+  // applied the session (idempotent), but the checklist DOM and the 1 s poll
+  // interval belong to the active step — a stale continuation leaking that
+  // interval would ping/probe forever from the wrong screen.
+  if (epoch !== gridEpoch) return;
+  if (applied) {
+    setW3Chip(!!applied.w3);
+    // Replay chip follows the EFFECTIVE telemetry source (audit C2): entering
+    // GRID re-applies the session, so this reflects any env-override or ⚙ change.
+    setReplayChip(applied.telemetry === 'replay');
+    // What's configured, at a glance — verify without stepping back through
+    // the flow. (After applySession so the leave-hook saves have settled.)
+    el('setupSummary').textContent = summaryLine(settings);
+  } else {
+    // Session apply rejected: the runtime state is unknown. Say so where the
+    // summary belongs and keep the checklist honest (telemetry unconfirmed)
+    // instead of leaving GRID blank. Re-entering GRID retries the apply.
+    radio('GRID: SESSION APPLY FAILED');
+    el('setupSummary').textContent = 'SESSION APPLY FAILED — telemetry state unknown; CHANGE SETUP and return to retry';
+  }
   checks = buildChecklist({
     mode,
-    telemetryConfigured: applied.telemetry !== 'none',
+    telemetryConfigured: !!applied && applied.telemetry !== 'none',
     elrsConfigured: !!(settings && settings.elrsPath),
   });
   renderChecks();
@@ -409,6 +754,7 @@ async function enterGrid() {
 }
 
 function leaveGrid() {
+  gridEpoch += 1;
   clearInterval(gridTimer);
   gridTimer = null;
   announced.clear();
@@ -428,12 +774,16 @@ async function gridTick() {
     }
     if (checks.some((c) => c.id === 'iphone-reachable')) {
       const addr = settings?.iphoneAddr;
-      results['iphone-reachable'] = isValidIpv4(addr) ? (await gs.probeHost(addr)).ok : false;
+      results['iphone-reachable'] = isValidIpv4(addr)
+        ? (await ipc(gs.probeHost(addr), { ok: false }, 'setup:probe-host')).ok
+        : false;
     }
     const elrsCheck = checks.find((c) => c.id === 'elrs-running');
     if (elrsCheck) {
-      const st = await gs.elrsStatus();
-      results['elrs-running'] = st.configured ? st.detected : 'skipped';
+      // A rejected probe reads as "not confirmed" (red row + hint), the
+      // honest state — never as skipped/green.
+      const st = await ipc(gs.elrsStatus(), null, 'elrs:status');
+      results['elrs-running'] = st ? (st.configured ? st.detected : 'skipped') : false;
     }
     checks = applyProbes(checks, results);
     for (const c of checks) {
@@ -464,7 +814,7 @@ function renderChecks() {
       btn.textContent = 'LAUNCH';
       btn.addEventListener('click', async () => {
         sounds.uiTick();
-        const res = await gs.elrsLaunch();
+        const res = await ipc(gs.elrsLaunch(), { ok: false, error: 'launcher unavailable — retry' }, 'elrs:launch');
         radio(res.ok ? 'ELRS CONTROL LAUNCHED' : `ELRS LAUNCH FAILED: ${res.error}`);
       });
       row.append(btn);
@@ -552,14 +902,45 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape') settingsScrim.classList.add('hidden');
 });
 
+// Apply an env lock to a ⚙ control (audit C3/Q8): toggle the ENV badge (with
+// the var-naming tooltip + accessible description), and make the control
+// non-editable while it is overridden. A text input uses `readonly` so it keeps
+// focus + tooltip; a <select>/checkbox has no readonly, so it is `disabled` and
+// the focusable badge carries the accessible name. `aria-describedby` links a
+// still-focusable readonly control to its badge.
+function applyEnvLock(control, badge, key, { readonly = false } = {}) {
+  const lock = envLockState(key, envOverridden);
+  badge.classList.toggle('hidden', !lock.locked);
+  if (lock.locked) {
+    badge.title = lock.title;
+    badge.setAttribute('aria-label', lock.title);
+    control.setAttribute('aria-describedby', badge.id);
+  } else {
+    badge.removeAttribute('title');
+    badge.removeAttribute('aria-label');
+    control.removeAttribute('aria-describedby');
+  }
+  if (readonly) control.readOnly = lock.locked; else control.disabled = lock.locked;
+  return lock.locked;
+}
+
 function populateSettingsMenu() {
   if (!settings) return;
   el('setSound').checked = settings.soundEnabled;
   el('setLights').checked = settings.startLightsEnabled;
-  el('setW3').checked = settings.w3DiagnosticEnabled;
   el('setElrsPath').value = settings.elrsPath;
-  el('setTelemetrySource').value = settings.telemetry.source;
-  el('setTelemetryPort').value = settings.telemetry.port;
+  // Env-locked controls show the EFFECTIVE value (never the ignored persisted
+  // one) and are non-editable; unlocked controls behave exactly as before.
+  const w3Locked = applyEnvLock(el('setW3'), el('setW3Env'), 'w3');
+  el('setW3').checked = w3Locked ? !!envEffective.w3 : settings.w3DiagnosticEnabled;
+  const srcLocked = applyEnvLock(el('setTelemetrySource'), el('setTelemetrySourceEnv'), 'telemetrySource');
+  el('setTelemetrySource').value = srcLocked
+    ? (envEffective.telemetrySource ?? settings.telemetry.source)
+    : settings.telemetry.source;
+  const portLocked = applyEnvLock(el('setTelemetryPort'), el('setTelemetryPortEnv'), 'telemetryPort', { readonly: true });
+  el('setTelemetryPort').value = portLocked
+    ? String(envEffective.telemetryPort ?? settings.telemetry.port ?? '')
+    : settings.telemetry.port;
   setStatus.textContent = '';
 }
 
@@ -572,16 +953,32 @@ el('setLights').addEventListener('change', async (e) => {
   await save({ startLightsEnabled: e.target.checked });
 });
 el('setW3').addEventListener('change', async (e) => {
+  // Locked by W17_HEADTRACK: env wins, so never persist a UI edit (the control
+  // is disabled anyway — this is defense in depth). Audit C3/Q8.
+  if (envOverridden.w3) return;
   await save({ w3DiagnosticEnabled: e.target.checked });
-  const applied = await gs.applySession();
+  const applied = await ipc(gs.applySession(), null, 'session:apply');
+  if (!applied) { setStatus.textContent = 'APPLY FAILED — toggle again to retry'; return; }
   setStatus.textContent = applied.w3 ? 'HEAD-TRACK LOGGING ON (log-only)' : 'HEAD-TRACK LOGGING OFF';
   setW3Chip(!!applied.w3);
 });
 el('setElrsPath').addEventListener('change', async (e) => { await save({ elrsPath: e.target.value.trim() }); });
 async function telemetryChanged() {
-  await save({ telemetry: { source: el('setTelemetrySource').value, port: el('setTelemetryPort').value.trim() } });
-  const applied = await gs.applySession();
-  setStatus.textContent = `TELEMETRY: ${applied.telemetry.toUpperCase()}`;
+  // Partial-lock safe (audit C3/Q8): persist ONLY the fields env is NOT
+  // overriding. Saving a locked field would write its displayed EFFECTIVE
+  // (env) value back into settings as if the user chose it — a misleading edit.
+  const patch = {};
+  if (!envOverridden.telemetrySource) patch.source = el('setTelemetrySource').value;
+  if (!envOverridden.telemetryPort) patch.port = el('setTelemetryPort').value.trim();
+  if (Object.keys(patch).length) await save({ telemetry: patch });
+  const applied = await ipc(gs.applySession(), null, 'session:apply');
+  if (applied) {
+    // Runtime source switch updates the replay chip immediately (audit C2).
+    setReplayChip(applied.telemetry === 'replay');
+    setStatus.textContent = `TELEMETRY: ${applied.telemetry.toUpperCase()}`;
+  } else {
+    setStatus.textContent = 'APPLY FAILED — change the setting again to retry';
+  }
 }
 el('setTelemetrySource').addEventListener('change', telemetryChanged);
 el('setTelemetryPort').addEventListener('change', telemetryChanged);
@@ -593,11 +990,26 @@ el('setRerun').addEventListener('click', () => {
 });
 
 // ---------- boot ----------
+// A rejected initial settings load must not leave the gate blank (audit N1):
+// it renders the visible SETUP DATA UNAVAILABLE state, and RETRY re-runs
+// boot(). No setup step is shown until settings actually load.
+const bootError = el('bootError');
+el('bootRetry').addEventListener('click', () => { sounds.uiTick(); boot(); });
+
 async function boot() {
   if (!gs) { showStep('garage'); return; } // bench preview outside Electron
-  const res = await gs.getSettings();
+  let res;
+  try {
+    res = await gs.getSettings();
+  } catch (err) {
+    console.error('[setup] settings load failed:', err && err.message ? err.message : err);
+    bootError.classList.remove('hidden');
+    return;
+  }
+  bootError.classList.add('hidden');
   settings = res.settings;
   envOverridden = res.envOverridden || {};
+  envEffective = res.effective || {};
   mode = settings.fpvMode;
   setSoundEnabled(settings.soundEnabled);
   if (settings.setupCompleted) {

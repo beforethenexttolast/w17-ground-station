@@ -1,0 +1,2 @@
+Das gehostete Netzwerk konnte nicht gestartet werden.
+Der Zugriff wurde verweigert.

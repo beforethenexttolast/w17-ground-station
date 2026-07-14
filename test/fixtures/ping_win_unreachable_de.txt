@@ -1,0 +1,6 @@
+
+Ping wird ausgeführt für 192.168.1.50 mit 32 Bytes Daten:
+Antwort von 192.168.1.1: Zielhost nicht erreichbar.
+
+Ping-Statistik für 192.168.1.50:
+    Pakete: Gesendet = 1, Empfangen = 1, Verloren = 0 (0% Verlust),

@@ -1,0 +1,8 @@
+
+Ping wird ausgeführt für 192.168.1.9 mit 32 Bytes Daten:
+Antwort von 192.168.1.9: Bytes=32 Zeit=2ms TTL=64
+
+Ping-Statistik für 192.168.1.9:
+    Pakete: Gesendet = 1, Empfangen = 1, Verloren = 0 (0% Verlust),
+Ca. Zeitangaben in Millisek.:
+    Minimum = 2ms, Maximum = 2ms, Mittelwert = 2ms

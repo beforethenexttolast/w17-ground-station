@@ -1,49 +1,46 @@
 // Electron main process (CommonJS -- Electron's main is rock-solid as CJS;
 // ESM main on Electron 31 / Node 20 crashes importing the built-in electron
-// module). Owns: window lifecycle, the mediamtx video supervisor, persisted
-// setup-flow settings, and the session runtime (telemetry source + outbound
-// iPhone bridge, reconfigurable via `session:apply` after the setup flow).
-// Pushes telemetry to the renderer over a single IPC channel. The renderer is
-// fully sandboxed -- it reaches Node only through the preload.
+// module). The COMPOSITION ROOT: it owns the window lifecycle and constructs
+// every service, but the wiring seams themselves (env -> services, services ->
+// IPC surface, push channels, window options, shutdown) live in
+// main/appWiring.js so they unit-test with fakes (audit D2). This file remains
+// the ONLY sanctioned wiring point for the W3 head-tracking receiver.
 //
 // Config precedence everywhere: an env var that is SET wins over persisted
 // settings (shared/settings.js `resolveEffective`); with no env vars and a
 // fresh settings file the app behaves exactly like the pre-settings build.
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const { MediamtxSupervisor } = require('./mediamtx.js');
-const { ReplaySource } = require('../shared/replaySource.js');
-const { CrsfSerialSource } = require('./CrsfSerialSource.js');
 const { IphoneTelemetryBridge } = require('./IphoneTelemetryBridge.js');
 const { HeadTrackingReceiver } = require('./HeadTrackingReceiver.js');
-const { headTrackingConfigFromEnv } = require('./headTrackingConfig.js');
-const { resolveEffective } = require('../shared/settings.js');
+const { w3ConfigFor } = require('./headTrackingConfig.js');
 const { createSettingsStore } = require('./settingsStore.js');
 const { SessionRuntime } = require('./sessionRuntime.js');
-const { WifiManager } = require('./wifiManager.js');
-const { HotspotManager } = require('./hotspot.js');
-const { simScenario, createSimRun } = require('./wifiSim.js');
+const { createQuitPolicy } = require('./quitPolicy.js');
 const { ElrsLauncher } = require('./elrsLauncher.js');
 const { HostProbe } = require('./hostProbe.js');
 const { createRemoteAddrHint } = require('./remoteAddrHint.js');
 const feel = require('../shared/feelConstants.js');
+const {
+  PUSH_CHANNELS,
+  createNetworkServices,
+  telemetrySourceFor,
+  createSessionApplier,
+  mediamtxPaths,
+  registerIpcHandlers,
+  wireHotspotPush,
+  createWindowOptions,
+  installNavigationPolicy,
+  createTeardown,
+} = require('./appWiring.js');
 
 const projectRoot = path.join(__dirname, '..');
-
-// mediamtx lives next to the app in dev, and as an unpacked extraResource in
-// the packaged build (process.resourcesPath).
-function mediamtxPaths() {
-  const exe = process.platform === 'win32' ? 'mediamtx.exe' : 'mediamtx';
-  const base = app.isPackaged ? process.resourcesPath : projectRoot;
-  return {
-    binaryPath: path.join(base, 'mediamtx', exe),
-    configPath: path.join(base, 'mediamtx', 'mediamtx.yml'),
-  };
-}
+const log = (m) => console.log(m);
 
 // WHEP endpoint the renderer connects to (mediamtx default WebRTC port 8889).
 const WHEP_URL = process.env.W17_WHEP_URL || 'http://127.0.0.1:8889/cam/whep';
@@ -52,20 +49,22 @@ const WHEP_URL = process.env.W17_WHEP_URL || 'http://127.0.0.1:8889/cam/whep';
 let mediamtx = null;
 let settingsStore = null;
 let runtime = null;
-let lastEffective = null;
+let sessionApplier = null;
 
-// Setup-flow platform services (thin IO; all soft-fail with reasons). With
-// W17_WIFI_SIM set (dev preview only) both managers run against the canned
-// netsh/powershell runner from wifiSim.js — same managers, same parsers, no OS.
-const wifiSim = simScenario(process.env, (m) => console.log(m));
-const simRun = wifiSim ? createSimRun(wifiSim, (m) => console.log(m)) : null;
-const wifi = simRun
-  ? new WifiManager({ run: simRun, platform: 'win32', log: (m) => console.log(m) })
-  : new WifiManager({ log: (m) => console.log(m) });
-const hotspot = simRun
-  ? new HotspotManager({ run: simRun, platform: 'win32', log: (m) => console.log(m) })
-  : new HotspotManager({ log: (m) => console.log(m) });
-const elrs = new ElrsLauncher({ log: (m) => console.log(m) });
+// Setup-flow platform services (thin IO; all soft-fail with reasons). The
+// hotspot lifecycle constructed here is THE runtime authority (audit B1): the
+// same instance answers the IPC queries, feeds the renderer push, and gates
+// the quit policy.
+const { wifi, hotspotLifecycle, sim } = createNetworkServices({ env: process.env, log });
+wireHotspotPush({
+  lifecycle: hotspotLifecycle,
+  broadcast: (channel, snap) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(channel, snap);
+    }
+  },
+});
+const elrs = new ElrsLauncher({ log });
 const hostProbe = new HostProbe();
 // Last accepted W3 datagram's SENDER IP (transport metadata only) — feeds the
 // setup screen's address suggestion; the user always confirms it by hand.
@@ -78,31 +77,8 @@ const addrHint = createRemoteAddrHint();
 let headTracking = null;
 let headTrackingKey = null;
 
-function telemetrySourceFor(cfg) {
-  if (cfg.source === 'replay') return new ReplaySource();
-  if (cfg.source === 'crsf-serial') {
-    // Real battery + link-quality over the ELRS backchannel (docs/TELEMETRY.md).
-    return new CrsfSerialSource({
-      path: cfg.port || (process.platform === 'win32' ? 'COM5' : '/dev/ttyUSB0'),
-      log: (m) => console.log(m),
-    });
-  }
-  return null; // HUD runs fully on gamepad + display model with no source
-}
-
-// The W3 receiver's effective config: env master var wins outright (set to
-// anything, including 0 = force-off); otherwise the persisted settings toggle
-// decides, still honoring env sub-key overrides via the same pure resolver.
-function w3ConfigFor(effective) {
-  if (effective.envOverridden.w3) return headTrackingConfigFromEnv(process.env);
-  if (effective.w3Wish.enabled) {
-    return headTrackingConfigFromEnv({ ...process.env, W17_HEADTRACK: '1' });
-  }
-  return null;
-}
-
 function applyW3(effective) {
-  const cfg = w3ConfigFor(effective);
+  const cfg = w3ConfigFor(effective, process.env);
   const key = cfg ? JSON.stringify(cfg) : null;
   if (key === headTrackingKey) return !!headTracking;
   if (headTracking) {
@@ -113,7 +89,7 @@ function applyW3(effective) {
   if (cfg) {
     headTracking = new HeadTrackingReceiver({
       ...cfg,
-      log: (m) => console.log(m),
+      log,
       noteRemoteAddr: addrHint.note,
     });
     headTracking.start();
@@ -121,93 +97,18 @@ function applyW3(effective) {
   return !!headTracking;
 }
 
-// Recompute effective config from persisted settings + env and (re)apply the
-// session runtime. Called once at startup and again on `session:apply`.
-function applySession() {
-  const settings = settingsStore.load();
-  lastEffective = resolveEffective(settings, process.env, (m) => console.log(m));
-  const applied = runtime.applyConfig(lastEffective);
-  const w3 = applyW3(lastEffective);
-  return { ...applied, w3 };
-}
-
-function registerIpcHandlers() {
-  ipcMain.handle('config:get', () => ({
-    whepUrl: WHEP_URL,
-    hasTelemetrySource: runtime.hasTelemetrySource(),
-    platform: process.platform,
-    setupCompleted: lastEffective ? lastEffective.ui.setupCompleted : false,
-    envOverridden: lastEffective ? lastEffective.envOverridden : {},
-    // W3 receiver EXISTENCE only, for the LOG-ONLY status chip — the same
-    // boolean applySession returns. Never receiver data (guard-tested).
-    w3Active: !!headTracking,
-    feel: {
-      gears: feel.GEARS,
-      topSpeedKmh: feel.TOP_SPEED_KMH,
-      ersDeployPctPerSec: feel.ERS_DEPLOY_PCT_PER_SEC,
-      ersHarvestPctPerSec: feel.ERS_HARVEST_PCT_PER_SEC,
-      ersBoostMultiplier: feel.ERS_BOOST_MULTIPLIER,
-    },
-  }));
-
-  ipcMain.handle('settings:get', () => ({
-    settings: settingsStore.load(),
-    envOverridden: lastEffective ? lastEffective.envOverridden : {},
-  }));
-
-  ipcMain.handle('settings:set', (_event, patch) => settingsStore.save(patch));
-
-  ipcMain.handle('session:apply', () => applySession());
-
-  // --- PIT WALL: WiFi + hotspot (Windows-only; guide mode elsewhere) ---
-  ipcMain.handle('wifi:capabilities', async () => {
-    const caps = wifi.capabilities();
-    const backends = await hotspot.probeBackends();
-    return { ...caps, canHotspot: backends.canHotspot, hotspotBackend: backends.preferred, sim: !!simRun };
-  });
-  ipcMain.handle('wifi:interfaces', () => wifi.listInterfaces());
-  ipcMain.handle('wifi:scan', (_event, opts) => wifi.scan(opts || {}));
-  ipcMain.handle('wifi:join', (_event, opts) => wifi.join(opts || {}));
-  ipcMain.handle('wifi:status', () => wifi.status());
-  ipcMain.handle('wifi:hotspot-start', (_event, opts) => hotspot.start(opts || {}));
-  ipcMain.handle('wifi:hotspot-stop', () => hotspot.stop());
-
-  // --- Setup helpers: address suggestion + reachability ---
-  ipcMain.handle('setup:addr-hint', () => addrHint.get());
-  ipcMain.handle('setup:probe-host', (_event, addr) => hostProbe.probe(addr));
-
-  // --- GRID: elrs-joystick-control (launch-only; this app NEVER stops it) ---
-  ipcMain.handle('elrs:status', () => elrs.detectRunning(settingsStore.load().elrsPath));
-  ipcMain.handle('elrs:launch', () => elrs.launchDetached(settingsStore.load().elrsPath));
-
-  // Read-only display mirror from the renderer (throttle/brake/steering/camera
-  // as drawn on the HUD) -- forwarded outward to the iPhone bridge only. This
-  // is one-way: nothing is sent back, and no control state is touched.
-  ipcMain.on('command-mirror', (_event, mirror) => {
-    runtime.onCommandMirror(mirror);
-  });
-}
-
 function createWindow() {
   // Taskbar/window icon (Windows/Linux; macOS uses the bundle's .icns). The
   // PNG is generated by `npm run icon` and committed under build/.
   const iconPath = path.join(projectRoot, 'build', 'icon.png');
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 720,
-    backgroundColor: '#000000',
-    autoHideMenuBar: true,
-    ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
+  const win = new BrowserWindow(createWindowOptions({
+    preloadPath: path.join(__dirname, 'preload.cjs'),
+    iconPath: fs.existsSync(iconPath) ? iconPath : null,
+  }));
+  installNavigationPolicy(win.webContents, { log });
 
   runtime.setSnapshotSink((t) => {
-    if (!win.isDestroyed()) win.webContents.send('telemetry', t);
+    if (!win.isDestroyed()) win.webContents.send(PUSH_CHANNELS.telemetry, t);
   });
 
   win.loadFile(path.join(projectRoot, 'renderer', 'index.html'));
@@ -215,13 +116,19 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  const { binaryPath, configPath } = mediamtxPaths();
-  mediamtx = new MediamtxSupervisor({ binaryPath, configPath, log: (l) => console.log(l) });
+  const { binaryPath, configPath } = mediamtxPaths({
+    env: process.env,
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    projectRoot,
+  });
+  mediamtx = new MediamtxSupervisor({ binaryPath, configPath, log });
   mediamtx.start();
 
   settingsStore = createSettingsStore({
     dir: app.getPath('userData'),
-    log: (m) => console.log(m),
+    log,
   });
 
   // linkState lives in an ES module (shared/linkState.mjs, consumed by the
@@ -230,20 +137,49 @@ app.whenReady().then(async () => {
   const { linkState } = await import(pathToFileURL(path.join(projectRoot, 'shared', 'linkState.mjs')).href);
 
   runtime = new SessionRuntime({
-    createTelemetrySource: (cfg) => telemetrySourceFor(cfg),
+    createTelemetrySource: (cfg) => telemetrySourceFor(cfg, { platform: process.platform, log }),
     // Windows -> iPhone telemetry bridge (docs/windows_bridge_contract.md — the
     // iPhone app's canonical contract; UDP JSON to port 5601 by default).
     createIphoneBridge: (cfg, { demo }) => new IphoneTelemetryBridge({
       ...cfg,
       linkStateFn: linkState,
       mode: demo ? 'demo' : undefined,
-      log: (m) => console.log(m),
+      log,
     }),
-    log: (m) => console.log(m),
+    log,
   });
 
-  registerIpcHandlers();
-  applySession();
+  // Recomputes effective config from persisted settings + env and (re)applies
+  // the session runtime; applyW3 keeps the W3 receiver wiring in THIS file.
+  sessionApplier = createSessionApplier({
+    settingsStore, runtime, env: process.env, applyW3, warn: log,
+  });
+
+  registerIpcHandlers({
+    ipcMain,
+    services: {
+      whepUrl: WHEP_URL,
+      platform: process.platform,
+      feel: {
+        gears: feel.GEARS,
+        topSpeedKmh: feel.TOP_SPEED_KMH,
+        ersDeployPctPerSec: feel.ERS_DEPLOY_PCT_PER_SEC,
+        ersHarvestPctPerSec: feel.ERS_HARVEST_PCT_PER_SEC,
+        ersBoostMultiplier: feel.ERS_BOOST_MULTIPLIER,
+      },
+      runtime,
+      settingsStore,
+      sessionApplier,
+      w3Active: () => !!headTracking,
+      wifi,
+      sim,
+      hotspotLifecycle,
+      addrHint,
+      hostProbe,
+      elrs,
+    },
+  });
+  sessionApplier.apply();
   createWindow();
 
   app.on('activate', () => {
@@ -255,11 +191,31 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// Always tear down the children + sources so nothing is orphaned. (The
-// elrs-joystick-control launcher is deliberately absent here: it spawns
-// detached and is never killed by this app.)
-app.on('will-quit', () => {
-  if (headTracking) headTracking.stop();
-  if (runtime) runtime.stopAll();
-  if (mediamtx) mediamtx.stop();
+// Quit policy (audit B1, decision Q1): quitting while THIS APP owns a running
+// hotspot asks STOP HOTSPOT AND QUIT / LEAVE HOTSPOT RUNNING / CANCEL. A
+// window closing routes through app.quit() -> before-quit, so the same policy
+// covers it; nothing else ever stops the hotspot implicitly, and an external
+// or inactive hotspot quits without any dialog.
+const quitPolicy = createQuitPolicy({
+  lifecycle: hotspotLifecycle,
+  showDialog: (opts) => dialog.showMessageBox(opts),
+  showError: (title, content) => dialog.showErrorBox(title, content),
+  quit: () => app.quit(),
+  log,
 });
+app.on('before-quit', (event) => quitPolicy.onBeforeQuit(event));
+
+// Always tear down the children + sources so nothing is orphaned; each step is
+// failure-isolated (a throwing stop cannot skip the rest — audit D2). The
+// elrs-joystick-control launcher is deliberately absent: it spawns detached
+// and is never killed by this app. The hotspot is also deliberately absent:
+// its shutdown is decided by the quit policy above, never implicitly.
+const teardown = createTeardown({
+  steps: [
+    ['head-tracking receiver', () => { if (headTracking) headTracking.stop(); }],
+    ['session runtime', () => { if (runtime) runtime.stopAll(); }],
+    ['mediamtx', () => { if (mediamtx) mediamtx.stop(); }],
+  ],
+  log,
+});
+app.on('will-quit', () => teardown());

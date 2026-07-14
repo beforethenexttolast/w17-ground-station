@@ -1,0 +1,72 @@
+Interface name : Wi-Fi
+There are 7 networks currently visible.
+
+SSID 1 : OpenCafe
+    Network type            : Infrastructure
+    Authentication          : Open
+    Encryption              : None
+
+    BSSID 1                 : 00:11:22:33:44:01
+         Signal             : 80%
+         Radio type         : 802.11n
+         Channel            : 6
+
+SSID 2 : HomeWPA2
+    Network type            : Infrastructure
+    Authentication          : WPA2-Personal
+    Encryption              : CCMP
+
+    BSSID 1                 : 00:11:22:33:44:02
+         Signal             : 75%
+         Radio type         : 802.11ac
+         Channel            : 36
+
+SSID 3 : Modern6E
+    Network type            : Infrastructure
+    Authentication          : WPA3-Personal
+    Encryption              : GCMP
+
+    BSSID 1                 : 00:11:22:33:44:03
+         Signal             : 65%
+         Radio type         : 802.11ax
+         Channel            : 36
+
+SSID 4 : Blend23
+    Network type            : Infrastructure
+    Authentication          : WPA2-Personal, WPA3-Personal
+    Encryption              : CCMP
+
+    BSSID 1                 : 00:11:22:33:44:04
+         Signal             : 60%
+         Radio type         : 802.11ax
+         Channel            : 44
+
+SSID 5 : CorpNet
+    Network type            : Infrastructure
+    Authentication          : WPA2-Enterprise
+    Encryption              : CCMP
+
+    BSSID 1                 : 00:11:22:33:44:05
+         Signal             : 50%
+         Radio type         : 802.11ac
+         Channel            : 149
+
+SSID 6 : OldWEP
+    Network type            : Infrastructure
+    Authentication          : Open
+    Encryption              : WEP
+
+    BSSID 1                 : 00:11:22:33:44:06
+         Signal             : 40%
+         Radio type         : 802.11g
+         Channel            : 11
+
+SSID 7 :
+    Network type            : Infrastructure
+    Authentication          : WPA2-Personal
+    Encryption              : CCMP
+
+    BSSID 1                 : 00:11:22:33:44:07
+         Signal             : 20%
+         Radio type         : 802.11n
+         Channel            : 1

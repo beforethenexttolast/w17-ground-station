@@ -12,6 +12,8 @@
 import { startWhep } from './whep.js';
 import { linkState } from '../shared/linkState.mjs';
 import { getPreset, selectGamepad, DEFAULT_PRESET } from '../shared/inputPresets.mjs';
+import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
+import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
 
 const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
@@ -19,9 +21,9 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   ersEl = el('ers'), ersPctEl = el('ersPct'), battVEl = el('battV'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
-  w3ChipEl = el('w3Chip'),
+  w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'),
   gate = el('gate'),
-  demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote');
+  demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote'), feedNoteText = el('feedNoteText');
 
 // Drive modes, indexed by the car's driveMode field (firmware ChannelDecoder:
 // 0=Training, 1=Race, 2=ERS). Shown only when live telemetry supplies it.
@@ -60,11 +62,12 @@ const keys = {};
 const prev = { up: false, down: false, drs: false };
 let demo = false;
 
-addEventListener('keydown', (e) => {
-  keys[e.key.toLowerCase()] = true;
-  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) e.preventDefault();
-});
-addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+// Keyboard mirror, scoped by shared/keyboardFocus.mjs: typing in a setup or
+// settings field is never recorded or prevented (spaces/arrows belong to the
+// field), while driving keys keep working from any non-editable focus.
+const hudKeys = makeHudKeyHandlers(keys);
+addEventListener('keydown', hudKeys.keydown);
+addEventListener('keyup', hudKeys.keyup);
 addEventListener('gamepadconnected', refreshPad);
 addEventListener('gamepaddisconnected', refreshPad);
 // HUD preview (the floating gate button) bypasses the setup flow entirely:
@@ -102,13 +105,46 @@ export function startRide() { start(); }
 // W3 LOG-ONLY chip: shows the diagnostic listener EXISTS (the w3 boolean from
 // config/applySession). Existence only — receiver data has no path here.
 export function setW3Chip(active) { w3ChipEl.classList.toggle('hidden', !active); }
+// Replay chip (audit C2/Q4): shown whenever the EFFECTIVE telemetry source is
+// replay/synthetic, so a screenshot can never be mistaken for live car data.
+// Driven by the effective source only — independent of the SIMULATED WIFI tag
+// (a different subsystem) and of the W3 log-only chip (a different concern).
+export function setReplayChip(active) { replayChipEl.classList.toggle('hidden', !active); }
 // hudStatus: the GRID checklist's local probes — read-only display state.
+// `videoPlaying` is the confident-green derivation of the video-state model
+// (audit C1): true ONLY while frames are actually flowing.
 export function hudStatus() {
+  const video = videoStatus(videoState);
   return {
-    videoPlaying,
+    videoPlaying: video.live,
+    video,
     controllerConnected: !!pad(),
     telemetryState: telemetryState(),
   };
+}
+
+// --- Video state model (audit C1): ONE authority for GRID VIDEO LOCK, the HUD
+// overlay wording, and the outbound W2 `video_lock`. Fed by the <video> media
+// events and the WHEP client's transport signals; see shared/videoState.mjs.
+let videoState = initialVideoState();
+function applyVideoEvent(type) {
+  const next = reduceVideoState(videoState, type);
+  if (next === videoState) return; // idempotent: no phase change, no re-render
+  videoState = next;
+  renderVideo();
+}
+function renderVideo() {
+  const s = videoStatus(videoState);
+  if (feedNoteText) feedNoteText.textContent = s.label;
+  if (feedNote) {
+    for (const t of ['idle', 'wait', 'warn', 'error', 'live']) {
+      feedNote.classList.toggle(`v-${t}`, s.tone === t);
+    }
+    // Hide the overlay note only when confidently live (video is visible);
+    // otherwise show the honest status over whatever frame is on screen — a
+    // frozen frame is never hidden, it is labelled (STREAM STALLED / …).
+    feedNote.classList.toggle('hidden', s.live);
+  }
 }
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -271,7 +307,6 @@ function render() {
 // the same display values the HUD draws, sent one-way to main at ~20 Hz.
 // Display only — this never drives the car (elrs-joystick-control does), and
 // there is no return path from the iPhone into these values.
-let videoPlaying = false;
 let lastMirrorSentMs = 0;
 const MIRROR_SEND_PERIOD_MS = 50; // ~20 Hz, comfortably above the bridge's 10 Hz
 function sendCommandMirror(now) {
@@ -284,7 +319,9 @@ function sendCommandMirror(now) {
     steering: S.steer,      // -1..1
     camPan: S.camPan,       // -1..1 (right stick X)
     camTilt: S.camTilt,     // -1..1 (right stick Y; up = negative)
-    videoPlaying,           // whether the WHEP <video> is currently playing
+    // video_lock is confidently green ONLY while frames flow (audit C1): a
+    // stalled/reconnecting stream reports false, never a stale true.
+    videoPlaying: videoStatus(videoState).live,
   });
 }
 
@@ -299,29 +336,59 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // --- Wire up the bridge: config (WHEP url + feel constants) + telemetry. ---
+// Each IPC fetch is guarded separately (audit N1): a failed config load falls
+// back to the built-in feel constants and skips WHEP (the WAITING FOR VIDEO
+// note stays up), a failed settings load keeps the default controller — the
+// HUD keeps running either way instead of dying on an unhandled rejection.
 async function init() {
   if (!window.groundStation) return; // opened outside Electron (bench preview)
-  const cfg = await window.groundStation.getConfig();
-  if (cfg.feel) { FEEL = { ...FEEL, ...cfg.feel }; computeCaps(); S.ers = 100; }
-  setW3Chip(!!cfg.w3Active);
+  let cfg = null;
+  try {
+    cfg = await window.groundStation.getConfig();
+  } catch (err) {
+    console.error('[hud] config load failed:', err && err.message ? err.message : err);
+  }
+  if (cfg) {
+    if (cfg.feel) { FEEL = { ...FEEL, ...cfg.feel }; computeCaps(); S.ers = 100; }
+    setW3Chip(!!cfg.w3Active);
+    // Replay chip reflects the EFFECTIVE telemetry source (post env-override):
+    // `npm run demo` / W17_TELEMETRY_SOURCE=replay / the persisted setting all
+    // resolve here. Runtime switches update it via setupFlow after applySession.
+    setReplayChip(cfg.telemetrySource === 'replay');
+  }
+
+  // Video-state listeners on the WHEP <video> — attached unconditionally
+  // (harmless with no stream) so the state model tracks buffering/stalled/error
+  // even when the pipeline is not configured. The transport signals come from
+  // the WHEP client's onStatus below.
+  for (const ev of ['playing', 'waiting', 'stalled', 'emptied', 'ended', 'error']) {
+    feed.addEventListener(ev, () => applyVideoEvent(ev));
+  }
+  renderVideo();
 
   // Apply the persisted controller choice (SEAT FIT step); defaults keep the
   // original first-pad + DualShock-layout behavior.
   if (window.groundStation.getSettings) {
-    const { settings } = await window.groundStation.getSettings();
-    if (settings && settings.controller) setControllerChoice(settings.controller);
+    try {
+      const { settings } = await window.groundStation.getSettings();
+      if (settings && settings.controller) setControllerChoice(settings.controller);
+    } catch (err) {
+      console.error('[hud] settings load failed:', err && err.message ? err.message : err);
+    }
   }
 
   window.groundStation.onTelemetry((t) => { telem = t; telemFresh = performance.now(); telemEverLive = true; });
 
-  if (cfg.whepUrl) {
+  if (cfg && cfg.whepUrl) {
     startWhep(feed, cfg.whepUrl, {
       log: (m) => {
         console.log(m);
       },
+      // Transport lifecycle -> the same video-state model (audit C1): a WebRTC
+      // drop leaves the <video> frozen without a media event, so this is what
+      // clears the confident-green lock immediately.
+      onStatus: (status) => applyVideoEvent(status),
     });
-    feed.addEventListener('playing', () => { feedNote.classList.add('hidden'); videoPlaying = true; });
-    feed.addEventListener('emptied', () => { feedNote.classList.remove('hidden'); videoPlaying = false; });
   }
 }
 init();
