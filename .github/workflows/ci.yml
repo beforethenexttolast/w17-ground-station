@@ -16,16 +16,36 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  # Packaging smoke (audit R17b/R03): prove the deliverable Windows app
-  # actually packages -- serialport rebuilt against Electron's ABI, then an
-  # unpacked directory build. No installer, no signing, no publish.
+  # Packaging smoke (audit R17b/R03) + Electron boot smoke (audit D3) on the
+  # deployment target. The boot smoke launches the REAL app (Wi-Fi sim, no
+  # hardware, no admin, no dialogs) and passes only on the structured
+  # readiness handshake — never on mere process creation. Then the existing
+  # package step proves the deliverable still builds (serialport rebuilt
+  # against Electron's ABI, unpacked directory build; no installer/signing).
   package-smoke:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm ci
+      # Repair the Electron binary if the postinstall was gated (no-op when fine).
+      - run: node scripts/ensure-electron.js
+      # The unit/integration suite on Windows (the ubuntu job stays the fast gate).
+      - run: npm test
+      # Real Electron boot smoke: all scenarios, hard per-scenario deadlines,
+      # process-tree kill on timeout, sanitized logs written for upload.
+      - run: npm run smoke:electron
+        timeout-minutes: 10
+        env:
+          W17_SMOKE_LOG_DIR: smoke-logs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: electron-smoke-logs
+          path: smoke-logs
+          if-no-files-found: ignore
       - run: npm run app:rebuild
       - run: npx electron-builder --dir

@@ -9,6 +9,7 @@
     "demo": "node scripts/run.js --demo",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke:electron": "node scripts/electron-smoke.js",
     "app:rebuild": "electron-rebuild -f -w serialport",
     "build": "npm run app:rebuild && electron-builder --win",
     "fetch-mediamtx": "node scripts/fetch-mediamtx.js",

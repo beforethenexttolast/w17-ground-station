@@ -234,6 +234,15 @@ default proposed by auditor, user may veto).
   (`test/appWiring.test.js`); renderer boot/timer/subscription races covered + two
   orphaned-interval defects FIXED. Remaining: a REAL Electron boot (preload execution,
   live ipcMain, sandbox flags at runtime) = **D3**. Batch: **D2 — DONE**.
+- **→ D3 COMPLETE (2026-07-14, this session):** a deterministic REAL-Electron boot smoke
+  (`scripts/smokeMain.js` + `scripts/electron-smoke.js` + `scripts/smokeShared.js`,
+  `npm run smoke:electron`) proves the live boot end-to-end — window, load, preload
+  execution, exact `window.groundStation` surface, runtime sandbox/contextIsolation/
+  nodeIntegration/webSecurity/webviewTag flags, window.open + navigation denial, a real
+  `config:get`/`settings:get` round trip, GARAGE readiness, console-clean — across
+  normal / corrupt-settings / forced-failure / timeout scenarios, all PASS locally;
+  windows-latest CI job extended (`npm test` + smoke + artifact-on-failure before the
+  package step). CI execution itself pends the next push. Batch: **D3 — DONE**.
 
 **V3 — IPHONE REACHABLE green ≠ HUD can receive UDP 5601.**
 - ICMP proves L3 reachability; iOS Local Network permission can still block UDP receive.
@@ -306,7 +315,7 @@ Windows). Tests: `test/runCommand.test.js` (timeout result shape, cross-platform
 | C5 | D2 W2-on-GRID timing | Q5 logged — **DONE** (documented, unchanged) |
 | D1 | V1 directory-sweep no-control-path guard (existing assertions preserved) | objective — **DONE** |
 | D2 | V2/N1 setup-flow DOM tests (smallest env; likely jsdom via vitest) | objective — **DONE** |
-| D3 | V2 Electron boot smoke (Windows CI job) | objective |
+| D3 | V2 Electron boot smoke (Windows CI job) | objective — **DONE** (local; CI execution pending push) |
 | D4 | Command-generation tests (spaces, non-ASCII SSIDs, special-char passwords, argv separation, XML escaping) | objective — **DONE** |
 | E1 | L6 credential storage policy + never-log guarantee | **user decision: policy** (never-log objective) |
 | F | L5 + all doc sync (checklist prereqs, CURRENT_STATUS pointer, readiness-doc stale note, adapter/hotspot/sim/permission docs; contract §1–§7 untouched) | objective |
@@ -689,6 +698,64 @@ including on a localized Windows build.
   Full suite `npm test` **610/610 (36 files)** (was 542/34); `git diff --check` clean.
   D3 NOT started (stop-for-review after the composition-root refactor). See the Batch
   D2 status section below.
+- 2026-07-14 — **D2 committed by the user as `0564141`** ("test: harden main-process
+  integration wiring") — exactly the 5-file completion set the previous checkpoint
+  listed as uncommitted. Verified at the start of the D3 session: tree clean at
+  `0564141`, full suite reproduced **610/610 (36 files)**, `git diff --check` clean;
+  no D2 defect found, no redesign needed.
+- 2026-07-14 — **Batch D3 complete (code + local smoke) — deterministic Electron boot
+  smoke + Windows CI step (V2 closure).** New `scripts/smokeShared.js` (pure protocol:
+  token format/parse with bounded buffers, pinned 20-method API list, console-error
+  allowlist, secret-redacting log sanitizer, run evaluator), `scripts/smokeMain.js`
+  (Electron entry: throwaway userData, `require`s the REAL unmodified `main/main.js`,
+  proves 8 boot stages via public Electron APIs only, emits `W17_SMOKE` tokens),
+  `scripts/electron-smoke.js` (plain-Node controller: 4-scenario suite, scrubbed env
+  — ALL inherited `W17_*` deleted, sim + empty-mediamtx-dir + temp userData set —
+  hard deadline with process-TREE kill reusing `winTreeKillArgs` (N4), grace-bounded
+  clean-exit requirement, capped + sanitized logs, temp cleanup with Windows lock
+  retry, pid-dead verification, non-zero on any scenario deviation). `package.json`
+  +`smoke:electron`; `.github/workflows/ci.yml` package-smoke job extended
+  (ensure-electron → `npm test` → smoke with 10-min step timeout + sanitized-log
+  artifact on failure → existing rebuild/`--dir` steps; job timeout 30 min). New
+  `test/electronSmoke.test.js` (**48**: parser/evaluator/sanitizer matrix, controller
+  vs fake node children incl. hang-kill and no-clean-exit, scenario-contract pins,
+  safety pins — production never reads `W17_SMOKE`/imports smoke tooling, smokeMain
+  boots only `main/main.js`, calls only read-only preload methods, adds no
+  IPC/window/preload surface, unit tests never launch Electron). **Four objective
+  defects found + fixed IN THE NEW D3 CODE** during real-app runs (Electron quit exits
+  0 regardless of `process.exitCode` → `app.once('quit')` hook; Electron 31
+  `getLastWebPreferences()` omits the preload path → webSecurity/webviewTag asserted
+  instead, preload execution proven by the exact-API stage; `PWD`/`OLDPWD` false
+  positive in secret redaction → exempted; unbounded parser pending-line → 256 KB cap).
+  **No production defect found — the D2 security wiring held at runtime.** Local real
+  smoke: **4/4 scenarios PASS** (normal ready 1170 ms; corrupt-settings ready 339 ms;
+  forced-failure exit 1 naming `ipc-roundtrip`; timeout tree-killed at 25 s), zero
+  leftover processes/temp dirs. Focused 48+15; D2 regressions 158/158; D1/D4 164/164;
+  A–C 134/134. Full suite `npm test` **658/658 (37 files)** (was 610/36);
+  `git diff --check` clean; workflow YAML validated. CI execution itself REQUIRES the
+  next push (nothing committed). See the Batch D3 status section below.
+- 2026-07-14 — **D3 recovery + closure pass (fresh cross-account session).** The prior
+  (Fable) session hit its limit while rewriting this checkpoint; D3 code/tests were complete
+  but the audit's forward-looking sections were left stale. This pass took the repository as
+  authoritative and independently re-verified everything: HEAD `0564141`, working tree
+  **3 M + 4 ??** (matches the "Uncommitted right now" block), `git diff --check` clean;
+  `node --check` OK on all 7 changed/relevant JS files; focused **221/221** (electronSmoke
+  48, appWiring 43, setupFlowDom 62, headTracking 38, noControlPath 15, ipcSurface 15); full
+  suite `npm test` **658/658 (37 files)**, 0 skips; the REAL `npm run smoke:electron`
+  **4/4 PASS** (normal exit 0, corrupt-settings exit 0, forced-failure exit 1 naming
+  `ipc-roundtrip`, timeout tree-killed at ~25 s), with a post-run sweep confirming zero
+  orphan Electron children and zero `w17-smoke-*` temp dirs; `.github/workflows/ci.yml`
+  validated with js-yaml 4.3.0 (parses, no duplicate keys). **Audit-only repairs** (no
+  production/behavior change): added the missing **Batch D3 status** section (referenced but
+  absent); reconciled the stale forward-looking sections that still framed D3 as the
+  not-started next step (the "Exact D3 starting point (NOT started)" design dump, the "Next
+  batch" item 5, and the "Recommended first actions" block that still cited HEAD `79fa2e0` /
+  the 5-M D2 set / 610-610); corrected the batch-scope "NOT started" lines in the D1/D4 + D2
+  status sections. **One code-doc fix:** `test/electronSmoke.test.js` — a test title said
+  "all five required scenarios" while the suite defines and asserts FOUR
+  (`normal`/`corrupt-settings`/`forced-failure`/`timeout`); the word was corrected to
+  "four" (assertion unchanged, still 48/48; still a single `??` entry). No D3 production or
+  test-logic redesign was needed or made. Work stays UNCOMMITTED.
 
 ---
 
@@ -700,24 +767,38 @@ adapter-card follow-up (Q7 Option 2), Batch B1 + B2 + N3 (hotspot lifecycle, qui
 non-blocking probe, locale-neutral errors, sequence-race fix), Batch B3 + B4 (Wi-Fi
 security scope + reachability probe classification), **Batch C** (C1 video-state model,
 C2 replay chip, C3 env-locked settings, C5 W2-on-GRID docs; C4 re-validated), **Batch
-D1 + D4** (no-control-path directory sweep + command-generation hardening), and **Batch
-D2** (main-process + setup-flow integration coverage, composition-root refactor) — not
-the intended design. Authoritative cross-account handoff (session memory is a
-convenience copy). **D1, D4, and D2 are DONE. Next up is Batch D3** (Electron boot
-smoke + Windows CI step) — do not start until the user reviews the D2 refactor and
-resumes. E/F/G remain untouched.**
+D1 + D4** (no-control-path directory sweep + command-generation hardening), **Batch D2**
+(main-process + setup-flow integration coverage, composition-root refactor — now
+COMMITTED as `0564141`), and **Batch D3** (deterministic Electron boot smoke + Windows
+CI step) — not the intended design. Authoritative cross-account handoff (session memory
+is a convenience copy). **D1, D4, D2, and D3 are DONE. Next up is Batch E1 (Q6
+credential encryption) and/or Batch F (doc sync)** — do not start until the user
+reviews the D3 work and resumes. G remains untouched. The D3 CI step has NOT yet run
+remotely (nothing is committed/pushed).**
 
 ### Repository state
 
 - Repo: `w17-ground-station` (nested git repo under `.../Documents/projects/`).
-- Branch: `main`. **HEAD commit: `79fa2e0`** ("a lot of chagnes", 2026-07-14 14:13,
-  **committed by the user** — 62 files carrying the entire A1→D1/D4 pass, the partial-D2
-  work of the interrupted 2026-07-14 session, and the separate 2026-07-14
-  contract-mirror docs). Parent: `cf038c2` — the commit this audit originally examined;
-  every finding/batch above still references that baseline.
-- **Uncommitted right now (D2 completion, this recovery session — 5 M, nothing else):**
+- Branch: `main`. **HEAD commit: `0564141`** ("test: harden main-process integration
+  wiring", 2026-07-14 18:44, **committed by the user**) — exactly the 5-file D2
+  completion set the previous checkpoint listed as uncommitted (this audit file,
+  `main/appWiring.js`, `main/main.js`, `test/appWiring.test.js`,
+  `test/ipcSurface.test.js`). Parents: `79fa2e0` ("a lot of chagnes", the user's
+  62-file A1→D1/D4 + partial-D2 + contract-mirror commit) ← `cf038c2` (the commit this
+  audit originally examined; every finding above still references that baseline).
+- **Uncommitted right now (Batch D3, this session — 3 M + 4 ??, nothing else):**
   ```
+   M .github/workflows/ci.yml   (package-smoke job: ensure-electron + npm test + smoke + artifact-on-failure)
    M docs/audits/2026-07-12-pre-hardware-hardening-audit.md   (this update)
+   M package.json               (+ "smoke:electron" script)
+  ?? scripts/electron-smoke.js  (smoke controller)
+  ?? scripts/smokeMain.js       (Electron-side smoke wrapper)
+  ?? scripts/smokeShared.js     (pure protocol shared by both + tests)
+  ?? test/electronSmoke.test.js (48 controller/protocol/safety tests)
+  ```
+- HISTORICAL — the D2 completion set (now inside `0564141`):
+  ```
+   M docs/audits/2026-07-12-pre-hardware-hardening-audit.md
    M main/appWiring.js        (createKeyedInstance seam)
    M main/main.js             (applyW3 -> keyed holder; w3Active/teardown via it)
    M test/appWiring.test.js   (+4 keyed-instance tests -> 43)
@@ -847,13 +928,135 @@ resumes. E/F/G remain untouched.**
   `main/wifiManager.js` (3rd touch — mkdtemp temp dir), `main/runCommand.js` (2nd touch —
   `winTreeKillArgs` export); **new** `test/commandGeneration.test.js`.
 
-### Batch D2 status: COMPLETE (code) — real-Electron boot proof is D3
+### Batch D3 status: COMPLETE (code + local real-Electron smoke) — remote CI execution pending push
+
+Scope was exactly **D3** (V2 closure: a REAL Electron boot smoke + a Windows CI step). It
+closes the last V2 gap the D2 unit layer could not — the actual Electron binding: live
+preload execution in a sandboxed renderer, runtime enforcement of the window flags, a real
+`ipcMain`/`invoke` round trip, and "unknown channels unavailable" in a LIVE page. No
+control-path, CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays log-only; the
+directory sweep + the smoke's own bans keep the smoke tooling inert; contract §1–§7
+untouched. **Nothing is committed** — the delta is 3 M + 4 ?? on top of `0564141`.
+
+**Architecture — a two-process smoke with a pure protocol between them.**
+
+| File | Role |
+|---|---|
+| `scripts/smokeShared.js` (new, pure) | The protocol both halves share: `W17_SMOKE` token format + a bounded incremental line parser (256 KB pending-line cap), the 8-stage `REQUIRED_STAGES` order, the 20-method `EXPECTED_API` pin, the loopback-WHEP console-error allowlist, the secret-redacting log sanitizer, and `evaluateSmokeRun` (the verdict). No Electron, no child_process, no fs — so the unit suite pins it without booting anything. Nothing under `main/`+`shared/`+`renderer/` imports it. |
+| `scripts/smokeMain.js` (new, Electron side) | Spawned as `electron scripts/smokeMain.js`. Points `userData` at the controller's throwaway dir, `require`s the REAL, UNMODIFIED `main/main.js` (once — pinned), then proves 8 boot stages through PUBLIC Electron APIs only (`executeJavaScript`, `getLastWebPreferences`, `getAllWindows`), emitting a `W17_SMOKE` token per stage and exactly one `result`. Adds no IPC/preload/window/webPreferences surface; the only preload methods it calls from the page are read-only (`getConfig`/`getSettings`/`onTelemetry`). |
+| `scripts/electron-smoke.js` (new, controller) | Plain-Node supervisor. Scrubs the env (ALL inherited `W17_*` deleted + the two Electron leaks + `NODE_OPTIONS`), then sets only its own deterministic vars (`W17_WIFI_SIM=two-adapters`, `W17_MEDIAMTX_DIR`→empty dir, `W17_SMOKE_USERDATA`). Runs the 4-scenario suite, enforces a hard per-scenario deadline with a process-**tree** kill (reusing `winTreeKillArgs`, N4), requires a grace-bounded clean exit after the result token, captures a capped+sanitized log, removes the temp root (Windows lock-retry), and verifies the pid is dead. Exits non-zero on any scenario deviation. |
+| `test/electronSmoke.test.js` (new, 48) | Pins the controller protocol against FAKE node children (no Electron) + the safety posture. |
+| `package.json` | `+ "smoke:electron": "node scripts/electron-smoke.js"`. |
+| `.github/workflows/ci.yml` | `package-smoke` windows-latest job extended (below). |
+
+**Protocol + readiness contract.** Stage tokens ride stdout as single `W17_SMOKE {json}`
+lines; the parser buffers partial lines across chunk boundaries, treats a prefixed-but-
+unparseable line as a loud PROTOCOL error (never a silent drop), and bounds the pending
+line. A run PASSES only with (a) every one of the 8 `REQUIRED_STAGES` present,
+(b) exactly one `result` with `ok:true` (a second `result` fails as a duplicate), and
+(c) a clean exit 0 — a lucky exit code can never pass a truncated/wedged child. Stages, in
+boot order: `electron-ready` → `window-created` → `window-loaded` → `preload-api` →
+`security` → `ipc-roundtrip` → `renderer-ready` → `console-clean`.
+
+**Real preload/IPC proof (observed live, this session).** `preload-api`:
+`Object.keys(window.groundStation).sort()` equals the pinned 20-method surface exactly,
+every member is a function, and `require`/`process`/`Buffer`/`ipcRenderer` are all
+`undefined` in the page world (contextIsolation holds). The observed `apiKeys:20` proves
+the REAL preload executed — that surface exists only if it did. `ipc-roundtrip`: a live
+`getConfig()`/`getSettings()` round trip answers with fresh-profile values (a real WHEP
+URL, `platform===process.platform`, `setupCompleted:false`, `w3Active:false`,
+`telemetrySource:'none'`, `fpvMode:'solo'`), no env overrides in the scrubbed env, an empty
+hotspot password, and NO non-empty `"password"` anywhere in the settings answer.
+
+**BrowserWindow security results (runtime, this session).** `getLastWebPreferences()`
+reports `contextIsolation:true`, `nodeIntegration:false`, `sandbox:true`,
+`webSecurity:true`, `webviewTag:false`; the page URL is the local `renderer/index.html`
+`file://`; the CSP meta carries `default-src 'self'`; `window.open('…')` returns `null`
+and creates no second window; renderer-initiated navigation is blocked (URL unchanged) and
+main logs the `[window] blocked navigation` marker. (Electron 31's `getLastWebPreferences()`
+omits the preload PATH, so the path stays statically pinned by `test/appWiring.test.js`
+over `createWindowOptions`; preload EXECUTION is proven by the exact-surface stage.)
+
+**Four scenario outcomes (real Electron, this session — all PASS).**
+
+| scenario | contract | observed |
+|---|---|---|
+| `normal` | fresh profile, Wi-Fi sim, mediamtx absent (soft-fail), full readiness, exit 0 | `ok:true`, all 8 stages, exit 0, `[mediamtx] binary not found` logged; temp removed, pid gone |
+| `corrupt-settings` | pre-seeded malformed `settings.json` → store falls back, logs it, still reaches readiness | `ok:true`, exit 0, `[settings] unreadable …settings.json` logged; temp removed, pid gone |
+| `forced-failure` | `W17_SMOKE_FAIL_STAGE=ipc-roundtrip` → fail loudly, name the stage, non-zero | `ok:false`, `failedStage:"ipc-roundtrip"`, exit 1 — correctly recognized as a PASS of the negative contract; temp removed, pid gone |
+| `timeout` | `W17_SMOKE_HANG=1` → wedged after window-load; hard deadline kills the tree | no result, `timedOut`, killed at ~25 s, exit null; temp removed, pid gone |
+
+Indicative timings (environment-dependent, run-to-run variance): normal ready ~0.97–1.2 s,
+corrupt ~0.36–0.5 s, forced-failure ~0.4 s, timeout tree-killed at the 25 s deadline. Suite
+verdict **PASS (4 scenarios)**; a post-run sweep found **zero** leftover Electron children
+and **zero** `w17-smoke-*` temp dirs.
+
+**Controller timeout + process-tree cleanup.** The hard timer and the post-result grace
+timer are both cleared on settle. On timeout (or a post-result wedge) `killTree` reaps the
+whole tree: win32 → `taskkill /pid <pid> /t /f` (the N4 argv, reused not re-invented, with
+a `child.kill` fallback on taskkill spawn error); POSIX → the child is spawned `detached`
+so a negative-pid `SIGKILL` reaps its group. `waitPidDead` then confirms ESRCH; a still-
+alive pid is a scenario failure. Temp roots are removed with a Windows lock-retry loop and
+a not-removed dir is a scenario failure.
+
+**Secret / log handling.** The smoke's own env carries no secrets (fresh profile, scrubbed
+`W17_*`), but the HOST shell may (CI signing/tokens). Captured logs are bounded (512 KB,
+tail-kept with a marker) and sanitized: `secretValuesFromEnv` collects values of
+credential-named vars (`PASS`/`SECRET`/`TOKEN`/`CREDENTIAL`/`*_KEY`/`CSC_*`, ≥4 chars),
+longest-first, and `sanitizeLog` replaces every occurrence with `[REDACTED]`. `PWD`/`OLDPWD`
+are exempt (paths, not credentials — else the log gutted). A live end-to-end redaction test
+proves a secret riding a child's stdout is scrubbed.
+
+**Windows CI changes.** The existing `package-smoke` windows-latest job (job
+`timeout-minutes: 30`) now runs, in order: `npm ci` → `node scripts/ensure-electron.js`
+(Electron binary repair; no-op when fine) → `npm test` (the suite on the deployment target)
+→ `npm run smoke:electron` (`timeout-minutes: 10`, `W17_SMOKE_LOG_DIR=smoke-logs`) →
+`actions/upload-artifact@v4` (`if: failure()`, the sanitized logs) → the UNCHANGED existing
+package steps `npm run app:rebuild` + `npx electron-builder --dir`. The real smoke runs
+BEFORE packaging. Validated with js-yaml 4.3.0: parses, no duplicate job keys, two jobs
+(`test`, `package-smoke`), no admin/interactive step. **Remote execution has NOT run —
+nothing is committed/pushed; the job fires on the next push/PR.**
+
+**Development-app smoke decision.** The smoke boots the REAL unmodified `main/main.js` (not
+a packaged build) with a scrubbed env and Wi-Fi sim: it proves the app's runtime boot,
+preload, IPC surface, and window security deterministically and fast, with no
+camera/RT5370/iPhone/ELRS/admin/real-hotspot/external-network dependency. Packaging is
+still proven by the existing `electron-builder --dir` step that runs after it, so the two
+are complementary — boot correctness (smoke) then deliverability (package).
+
+**Four objective defects found + fixed IN THE NEW D3 CODE during real-app runs** (no
+PRODUCTION defect — the D2 security wiring held at runtime): (1) Electron's quit path exits
+0 regardless of `process.exitCode` → the verdict code is forced via an `app.once('quit')`
+hook (plus an unref'd fallback so a wedged quit still exits); (2) Electron 31's
+`getLastWebPreferences()` omits the preload path → assert `webSecurity`/`webviewTag` at
+runtime and prove preload execution via the exact-API stage instead; (3) `PWD`/`OLDPWD`
+false-positived the secret redactor → exempted; (4) an unbounded parser pending-line →
+256 KB cap.
+
+**Remaining hardware-only / remote work (not closed by D3):** the windows-latest CI job
+itself must run once on push (the only D3 piece not yet exercised); everything else stays
+the §5 bench inventory (real netsh/WinRT/ping/localized-Windows, camera→mediamtx→WHEP,
+crsf-serial telemetry, iPhone W2/Local-Network + W3 log-only runbook). Sim/dev-preview is
+never bench evidence.
+
+**Exact E/F starting point (next, do NOT start until the user resumes).** **E1** — Q6
+credential encryption (safeStorage/DPAPI, transparent plaintext→encrypted migration,
+ciphertext incl. `.bak`, in-memory-only session fallback when OS encryption is unavailable,
+undecryptable-secret recovery, never-log guarantee + redaction tests); the persisted
+hotspot password reaching the renderer only inside `settings.network.hotspot` is the
+documented E1 residual to close. **F** — L5 + doc sync (`../CURRENT_STATUS.md` pointer,
+`docs/setup_flow_bench_checklist.md` prereqs incl. `npm run setup`,
+`docs/iphone_bridge_readiness.md` stale-timeout note; `docs/windows_bridge_contract.md`
+§1–§7 untouched). **G** — proposals only. G remains untouched.
+
+### Batch D2 status: COMPLETE (code) — real-Electron boot proof landed in D3 (above)
 
 Scope was exactly **D2** (V2/N1: main-process + setup-flow integration coverage). D3 was
-NOT started — the composition-root refactor below is deliberately stopped for review
-first. No control-path, CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays
-log-only (the directory sweep + the pinned symmetry tests keep proving it); contract
-§1–§7 untouched by this session.
+out of scope for D2 (the composition-root refactor was deliberately stopped for review
+first) and has since been completed — see the Batch D3 status section above. No
+control-path, CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays log-only (the
+directory sweep + the pinned symmetry tests keep proving it); contract §1–§7 untouched by
+this session.
 
 **Composition-root refactor.** `main/main.js` (222 lines) is still the composition root
 — Electron imports, window creation, quit-policy install, app lifecycle events, and the
@@ -930,8 +1133,10 @@ smoke-only. jsdom still proves wiring, not Chromium rendering.
 
 ### Batch D1 + D4 status: COMPLETE (code) — real-Windows command behavior bench-pending
 
-Scope was exactly **D1 and D4**. D2, D3, E, F, G were NOT started. No control-path,
-CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays log-only; contract §1–§7 untouched.
+Scope was exactly **D1 and D4**. D2 and D3 were out of scope for this batch (both have
+since been completed — see the Batch D2 and Batch D3 status sections above); E, F, G remain
+untouched. No control-path, CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays
+log-only; contract §1–§7 untouched.
 
 **D1 — no-control-path guard is now a directory sweep (finding V1).** The two enumerated
 lists in `test/noControlPath.test.js` (`runtimeFiles`, `setupFlowFiles`) are DELETED. The
@@ -1056,31 +1261,18 @@ argv-array quoting, believed correct, still bench-unverified — audit §1 conte
 `taskkill /t /f` actually reaps a hung PowerShell tree (N4); confirm the mkdtemp profile path
 is accepted by netsh `filename=`. Sim/dev-preview is never bench evidence.
 
-**~~Exact D2 + D3 starting point~~ — D2 is now DONE (2026-07-14, see the Batch D2 status
-section). Exact D3 starting point (NOT started):** a deterministic Electron boot smoke +
-the smallest reliable Windows CI step. Design direction already scoped (and partially
-seamed — `mediamtxPaths` honors `W17_MEDIAMTX_DIR` precisely so the smoke can exercise
-the missing-mediamtx soft-fail with an empty dir): (a) `scripts/smokeMain.js`, an
-Electron MAIN wrapper spawned as `electron scripts/smokeMain.js`, which sets a throwaway
-`userData`, `require`s the real unmodified `main/main.js`, then interrogates the booted
-app through public Electron APIs (window exists, did-finish-load, page-world
-`typeof require/process === 'undefined'`, `Object.keys(window.groundStation)` equals the
-preload parse, a real `getConfig()`/`getSettings()` answer with fresh-profile values and
-no secret in effective metadata, GARAGE readiness marker, `window.open` returns null),
-prints structured `W17_SMOKE` JSON lines, and quits — production files stay untouched;
-(b) `scripts/electron-smoke.js`, a plain-Node controller that spawns it with a scrubbed
-env (`W17_WIFI_SIM` set, telemetry/headtrack/bridge vars deleted, `W17_MEDIAMTX_DIR` →
-empty temp dir), enforces a hard timeout with a process-TREE kill (reuse
-`winTreeKillArgs`), requires result-ok AND clean exit 0, sanitizes captured logs, and
-runs a second pass with a pre-seeded CORRUPT `settings.json` (malformed settings must
-not blank the window); (c) vitest coverage of the CONTROLLER protocol with fake node
-children (happy/failed-check/crash/hang-timeout-kill/no-clean-exit) so `npm test` stays
-fast — the REAL smoke runs via a new `npm run smoke`; (d) CI: extend the existing
-`package-smoke` windows-latest job to `npm ci → npm test → npm run smoke
-(timeout-minutes) → app:rebuild → electron-builder --dir`; failure output prints the
-sanitized log tail inline (no artifact plumbing exists in this workflow). Boot smoke
-must not require camera/RT5370/iPhone/ELRS/admin/real hotspot/external network. Neither
-D3 piece may touch control, W3 log-only, or the contract.
+**~~Exact D2 + D3 starting point~~ — D2 AND D3 are now BOTH DONE (2026-07-14).** See the
+Batch D2 status section and the Batch D3 status section above for the file-by-file detail
+and results. The originally-scoped D3 design direction — `scripts/smokeMain.js` (Electron
+wrapper booting the real unmodified `main/main.js`), `scripts/electron-smoke.js` (plain-Node
+controller with a scrubbed env, a process-tree-kill hard timeout, and the corrupt-settings
+pass), fake-child vitest coverage of the controller protocol, `npm run smoke:electron`, and
+the extended windows-latest `package-smoke` CI job — was implemented as scoped, with the
+`mediamtxPaths` `W17_MEDIAMTX_DIR` seam (built during D2) used exactly as intended to force
+the missing-mediamtx soft-fail deterministically. The one refinement versus the original
+sketch: the CI failure path uploads the sanitized logs as an `actions/upload-artifact@v4`
+artifact (`if: failure()`) rather than only printing a tail inline. Nothing here touched
+control, W3 log-only, or the contract.
 
 ### B3 status: COMPLETE (code) — real netsh open/WPA3/enterprise behavior bench-pending
 
@@ -1950,29 +2142,33 @@ sim preview is never bench evidence.
 3. ~~Batch D1 + D4~~ — **DONE 2026-07-13** (directory sweep + command-generation
    hardening; see the Batch D1 + D4 status section).
 4. ~~Batch D2~~ — **DONE 2026-07-14** (main-process + setup-flow integration coverage,
-   composition-root refactor onto `main/appWiring.js`; see the Batch D2 status section).
-   **Stop-for-review is in effect: the D2 `main.js` refactor must be reviewed before D3
-   begins.**
-5. **Exact next starting point — Batch D3** (objective, NOT started): the Electron boot
-   smoke + Windows CI step. The full scoped design (smokeMain wrapper + controller +
-   controller-protocol vitest coverage + `npm run smoke` + windows-latest CI sequence)
-   is written out in the "Exact D3 starting point" paragraph of the Batch D1 + D4
-   status section above. NOTE (from the Batch C session): an offscreen Electron harness
-   ran headless on macOS, so a hidden-window boot smoke is feasible locally too; the CI
-   job stays windows-latest (the deployment target).
-6. Then E1 (Q6 credential encryption — safeStorage/DPAPI, decision already logged), F (doc sync:
-   L5 CURRENT_STATUS pointer + checklist prereqs + readiness-doc stale note; contract §1–§7
-   untouched), G (proposals only).
+   composition-root refactor onto `main/appWiring.js`, COMMITTED by the user as `0564141`;
+   see the Batch D2 status section).
+5. ~~Batch D3~~ — **DONE 2026-07-14** (deterministic real-Electron boot smoke +
+   windows-latest CI step; see the Batch D3 status section above). Local: full suite
+   **658/658 (37 files)** and **4/4** real smoke scenarios PASS. **Remote CI execution
+   remains pending the next commit/push** — nothing is committed.
+6. **Exact next starting point — Batch E1** (objective never-log guarantee + a logged Q6
+   decision), then **F** (doc sync). E1 = Q6 credential encryption (safeStorage/DPAPI,
+   transparent plaintext→encrypted migration, ciphertext incl. `.bak`, in-memory-only
+   session fallback when OS encryption is unavailable, undecryptable-secret recovery,
+   redaction tests); the persisted hotspot password reaching the renderer inside
+   `settings.network.hotspot` is the documented E1 residual to close. F = L5 + doc sync
+   (`../CURRENT_STATUS.md` pointer + checklist prereqs + readiness-doc stale note; contract
+   §1–§7 untouched). G = proposals only, untouched. **Do NOT start until the user resumes.**
 7. Bench items accumulate in §5 + the per-batch bench notes; Batch C adds: real camera → mediamtx
    → WHEP so the video-state model runs against genuine WebRTC drops/stalls, and a real iPhone
    confirming W2 telemetry appears on GRID entry (C5). Nothing new is hardware-proven.
 
 Recommended first actions for the next session: read this checkpoint + §4 decisions;
-`git log --oneline -2` (expect HEAD **`79fa2e0`** "a lot of chagnes" on top of
-`cf038c2`); `git status --short` (expect the **5-M** uncommitted D2-completion set above
-— this audit file, `main/appWiring.js`, `main/main.js`, `test/appWiring.test.js`,
-`test/ipcSurface.test.js` — plus the session-memory file if updated); `npm test` (expect
-**610/610**, 36 files); `git diff --check` (clean).
+`git log --oneline -3` (expect HEAD **`0564141`** "test: harden main-process integration
+wiring" ← **`79fa2e0`** "a lot of chagnes" ← `cf038c2`); `git status --short` (expect the
+**Batch D3 delta: 3 M + 4 ??** — `M .github/workflows/ci.yml`, `M` this audit file,
+`M package.json`; `?? scripts/electron-smoke.js`, `?? scripts/smokeMain.js`,
+`?? scripts/smokeShared.js`, `?? test/electronSmoke.test.js`); `npm test` (expect
+**658/658**, 37 files); `npm run smoke:electron` (expect **4/4** scenarios PASS, no orphan
+process/temp dir); `git diff --check` (clean). All D3 work stays UNCOMMITTED until the user
+reviews.
 
 ### Hard boundaries (unchanged, apply always)
 
