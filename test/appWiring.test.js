@@ -664,16 +664,16 @@ describe('createTeardown — failure-isolated, idempotent shutdown (audit D2)', 
 describe('mediamtxPaths — dev / packaged / override resolution (audit D3 smoke seam)', () => {
     it('dev build resolves next to the project root', () => {
         const p = mediamtxPaths({ env: {}, platform: 'darwin', isPackaged: false, projectRoot: '/repo' });
-        expect(p).toEqual({ binaryPath: '/repo/mediamtx/mediamtx', configPath: '/repo/mediamtx/mediamtx.yml' });
+        expect(p).toEqual({ binaryPath: join('/repo', 'mediamtx', 'mediamtx'), configPath: join('/repo', 'mediamtx', 'mediamtx.yml') });
     });
 
     it('packaged build resolves under resourcesPath, with the .exe name on win32', () => {
         const p = mediamtxPaths({ env: {}, platform: 'win32', isPackaged: true, resourcesPath: '/res', projectRoot: '/repo' });
-        expect(p.binaryPath).toBe('/res/mediamtx/mediamtx.exe');
+        expect(p.binaryPath).toBe(join('/res', 'mediamtx', 'mediamtx.exe'));
     });
 
     it('W17_MEDIAMTX_DIR overrides both paths (the smoke uses an empty dir for the soft-fail scenario)', () => {
         const p = mediamtxPaths({ env: { W17_MEDIAMTX_DIR: '/tmp/none' }, platform: 'win32', isPackaged: false, projectRoot: '/repo' });
-        expect(p).toEqual({ binaryPath: '/tmp/none/mediamtx.exe', configPath: '/tmp/none/mediamtx.yml' });
+        expect(p).toEqual({ binaryPath: join('/tmp/none', 'mediamtx.exe'), configPath: join('/tmp/none', 'mediamtx.yml') });
     });
 });

@@ -756,6 +756,37 @@ including on a localized Windows build.
   (`normal`/`corrupt-settings`/`forced-failure`/`timeout`); the word was corrected to
   "four" (assertion unchanged, still 48/48; still a single `??` entry). No D3 production or
   test-logic redesign was needed or made. Work stays UNCOMMITTED.
+- 2026-07-14 — **D3 COMMITTED by the user as `297ca79`** ("test: add deterministic
+  Electron boot smoke") — exactly the 3 M + 4 ?? D3 delta the checkpoint listed as
+  uncommitted (`ci.yml`, this audit file, `package.json`, `scripts/electron-smoke.js`,
+  `scripts/smokeMain.js`, `scripts/smokeShared.js`, `test/electronSmoke.test.js`). Now
+  HEAD, pushed to `origin/main`, working tree clean at commit time.
+- 2026-07-14 — **FIRST Windows CI run of `297ca79` FAILED — three POSIX-separator test
+  expectations, production code correct.** Run `29361212326`: the ubuntu `test` job
+  passed **658/658**; the windows-latest `package-smoke` job failed at its NEW `npm test`
+  step (added by D3's own `ci.yml` change — before D3 that job only packaged and never ran
+  vitest on Windows) with **3 failures, all in `test/appWiring.test.js` →
+  `describe('mediamtxPaths — dev / packaged / override resolution (audit D3 smoke seam)')`**:
+  the assertions hardcoded POSIX-`/` expected strings (`/repo/mediamtx/mediamtx`,
+  `/res/mediamtx/mediamtx.exe`, `/tmp/none/mediamtx.exe`) while `mediamtxPaths`
+  (`main/appWiring.js:121`) correctly builds host-native paths with `path.join` →
+  backslashes on win32. **Production `mediamtxPaths` behavior was correct** (OS-native
+  separators are right for locating/spawning `mediamtx.exe` on Windows); the defect was
+  purely in the three test expectations, invisible until D3 first ran the suite on Windows.
+  Because `npm test` failed, the `smoke:electron` step was skipped, so the boot smoke has
+  still never run remotely.
+- 2026-07-14 — **Follow-up test-only correction (PENDING commit/push).** The three
+  `mediamtxPaths` assertions now construct their expected values with the same
+  `join` from `node:path` the production code uses, so they match on POSIX and Windows
+  alike (correct by construction). ONLY `test/appWiring.test.js` changed (3 insertions /
+  3 deletions); `main/appWiring.js` untouched; no production path normalized to `/`.
+  Local verification: `node --check` OK; focused `test/appWiring.test.js` **43/43**; full
+  `npm test` **658/658 (37 files, 0 skips)**; real `npm run smoke:electron` **4/4 PASS**
+  (normal exit 0, corrupt-settings exit 0, forced-failure exit 1 naming `ipc-roundtrip`,
+  timeout tree-killed at ~25 s), zero orphan Electron processes and zero `w17-smoke-*` temp
+  dirs; `git diff --check` clean; working tree = **1 M `test/appWiring.test.js`** (+ this
+  audit update). **E1 remains GATED until the pushed rerun of the windows-latest job is
+  green.** NOT committed.
 
 ---
 
@@ -770,26 +801,45 @@ C2 replay chip, C3 env-locked settings, C5 W2-on-GRID docs; C4 re-validated), **
 D1 + D4** (no-control-path directory sweep + command-generation hardening), **Batch D2**
 (main-process + setup-flow integration coverage, composition-root refactor — now
 COMMITTED as `0564141`), and **Batch D3** (deterministic Electron boot smoke + Windows
-CI step) — not the intended design. Authoritative cross-account handoff (session memory
-is a convenience copy). **D1, D4, D2, and D3 are DONE. Next up is Batch E1 (Q6
-credential encryption) and/or Batch F (doc sync)** — do not start until the user
-reviews the D3 work and resumes. G remains untouched. The D3 CI step has NOT yet run
-remotely (nothing is committed/pushed).**
+CI step — now COMMITTED by the user as `297ca79`) — not the intended design. Authoritative
+cross-account handoff (session memory is a convenience copy). **D1, D4, D2, and D3 are
+DONE and COMMITTED. Next up is Batch E1 (Q6 credential encryption) and/or Batch F (doc
+sync)** — do not start until the D3 Windows CI rerun is green and the user resumes. G
+remains untouched. **The FIRST Windows CI run of `297ca79` (`29361212326`) FAILED at the
+`npm test` step — three POSIX-separator expectations in the `mediamtxPaths` tests, NOT a
+production defect** (`mediamtxPaths` correctly returns host-native paths; details in the
+2026-07-14 change-log entries above). A test-only correction is applied and PENDING
+commit/push; **E1 stays GATED until the rerun is green.** The boot-smoke step has still
+not run remotely (it was skipped when `npm test` failed).**
 
 ### Repository state
 
 - Repo: `w17-ground-station` (nested git repo under `.../Documents/projects/`).
-- Branch: `main`. **HEAD commit: `0564141`** ("test: harden main-process integration
-  wiring", 2026-07-14 18:44, **committed by the user**) — exactly the 5-file D2
-  completion set the previous checkpoint listed as uncommitted (this audit file,
-  `main/appWiring.js`, `main/main.js`, `test/appWiring.test.js`,
-  `test/ipcSurface.test.js`). Parents: `79fa2e0` ("a lot of chagnes", the user's
-  62-file A1→D1/D4 + partial-D2 + contract-mirror commit) ← `cf038c2` (the commit this
-  audit originally examined; every finding above still references that baseline).
-- **Uncommitted right now (Batch D3, this session — 3 M + 4 ??, nothing else):**
+- Branch: `main`. **HEAD commit: `297ca79`** ("test: add deterministic Electron boot
+  smoke", **committed by the user**) — exactly the 3 M + 4 ?? Batch D3 delta the previous
+  checkpoint listed as uncommitted (`.github/workflows/ci.yml`, this audit file,
+  `package.json`, `scripts/electron-smoke.js`, `scripts/smokeMain.js`,
+  `scripts/smokeShared.js`, `test/electronSmoke.test.js`). Parents: `0564141` ("test:
+  harden main-process integration wiring", the 5-file D2 completion set) ← `79fa2e0`
+  ("a lot of chagnes", the user's 62-file A1→D1/D4 + partial-D2 + contract-mirror commit)
+  ← `cf038c2` (the commit this audit originally examined; every finding above still
+  references that baseline).
+- **Uncommitted right now (the D3 Windows-CI test correction — 1 M, nothing else):**
+  ```
+   M test/appWiring.test.js   (3 mediamtxPaths asserts now build expected paths with node:path join)
+  ```
+  (plus this audit-doc update, `M docs/audits/2026-07-12-pre-hardware-hardening-audit.md`).
+  The three `mediamtxPaths` assertions were the sole cause of the first Windows CI failure
+  on `297ca79`; they now compute expected values with the same `join` the production code
+  uses, so they pass on POSIX and Windows alike. `main/appWiring.js` is UNCHANGED — its
+  host-native `path.join` output was correct. Verified locally: appWiring 43/43, full
+  `npm test` 658/658 (37 files, 0 skips), `npm run smoke:electron` 4/4 PASS, no
+  orphans/temp dirs, `git diff --check` clean. **E1 stays GATED until the pushed rerun is
+  green.** NOT committed.
+- HISTORICAL — the Batch D3 delta (now inside `297ca79`):
   ```
    M .github/workflows/ci.yml   (package-smoke job: ensure-electron + npm test + smoke + artifact-on-failure)
-   M docs/audits/2026-07-12-pre-hardware-hardening-audit.md   (this update)
+   M docs/audits/2026-07-12-pre-hardware-hardening-audit.md
    M package.json               (+ "smoke:electron" script)
   ?? scripts/electron-smoke.js  (smoke controller)
   ?? scripts/smokeMain.js       (Electron-side smoke wrapper)
@@ -928,7 +978,7 @@ remotely (nothing is committed/pushed).**
   `main/wifiManager.js` (3rd touch — mkdtemp temp dir), `main/runCommand.js` (2nd touch —
   `winTreeKillArgs` export); **new** `test/commandGeneration.test.js`.
 
-### Batch D3 status: COMPLETE (code + local real-Electron smoke) — remote CI execution pending push
+### Batch D3 status: COMPLETE + COMMITTED as `297ca79` — first Windows CI run RED (POSIX-separator test-only bug), correction pending; remote rerun still pending
 
 Scope was exactly **D3** (V2 closure: a REAL Electron boot smoke + a Windows CI step). It
 closes the last V2 gap the D2 unit layer could not — the actual Electron binding: live
@@ -936,7 +986,13 @@ preload execution in a sandboxed renderer, runtime enforcement of the window fla
 `ipcMain`/`invoke` round trip, and "unknown channels unavailable" in a LIVE page. No
 control-path, CRSF-encoder, pan/tilt, or W3-wiring change; W3/5602 stays log-only; the
 directory sweep + the smoke's own bans keep the smoke tooling inert; contract §1–§7
-untouched. **Nothing is committed** — the delta is 3 M + 4 ?? on top of `0564141`.
+untouched. **The D3 delta (3 M + 4 ??) was COMMITTED by the user as `297ca79` on top of
+`0564141`.** Its first Windows CI run (`29361212326`) failed at the `npm test` step on
+three POSIX-separator expectations in the `mediamtxPaths` tests (a test-only defect
+exposed the first time the suite ran on Windows — `main/appWiring.js` was correct; see the
+2026-07-14 change-log entries). A test-only correction to `test/appWiring.test.js` is
+applied and PENDING commit/push; **E1 is GATED until the rerun of the windows-latest job is
+green.**
 
 **Architecture — a two-process smoke with a pure protocol between them.**
 
@@ -1014,8 +1070,11 @@ proves a secret riding a child's stdout is scrubbed.
 `actions/upload-artifact@v4` (`if: failure()`, the sanitized logs) → the UNCHANGED existing
 package steps `npm run app:rebuild` + `npx electron-builder --dir`. The real smoke runs
 BEFORE packaging. Validated with js-yaml 4.3.0: parses, no duplicate job keys, two jobs
-(`test`, `package-smoke`), no admin/interactive step. **Remote execution has NOT run —
-nothing is committed/pushed; the job fires on the next push/PR.**
+(`test`, `package-smoke`), no admin/interactive step. **Remote execution ran once on the
+`297ca79` push (`29361212326`) and FAILED at `npm test` on the three `mediamtxPaths`
+POSIX-separator expectations — a test-only defect, now corrected (pending commit/push).
+Because `npm test` failed, the `smoke:electron` step was skipped, so the boot smoke itself
+has still not run remotely; it will on the next push once the test correction is in.**
 
 **Development-app smoke decision.** The smoke boots the REAL unmodified `main/main.js` (not
 a packaged build) with a scrubbed env and Wi-Fi sim: it proves the app's runtime boot,
