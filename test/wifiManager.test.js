@@ -253,7 +253,7 @@ describe('WifiManager.join — adapter-pinned verification (audit M2)', () => {
     expect(polls).toBeGreaterThan(2);
   });
 
-  it('a selected adapter that disappears during polling is reported honestly from the LAST poll', async () => {
+  it('a selected adapter that disappears during polling aborts the join EARLY (2C), honestly and adapter-specifically', async () => {
     let polls = 0;
     const single = ok(fixture('netsh_interfaces_en.txt')); // only the built-in remains
     const { wifi } = manager({
@@ -262,8 +262,12 @@ describe('WifiManager.join — adapter-pinned verification (audit M2)', () => {
     });
     const res = await wifi.join({ ssid: 'W17-GRID', iface: 'Wi-Fi 2' });
     expect(res.ok).toBe(false);
-    expect(res.error).toContain('adapter "Wi-Fi 2" not detected');
-    // Nothing from another adapter and nothing stale from earlier polls:
+    // 2C: a pinned adapter that stays gone for JOIN_MISSING_POLLS consecutive
+    // polls fails the join early — the connect command must not keep running
+    // against a missing adapter for the full 20s deadline — with a specific
+    // kind and message (never a generic timeout, never another adapter).
+    expect(res.kind).toBe('adapter-missing');
+    expect(res.error).toContain('adapter "Wi-Fi 2" was removed during the join');
     expect(res.error).not.toContain('HOME');
     expect(res.error).not.toContain('PaddockNet');
   });

@@ -18,7 +18,11 @@ import {
     mediamtxPaths,
     registerIpcHandlers,
     wireHotspotPush,
+    wireAdapterPush,
+    createAdapterCoordinator,
     createWindowOptions,
+    resolveFullscreen,
+    fullscreenKeyAction,
     installNavigationPolicy,
     createTeardown,
 } from '../main/appWiring.js';
@@ -376,7 +380,8 @@ function makeServices(t, overrides = {}) {
         w3Active: () => false,
         wifi: { capabilities: vi.fn(() => ({ platform: 'win32', canScan: true, canJoin: true })), listInterfaces: vi.fn(), scan: vi.fn(), join: vi.fn(), status: vi.fn() },
         sim: false,
-        hotspotLifecycle: { start: vi.fn(), stop: vi.fn(), snapshot: vi.fn(), probe: vi.fn() },
+        hotspotLifecycle: { start: vi.fn(), stop: vi.fn(), snapshot: vi.fn(), probe: vi.fn(), verify: vi.fn(async () => ({ ok: true })) },
+        adapterMonitor: { snapshot: vi.fn(() => ({ seq: 3, ok: true, ifaces: [{ name: 'Wi-Fi' }], error: null, added: [], removed: [] })), refresh: vi.fn(), onChange: vi.fn(() => () => {}) },
         addrHint: { get: vi.fn(() => null), note: () => {} },
         hostProbe: { probe: vi.fn() },
         elrs: { detectRunning: vi.fn(), launchDetached: vi.fn() },
@@ -509,6 +514,27 @@ describe('registerIpcHandlers — delegation and renderer-visible answers (audit
         } finally { t.cleanup(); }
     });
 
+    it('wifi:hotspot-verify delegates to the lifecycle REVERIFY; wifi:adapter-state returns the monitor snapshot (2B/2D)', async () => {
+        const t = makeApplier();
+        try {
+            const ipc = fakeIpcMain();
+            const services = makeServices(t);
+            registerIpcHandlers({ ipcMain: ipc, services });
+            expect(await ipc.invoke('wifi:hotspot-verify')).toEqual({ ok: true });
+            expect(services.hotspotLifecycle.verify).toHaveBeenCalledTimes(1);
+            expect(await ipc.invoke('wifi:adapter-state')).toMatchObject({ seq: 3, ok: true, ifaces: [{ name: 'Wi-Fi' }] });
+        } finally { t.cleanup(); }
+    });
+
+    it('wifi:adapter-state answers a safe not-yet-polled snapshot when no monitor exists (off-platform)', async () => {
+        const t = makeApplier();
+        try {
+            const ipc = fakeIpcMain();
+            registerIpcHandlers({ ipcMain: ipc, services: makeServices(t, { adapterMonitor: undefined }) });
+            expect(await ipc.invoke('wifi:adapter-state')).toEqual({ seq: 0, ok: null, ifaces: [], error: null, added: [], removed: [] });
+        } finally { t.cleanup(); }
+    });
+
     it('command-mirror is a one-way ipcMain.on listener forwarding to the runtime only', () => {
         const t = makeApplier({ seed: IPHONE_SETTINGS });
         try {
@@ -562,6 +588,7 @@ describe('wireHotspotPush — authoritative snapshots to the renderer channel (a
             telemetry: 'telemetry',
             hotspotState: 'hotspot-state',
             headIntent: 'head-intent-diagnostics',
+            adapterState: 'adapter-state',
         });
     });
 });
@@ -584,6 +611,106 @@ describe('createWindowOptions — sandboxed renderer invariants (audit D3)', () 
     it('includes the icon only when a path is supplied', () => {
         expect(createWindowOptions({ preloadPath: '/p', iconPath: '/app/build/icon.png' }).icon)
             .toBe('/app/build/icon.png');
+    });
+
+    it('full screen (2A) is off by default and never kiosk', () => {
+        const opts = createWindowOptions({ preloadPath: '/p' });
+        expect(opts.fullscreen).toBe(false);
+        expect(opts.kiosk).toBe(false); // NOT kiosk — the frame + F11 restore stay
+    });
+
+    it('opens full screen when asked, still not kiosk, keeping the restored size', () => {
+        const opts = createWindowOptions({ preloadPath: '/p', fullscreen: true });
+        expect(opts.fullscreen).toBe(true);
+        expect(opts.kiosk).toBe(false);
+        expect(opts).toMatchObject({ width: 1280, height: 720 }); // fall-back size on exit
+    });
+});
+
+describe('resolveFullscreen — production full screen with a dev override (2A)', () => {
+    it('packaged production launches full screen; an unpackaged dev run is windowed', () => {
+        expect(resolveFullscreen({ isPackaged: true, env: {} })).toBe(true);
+        expect(resolveFullscreen({ isPackaged: false, env: {} })).toBe(false);
+    });
+
+    it('W17_FULLSCREEN forces the mode in BOTH directions (the deliberate dev/prod override)', () => {
+        expect(resolveFullscreen({ isPackaged: false, env: { W17_FULLSCREEN: '1' } })).toBe(true);
+        expect(resolveFullscreen({ isPackaged: false, env: { W17_FULLSCREEN: 'true' } })).toBe(true);
+        expect(resolveFullscreen({ isPackaged: true, env: { W17_FULLSCREEN: '0' } })).toBe(false);
+        expect(resolveFullscreen({ isPackaged: true, env: { W17_FULLSCREEN: 'false' } })).toBe(false);
+    });
+
+    it('defaults defensively with no args (windowed)', () => {
+        expect(resolveFullscreen()).toBe(false);
+    });
+});
+
+describe('fullscreenKeyAction — the F11 restore/exit affordance (2A), pure + display-free', () => {
+    it('F11 keyDown toggles', () => {
+        expect(fullscreenKeyAction({ type: 'keyDown', key: 'F11' })).toBe('toggle');
+    });
+    it('Escape exits ONLY while full screen (never eats a plain Escape)', () => {
+        expect(fullscreenKeyAction({ type: 'keyDown', key: 'Escape' }, { isFullScreen: true })).toBe('exit');
+        expect(fullscreenKeyAction({ type: 'keyDown', key: 'Escape' }, { isFullScreen: false })).toBe(null);
+    });
+    it('ignores key-ups and unrelated keys (renderer input is untouched)', () => {
+        expect(fullscreenKeyAction({ type: 'keyUp', key: 'F11' })).toBe(null);
+        expect(fullscreenKeyAction({ type: 'keyDown', key: 'a' })).toBe(null);
+        expect(fullscreenKeyAction({})).toBe(null);
+    });
+});
+
+describe('wireAdapterPush — one-way adapter snapshots to the renderer (2B)', () => {
+    it('forwards every monitor change on the adapter-state channel, and is null-monitor-safe', () => {
+        const listeners = [];
+        const monitor = { onChange: (fn) => { listeners.push(fn); return () => {}; } };
+        const pushes = [];
+        wireAdapterPush({ monitor, broadcast: (channel, snap) => pushes.push({ channel, snap }) });
+        listeners[0]({ seq: 1, ok: true, ifaces: [{ name: 'Wi-Fi' }], added: ['Wi-Fi'], removed: [] });
+        expect(pushes).toEqual([{ channel: PUSH_CHANNELS.adapterState, snap: { seq: 1, ok: true, ifaces: [{ name: 'Wi-Fi' }], added: ['Wi-Fi'], removed: [] } }]);
+        expect(() => wireAdapterPush({ monitor: null, broadcast: () => {} })).not.toThrow();
+    });
+});
+
+describe('createAdapterCoordinator — adapter loss vs a live hotspot (2C/2D)', () => {
+    // A fake monitor whose onChange we can drive, plus a fake lifecycle.
+    function harness(phase) {
+        let fire = null;
+        const monitor = { onChange: (fn) => { fire = fn; return () => {}; } };
+        const marks = [];
+        const verifies = [];
+        const lifecycle = {
+            snapshot: () => ({ phase }),
+            markInterrupted: (r) => { marks.push(r); return true; },
+            verify: async () => { verifies.push(true); return { ok: true }; },
+        };
+        createAdapterCoordinator({ adapterMonitor: monitor, hotspotLifecycle: lifecycle, log: () => {} });
+        return { fire: (snap) => fire(snap), marks, verifies };
+    }
+
+    it('all WLAN adapters gone while LIVE ⇒ the hotspot is marked INTERRUPTED (LIVE would be false)', () => {
+        const h = harness('live');
+        h.fire({ ok: true, ifaces: [], added: [], removed: ['Wi-Fi', 'Wi-Fi 2'] });
+        expect(h.marks).toEqual(['all WLAN adapters were removed while the hotspot was live']);
+        expect(h.verifies).toEqual([]);
+    });
+
+    it('a removal that leaves adapters behind RE-VERIFIES readiness (a lost backing adapter shows as degraded)', async () => {
+        const h = harness('live');
+        h.fire({ ok: true, ifaces: [{ name: 'Wi-Fi' }], added: [], removed: ['Wi-Fi 2'] });
+        await Promise.resolve(); await Promise.resolve();
+        expect(h.verifies).toEqual([true]);
+        expect(h.marks).toEqual([]);
+    });
+
+    it('does nothing when the hotspot is not live, or when nothing was removed, or on a failed listing', () => {
+        const idle = harness('inactive');
+        idle.fire({ ok: true, ifaces: [], added: [], removed: ['Wi-Fi'] });
+        expect(idle.marks).toEqual([]); expect(idle.verifies).toEqual([]);
+        const live = harness('live');
+        live.fire({ ok: true, ifaces: [{ name: 'Wi-Fi' }], added: ['Wi-Fi 2'], removed: [] }); // pure add
+        live.fire({ ok: false, error: 'netsh broke', added: [], removed: [] });                 // failed poll
+        expect(live.marks).toEqual([]); expect(live.verifies).toEqual([]);
     });
 });
 

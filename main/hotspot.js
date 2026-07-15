@@ -54,6 +54,7 @@
 
 const os = require('node:os');
 const { parseNetshDrivers } = require('../shared/wifiParse.js');
+const { redactSecrets } = require('../shared/redact.js');
 const { runCommand } = require('./runCommand.js');
 
 // Shared prologue: strict errors, WinRT awaiters, tethering manager. Every
@@ -162,9 +163,11 @@ const PS_SCRIPTS = Object.freeze({ probe: PS_PROBE, start: PS_START, stop: PS_ST
 const psArgs = (script) => ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script];
 
 // Failure detail for the UI: cap length; both streams (PowerShell writes its
-// errors to stderr, our tokens to stdout).
-const failDetail = (res, fallback = 'command failed') =>
-    `${res.stdout || ''}${res.stderr || ''}`.trim().slice(0, 300) || fallback;
+// errors to stderr, our tokens to stdout). Known secrets are redacted BEFORE
+// the cap — Windows error prose is untrusted and must never tow a passphrase
+// into a status line or log (audit 2E).
+const failDetail = (res, fallback = 'command failed', secrets = []) =>
+    redactSecrets(`${res.stdout || ''}${res.stderr || ''}`.trim(), secrets).slice(0, 300) || fallback;
 
 // Both backends end up on the ICS subnet in practice; report the host address
 // the iPhone should expect to see as the gateway.
@@ -282,15 +285,15 @@ class HotspotManager {
             };
         }
         if (out.includes('START_CONFIG_FAILED')) {
-            return { ok: false, kind: 'config-failed', backend: 'mobile', fallback: true, error: `mobile hotspot configuration failed: ${failDetail(res)}` };
+            return { ok: false, kind: 'config-failed', backend: 'mobile', fallback: true, error: `mobile hotspot configuration failed: ${failDetail(res, 'command failed', [password])}` };
         }
         if (out.includes('RESULT_NO_PROFILE')) {
             return { ok: false, kind: 'no-profile', backend: 'mobile', fallback: true, error: 'no tetherable internet connection profile' };
         }
         if (out.includes('START_FAILED_')) {
-            return { ok: false, kind: 'start-failed', backend: 'mobile', fallback: true, error: `mobile hotspot refused: ${failDetail(res)}` };
+            return { ok: false, kind: 'start-failed', backend: 'mobile', fallback: true, error: `mobile hotspot refused: ${failDetail(res, 'command failed', [password])}` };
         }
-        return { ok: false, kind: 'ps-error', backend: 'mobile', fallback: true, error: failDetail(res, 'mobile hotspot refused') };
+        return { ok: false, kind: 'ps-error', backend: 'mobile', fallback: true, error: failDetail(res, 'mobile hotspot refused', [password]) };
     }
 
     // The process elevation FACT via a fixed PowerShell token (audit B2):
@@ -309,7 +312,7 @@ class HotspotManager {
             'wlan', 'set', 'hostednetwork', 'mode=allow', `ssid=${ssid}`, `key=${password}`,
         ]);
         if (!set.ok) {
-            return { ok: false, kind: 'config-failed', backend: 'hosted', error: `hostednetwork config failed: ${failDetail(set)}` };
+            return { ok: false, kind: 'config-failed', backend: 'hosted', error: `hostednetwork config failed: ${failDetail(set, 'command failed', [password])}` };
         }
         const start = await this._run('netsh', ['wlan', 'start', 'hostednetwork']);
         if (!start.ok) {
@@ -326,7 +329,7 @@ class HotspotManager {
                 kind: 'start-failed',
                 backend: 'hosted',
                 elevated,
-                error: `hostednetwork start failed: ${failDetail(start)}`,
+                error: `hostednetwork start failed: ${failDetail(start, 'command failed', [password])}`,
             };
             if (elevated !== true) {
                 result.suggestion = 'The legacy hotspot backend may require administrator privileges — restarting the ground station as administrator may help.';
@@ -362,4 +365,4 @@ class HotspotManager {
     }
 }
 
-module.exports = { HotspotManager, PS_SCRIPTS };
+module.exports = { HotspotManager, PS_SCRIPTS, icsHostIp };

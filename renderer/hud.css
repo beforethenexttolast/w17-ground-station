@@ -288,8 +288,23 @@ body{background:#000;color:var(--silver);
 .minibtn:disabled{opacity:.35;cursor:default}
 .minibtn:disabled:hover{filter:none}
 .hsbtns{display:flex;gap:.6em}
-.netstatus{color:var(--amber);font-size:clamp(9px,1.1vw,12px);letter-spacing:.12em;text-transform:uppercase;min-height:1.2em}
+.netstatus{color:var(--amber);font-size:clamp(9px,1.1vw,12px);letter-spacing:.12em;text-transform:uppercase;min-height:1.2em;
+  /* 2E: the summary line stays terse, but if it is ever long it WRAPS inside
+     its own width instead of pushing through neighbouring UI — the overlap
+     seen with an unusual auth error. The full text lives in .errdetail. */
+  max-width:min(46ch,80vw);overflow-wrap:anywhere;line-height:1.4}
 .netstatus.live{color:var(--teal)}
+/* 2E: expandable, self-contained technical detail. Bounded width + capped
+   scroll height + wrapping, so however long/rambling a localized Windows error
+   is, it can never cover buttons, rows, or the status line. Collapsed by
+   default; secrets are already redacted main-side before they reach here. */
+.errdetail{width:min(46ch,80vw);max-width:100%;margin-top:.35em}
+.errdetail.hidden{display:none}
+.errdetail>summary{cursor:pointer;color:var(--muted);font-size:clamp(8px,.95vw,10px);letter-spacing:.14em;
+  text-transform:uppercase;font-weight:700}
+.errdetail>pre{margin:.35em 0 0;max-height:22vh;overflow-y:auto;overflow-x:hidden;white-space:pre-wrap;
+  overflow-wrap:anywhere;color:var(--muted);font-size:clamp(9px,1vw,11px);line-height:1.5;font-family:inherit;
+  background:#0c1214;border:1px solid var(--panel-edge);padding:.5em .6em}
 .padlist{display:flex;flex-direction:column;gap:.3em;width:min(46ch,80vw)}
 .presetrow{display:flex;gap:.5em}
 .teststrip{display:flex;flex-direction:column;gap:.4em;padding:.6em .9em;width:min(40ch,70vw);pointer-events:auto}

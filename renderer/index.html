@@ -158,6 +158,13 @@
             </div>
             <button class="minibtn" id="netRescan">RESCAN</button>
             <div class="netstatus" id="joinStatus"></div>
+            <!-- 2E: a long join error rides an expandable, scrollable DETAILS
+                 box (secrets already redacted main-side) so it can never
+                 overlap the status line, buttons, or rows. -->
+            <details class="errdetail hidden" id="joinDetail">
+              <summary>DETAILS</summary>
+              <pre id="joinDetailText"></pre>
+            </details>
           </div>
           <!-- Hotspot lifecycle (audit B1/N3): both buttons are always
                present; the main-process lifecycle snapshot drives which are
@@ -172,7 +179,17 @@
             <div class="netstatus" id="hsStatus"></div>
             <div class="hint warn hidden" id="hsCredNote"></div>
             <div class="hint hidden" id="hsHint"></div>
-            <button class="minibtn hidden" id="hsRecheck">RECHECK SUPPORT</button>
+            <!-- 2D: the local DHCP/ICS readiness reasons (why a client would
+                 stall at "Obtaining IP address") in an expandable DETAILS box;
+                 REVERIFY re-runs the local check on the live hotspot. -->
+            <details class="errdetail hidden" id="hsDetail">
+              <summary>DETAILS</summary>
+              <pre id="hsDetailText"></pre>
+            </details>
+            <div class="hsbtns">
+              <button class="minibtn hidden" id="hsReverify">REVERIFY</button>
+              <button class="minibtn hidden" id="hsRecheck">RECHECK SUPPORT</button>
+            </div>
           </div>
           <div class="netpane hidden" id="paneGuide">
             <div class="hint">Wi-Fi control is Windows-only. Join the PC and the iPhone to the

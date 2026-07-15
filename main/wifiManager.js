@@ -20,9 +20,15 @@ const {
     buildOpenWlanProfileXml,
 } = require('../shared/wifiParse.js');
 const { runCommand } = require('./runCommand.js');
+const { redactSecrets } = require('../shared/redact.js');
 
 const JOIN_POLL_MS = 1000;
 const JOIN_TIMEOUT_MS = 20000;
+// A pinned adapter reporting present:false this many CONSECUTIVE polls fails
+// the join early (2C: no command continues against a missing adapter). The
+// tolerance window exists because a USB re-enumeration blips present:false
+// for a poll or two and then comes back; a genuinely pulled dongle does not.
+const JOIN_MISSING_POLLS = 3;
 
 // User-facing rejection messages for network kinds outside the supported scope
 // (audit B3 / decision Q3). Kept short and locale-neutral; they are the
@@ -35,8 +41,11 @@ const HIDDEN_MSG = 'Hidden or unnamed networks are not supported. Pick a listed 
 const UNKNOWN_SECURITY_MSG = 'This network’s security type could not be identified. Use a known WPA2 network or start the W17 hotspot.';
 
 // Failure reason for the UI: netsh writes errors to either stream; cap the
-// length so a rambling localized message can't blow up a status line.
-const failReason = (res) => String(res.stderr || res.stdout || '').trim().slice(0, 200) || 'command failed';
+// length so a rambling localized message can't blow up a status line. Known
+// secrets are redacted BEFORE the cap (a truncated secret must not survive) —
+// netsh should never echo a key, but its error prose is untrusted (audit 2E).
+const failReason = (res, secrets = []) =>
+    redactSecrets(String(res.stderr || res.stdout || '').trim(), secrets).slice(0, 200) || 'command failed';
 
 class WifiManager {
     constructor({ tmpDir = os.tmpdir(), run = runCommand, log = () => {}, platform = process.platform, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
@@ -115,9 +124,11 @@ class WifiManager {
     // netsh enumeration order. Connected means: the pinned block reports the
     // requested SSID (exact, case-sensitive — the target string comes from
     // the same netsh scan output, so real joins are byte-identical). An
-    // adapter that vanishes mid-poll (USB re-enumeration) keeps being polled
-    // until the deadline — it may come back — and the timeout error then
-    // reports the LAST observed state honestly instead of a generic failure.
+    // adapter that vanishes mid-poll is tolerated for JOIN_MISSING_POLLS
+    // consecutive polls (a USB re-enumeration blip may come back), then the
+    // join fails EARLY with kind 'adapter-missing' (2C: no command continues
+    // against a missing adapter); a timeout reports the LAST observed state
+    // honestly instead of a generic failure.
     async join({ ssid, password, iface, security, known } = {}) {
         if (this._platform !== 'win32') return { ok: false, error: 'wifi join is Windows-only' };
         if (typeof ssid !== 'string') return { ok: false, error: 'ssid required' };
@@ -164,7 +175,7 @@ class WifiManager {
             try {
                 const add = await this._run('netsh', ['wlan', 'add', 'profile', `filename=${profilePath}`, ...ifaceArg]);
                 if (!add.ok) {
-                    return { ok: false, error: `add profile failed: ${failReason(add)}` };
+                    return { ok: false, kind: 'add-profile-failed', error: `add profile failed: ${failReason(add, [password])}` };
                 }
             } finally {
                 try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch { /* already gone */ }
@@ -173,11 +184,12 @@ class WifiManager {
 
         const connect = await this._run('netsh', ['wlan', 'connect', `name=${ssid}`, ...ifaceArg]);
         if (!connect.ok) {
-            return { ok: false, error: `connect failed: ${failReason(connect)}` };
+            return { ok: false, kind: 'connect-failed', error: `connect failed: ${failReason(connect, [password])}` };
         }
 
         const deadline = Date.now() + JOIN_TIMEOUT_MS;
         let last = null; // most recent poll only — stale polls never shape the result
+        let missingPolls = 0; // consecutive present:false polls on the pinned adapter
         while (Date.now() < deadline) {
             await this._sleep(JOIN_POLL_MS);
             last = await this.status({ iface });
@@ -185,26 +197,43 @@ class WifiManager {
                 this._log(`[wifi] joined ${ssid}${iface ? ` on ${iface}` : ''}`);
                 return { ok: true };
             }
+            // A pinned adapter that stays gone fails the join EARLY (2C): the
+            // connect command must not keep running against a missing adapter
+            // for the full deadline. One or two missing polls are tolerated —
+            // USB re-enumeration blips — a sustained absence is a removal.
+            if (iface && last.ok !== false && last.present === false) {
+                missingPolls += 1;
+                if (missingPolls >= JOIN_MISSING_POLLS) {
+                    this._log(`[wifi] join aborted: adapter "${iface}" removed mid-join`);
+                    return {
+                        ok: false,
+                        kind: 'adapter-missing',
+                        error: `adapter "${iface}" was removed during the join — reconnect it and RESCAN`,
+                    };
+                }
+            } else {
+                missingPolls = 0;
+            }
         }
-        return { ok: false, error: this._joinTimeoutError(ssid, iface, last) };
+        return { ok: false, ...this._joinTimeoutError(ssid, iface, last) };
     }
 
-    // Honest, adapter-specific timeout wording from the final poll. Never
-    // blames the network for a vanished adapter or a broken status check,
-    // and never suggests another adapter's connection counts.
+    // Honest, adapter-specific timeout classification from the final poll.
+    // Never blames the network for a vanished adapter or a broken status
+    // check, and never suggests another adapter's connection counts.
     _joinTimeoutError(ssid, iface, last) {
         const secs = `${JOIN_TIMEOUT_MS / 1000}s`;
         if (last && last.ok === false) {
-            return `could not verify the join to ${ssid}: ${last.error}`;
+            return { kind: 'status-unavailable', error: `could not verify the join to ${ssid}: ${last.error}` };
         }
         if (iface && last && last.present === false) {
-            return `adapter "${iface}" not detected after ${secs} — reconnect it and RESCAN`;
+            return { kind: 'adapter-missing', error: `adapter "${iface}" not detected after ${secs} — reconnect it and RESCAN` };
         }
         const where = iface ? ` on adapter "${iface}"` : '';
         const state = last && last.connected
             ? ` (currently connected to ${last.ssid})`
             : ' (adapter is not connected)';
-        return `not connected to ${ssid}${where} after ${secs}${state}`;
+        return { kind: 'join-timeout', error: `not connected to ${ssid}${where} after ${secs}${state}` };
     }
 
     // Connection status + the machine's IPv4s (every platform — guide mode's

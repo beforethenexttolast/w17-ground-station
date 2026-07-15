@@ -187,6 +187,25 @@ export function joinPlan(n = {}) {
     return { action: 'password', security }; // wpa2-personal, no saved profile
 }
 
+// A failed wifi:join result -> a SHORT summary line + the full technical detail
+// (audit 2E / Windows observation #5). The manager already classified the
+// failure with a `kind` and redacted + capped its `error`; this splits it into
+// a terse uppercase status (which can never overlap other UI) and an expandable
+// DETAILS body. `hasDetail` is false when the detail adds nothing over the
+// summary, so the DETAILS box stays hidden rather than echoing the headline.
+const JOIN_ERROR_SUMMARY = {
+    'adapter-missing': 'ADAPTER REMOVED',
+    'add-profile-failed': 'COULD NOT SAVE NETWORK PROFILE',
+    'connect-failed': 'CONNECT COMMAND FAILED',
+    'status-unavailable': 'COULD NOT VERIFY CONNECTION',
+    'join-timeout': 'JOIN TIMED OUT',
+};
+export function classifyJoinError(res = {}) {
+    const summary = JOIN_ERROR_SUMMARY[res.kind] || 'JOIN FAILED';
+    const detail = String(res.error || '').trim();
+    return { kind: res.kind || 'unknown', summary, detail, hasDetail: !!detail && detail.toUpperCase() !== summary };
+}
+
 // scan result -> the join pane's status line. A failed scan (radio off, WLAN
 // service down) is NOT an empty airspace — show the reason.
 export function scanStatusText(res = {}) {
@@ -200,15 +219,21 @@ export function scanStatusText(res = {}) {
 //   status  — the pane's status line;
 //   live    — teal LIVE styling; warn — amber styling;
 //   hint    — second line (troubleshooting / suggestion), '' = hidden;
+//   detail  — a list of longer technical lines for the expandable DETAILS box
+//     (2E: kept out of the status line so it can never overlap); [] = hidden;
 //   start/stop/inputs — control enablement (conflicting controls are disabled
 //     during STARTING/STOPPING; STOP is enabled ONLY while this app owns the
 //     hotspot — an externally running hotspot never gets a usable STOP);
-//   recheck — offer the RECHECK SUPPORT re-probe button.
+//   recheck — offer the RECHECK SUPPORT re-probe button;
+//   reverify — offer the REVERIFY (re-run the local DHCP/ICS readiness check)
+//     button; only while a hotspot is live and a verifier exists.
 // The lifecycle phase always outranks the capability probe: a LIVE hotspot is
-// LIVE regardless of what a (re)probe would currently say.
+// LIVE regardless of what a (re)probe would currently say. A LIVE hotspot whose
+// local readiness has NOT verified (Windows observation #4) is never shown as a
+// plain success — degraded/verifying/interrupted states are distinct.
 export function hotspotPaneState(snap) {
     const view = (status, over = {}) => ({
-        status, live: false, warn: false, hint: '', start: false, stop: false, inputs: false, recheck: false, ...over,
+        status, live: false, warn: false, hint: '', detail: [], start: false, stop: false, inputs: false, recheck: false, reverify: false, ...over,
     });
     if (!snap) {
         // The state mirror itself is unavailable (state IPC rejected): keep
@@ -234,10 +259,39 @@ export function hotspotPaneState(snap) {
                 stop: true,
             });
         }
-        return view(
-            `LIVE (${snap.backend}) — join "${snap.ssid}" on the iPhone${snap.hostIp ? ` · this PC: ${snap.hostIp}` : ''}`,
-            { live: true, stop: true },
-        );
+        // Adapter loss while live (Windows observation #3): the radio cannot be
+        // broadcasting with its adapter gone, so LIVE would be a false state.
+        if (snap.interrupted) {
+            return view('HOTSPOT INTERRUPTED — WLAN adapter lost while live', {
+                warn: true,
+                hint: `${snap.interrupted} — press STOP HOTSPOT to clean up, reconnect the adapter, then start again`,
+                stop: true,
+            });
+        }
+        const liveLine = `LIVE (${snap.backend}) — join "${snap.ssid}" on the iPhone${snap.hostIp ? ` · this PC: ${snap.hostIp}` : ''}`;
+        const readiness = snap.readiness || { status: 'idle', reasons: [] };
+        // Honest readiness (Windows observation #4): a start-command success is
+        // NOT client-readiness. Until the local ICS/gateway/service checks pass
+        // the pane says VERIFYING; a failed check says DEGRADED (never a plain
+        // join-it success); only 'verified' or 'idle' (no verifier) shows LIVE.
+        if (readiness.status === 'verifying') {
+            return view(`${liveLine} · VERIFYING READINESS…`, { live: true, stop: true });
+        }
+        if (readiness.status === 'degraded') {
+            const reasons = readiness.reasons || [];
+            return view(`LIVE (${snap.backend}) — NOT READY FOR CLIENTS`, {
+                warn: true,
+                hint: reasons[0] || 'a local readiness check failed — clients may stall at "Obtaining IP address"',
+                detail: reasons,
+                stop: true,
+                reverify: true,
+            });
+        }
+        if (readiness.status === 'verified') {
+            return view(`${liveLine} · READY`, { live: true, stop: true, reverify: true });
+        }
+        // idle: no verifier available on this platform — plain LIVE, unchanged.
+        return view(liveLine, { live: true, stop: true });
     }
     // INACTIVE: the capability probe and the last failure govern the controls.
     const probe = snap.probe || { status: 'idle' };

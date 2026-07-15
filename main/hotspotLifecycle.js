@@ -43,8 +43,9 @@ const pickError = (res, fallbackText) => ({
 });
 
 class HotspotLifecycle {
-    constructor({ manager, log = () => {} } = {}) {
+    constructor({ manager, verify = null, log = () => {} } = {}) {
         this._manager = manager;
+        this._verify = verify;     // injected local readiness check (hotspotVerify.js); null = unavailable
         this._log = log;
         this._phase = 'inactive';
         this._backend = null;
@@ -56,6 +57,14 @@ class HotspotLifecycle {
         this._probePromise = null; // in-flight probe (shared by callers)
         this._transition = null;   // in-flight start/stop (quit policy waits on it)
         this._seq = 0;             // bumped per state change; snapshots carry it
+        // Honest readiness model (Windows observation #4): a hotspot whose
+        // start command succeeded is NOT presented as client-ready until the
+        // local checks pass. status: 'idle' (no verification ran/applies) |
+        // 'verifying' | 'verified' | 'degraded' (+reasons). Distinct from
+        // `interrupted`, which records a WLAN-adapter loss WHILE live.
+        this._readiness = { status: 'idle', reasons: [] };
+        this._interrupted = null;  // reason string, only ever set while live
+        this._verifyEpoch = 0;     // stale async verify completions are dropped
     }
 
     onChange(listener) {
@@ -93,6 +102,8 @@ class HotspotLifecycle {
             ssid: this._ssid,
             hostIp: this._hostIp,
             lastError: this._lastError,
+            readiness: this._readiness,
+            interrupted: this._interrupted,
             probe: this._probePromise
                 ? { status: 'probing' }
                 : (this._probeResult || { status: 'idle' }),
@@ -149,6 +160,8 @@ class HotspotLifecycle {
         }
         this._phase = 'starting';
         this._lastError = null;
+        this._interrupted = null;
+        this._readiness = { status: 'idle', reasons: [] };
         this._emit();
         const op = this._doStart({ ssid, password });
         this._transition = op;
@@ -176,6 +189,10 @@ class HotspotLifecycle {
             this._ssid = res.ssid;
             this._hostIp = res.hostIp || null;
             this._lastError = null;
+            // A successful start command is NOT client-readiness. Kick the
+            // local verification (non-blocking); until it lands the pane says
+            // VERIFYING, never a plain success.
+            this._startVerify();
         } else if (this._manager.active()) {
             // Partial start we own (START_CONFIG_MISMATCH): tethering IS
             // running, started by us, with the wrong SSID. LIVE + error keeps
@@ -231,6 +248,8 @@ class HotspotLifecycle {
             this._ssid = '';
             this._hostIp = null;
             this._lastError = null;
+            this._interrupted = null;
+            this._readiness = { status: 'idle', reasons: [] };
         } else {
             // The manager retains ownership on a failed stop (audit N2), so
             // the honest state is still LIVE: ours, broadcasting, retryable.
@@ -239,6 +258,60 @@ class HotspotLifecycle {
         }
         this._emit();
         return res;
+    }
+
+    // --- local readiness verification (Windows observation #4) -------------
+
+    // Public re-verify (the pane's REVERIFY, and the adapter-change guard).
+    // Bounded and observable: one run at a time per epoch, snapshots carry
+    // 'verifying' while it runs, and a run that outlives the LIVE phase (or a
+    // newer run) is discarded. No blind sleeps anywhere — verification is
+    // triggered by events (start success, adapter change, operator request).
+    async verify() {
+        if (this._phase !== 'live') {
+            return { ok: false, kind: 'not-live', error: 'no live hotspot to verify' };
+        }
+        if (!this._verify) {
+            return { ok: false, kind: 'unsupported', error: 'local verification is unavailable on this platform' };
+        }
+        return this._startVerify();
+    }
+
+    async _startVerify() {
+        if (!this._verify) return { ok: true, readiness: this._readiness };
+        this._verifyEpoch += 1;
+        const epoch = this._verifyEpoch;
+        this._readiness = { status: 'verifying', reasons: [] };
+        this._emit();
+        let readiness;
+        try {
+            const { status, reasons } = await this._verify({ backend: this._backend });
+            readiness = { status, reasons };
+        } catch (err) {
+            this._log(`[hotspot] readiness verification rejected: ${err && err.message ? err.message : err}`);
+            readiness = { status: 'degraded', reasons: ['local readiness check failed unexpectedly — REVERIFY to retry'] };
+        }
+        // Stale completion: the hotspot stopped, or a newer verify superseded
+        // this one, while the checks ran. Its result must not overwrite truth.
+        if (epoch !== this._verifyEpoch || this._phase !== 'live') {
+            return { ok: false, kind: 'stale', readiness };
+        }
+        this._readiness = readiness;
+        this._emit();
+        return { ok: true, readiness };
+    }
+
+    // WLAN-adapter loss while the hotspot is live (Windows observation #3):
+    // the radio cannot still be broadcasting with no adapter present, so LIVE
+    // would be a false state. Ownership is retained — STOP remains the honest
+    // cleanup path — but the snapshot says INTERRUPTED, never plain LIVE.
+    markInterrupted(reason) {
+        if (this._phase !== 'live' || this._interrupted) return false;
+        this._interrupted = reason || 'the WLAN adapter disappeared while the hotspot was live';
+        this._readiness = { status: 'degraded', reasons: [this._interrupted] };
+        this._log(`[hotspot] interrupted: ${this._interrupted}`);
+        this._emit();
+        return true;
     }
 }
 

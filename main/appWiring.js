@@ -10,6 +10,7 @@
 // services main.js always constructed, and the IPC surface it registers is
 // exactly the preload contract (test/ipcSurface.test.js pins the symmetry).
 
+const os = require('node:os');
 const path = require('node:path');
 
 const { ReplaySource } = require('../shared/replaySource.js');
@@ -17,6 +18,8 @@ const { CrsfSerialSource } = require('./CrsfSerialSource.js');
 const { WifiManager } = require('./wifiManager.js');
 const { HotspotManager } = require('./hotspot.js');
 const { HotspotLifecycle } = require('./hotspotLifecycle.js');
+const { createHotspotVerifier } = require('./hotspotVerify.js');
+const { createAdapterMonitor } = require('./adapterMonitor.js');
 const { simScenario, createSimRun } = require('./wifiSim.js');
 const { resolveEffective } = require('../shared/settings.js');
 
@@ -25,10 +28,13 @@ const { resolveEffective } = require('../shared/settings.js');
 // constants so the strings cannot drift apart silently. `headIntent` carries the
 // mapper's read-only head-intent diagnostics snapshot for display (CB8 slice 3B)
 // — a ONE-WAY display channel with no renderer -> mapper reply path.
+// `adapterState` carries the adapter monitor's change snapshots (2B) — also
+// one-way display data.
 const PUSH_CHANNELS = Object.freeze({
     telemetry: 'telemetry',
     hotspotState: 'hotspot-state',
     headIntent: 'head-intent-diagnostics',
+    adapterState: 'adapter-state',
 });
 
 // Setup-flow platform services (thin IO; all soft-fail with reasons). With
@@ -37,7 +43,7 @@ const PUSH_CHANNELS = Object.freeze({
 // OS. The hotspot lifecycle authority is constructed HERE so the composition
 // root hands the SAME instance to the IPC handlers, the state push, and the
 // quit policy — there is exactly one runtime hotspot truth.
-function createNetworkServices({ env = process.env, log = () => {} } = {}) {
+function createNetworkServices({ env = process.env, platform = process.platform, log = () => {} } = {}) {
     const scenario = simScenario(env, log);
     const simRun = scenario ? createSimRun(scenario, log) : null;
     const wifi = simRun
@@ -46,8 +52,27 @@ function createNetworkServices({ env = process.env, log = () => {} } = {}) {
     const hotspot = simRun
         ? new HotspotManager({ run: simRun, platform: 'win32', log })
         : new HotspotManager({ log });
-    const hotspotLifecycle = new HotspotLifecycle({ manager: hotspot, log });
-    return { wifi, hotspot, hotspotLifecycle, sim: !!simRun };
+    // Local hotspot readiness verification (2D): the sim overlays a fake ICS
+    // gateway interface so the dev preview exercises the VERIFYING -> VERIFIED
+    // flow; off-Windows without the sim there is nothing to verify (null =
+    // lifecycle reports verification unavailable, honestly).
+    const verify = simRun
+        ? createHotspotVerifier({
+            run: simRun,
+            platform: 'win32',
+            networkInterfaces: () => ({
+                ...os.networkInterfaces(),
+                'Local Area Connection* 12': [{ family: 'IPv4', internal: false, address: '192.168.137.1' }],
+            }),
+            log,
+        })
+        : (platform === 'win32' ? createHotspotVerifier({ log }) : null);
+    const hotspotLifecycle = new HotspotLifecycle({ manager: hotspot, verify, log });
+    // Live adapter monitor (2B): main-process/service-layer polling, running
+    // for the app lifetime — never coupled to page navigation. Only started
+    // (main.js) where scanning exists at all (win32 or sim).
+    const adapterMonitor = createAdapterMonitor({ wifi, log });
+    return { wifi, hotspot, hotspotLifecycle, adapterMonitor, sim: !!simRun };
 }
 
 // Telemetry source selection from the EFFECTIVE config (post env-override).
@@ -145,7 +170,7 @@ function mediamtxPaths({ env = process.env, platform = process.platform, isPacka
 function registerIpcHandlers({ ipcMain, services }) {
     const {
         whepUrl, platform, feel, runtime, settingsStore, sessionApplier,
-        w3Active, wifi, sim, hotspotLifecycle, addrHint, hostProbe, elrs,
+        w3Active, wifi, sim, hotspotLifecycle, adapterMonitor, addrHint, hostProbe, elrs,
     } = services;
 
     const handle = new Map();
@@ -224,6 +249,16 @@ function registerIpcHandlers({ ipcMain, services }) {
     reg('wifi:hotspot-stop', () => hotspotLifecycle.stop());
     reg('wifi:hotspot-state', () => hotspotLifecycle.snapshot());
     reg('wifi:hotspot-probe', (_event, opts) => hotspotLifecycle.probe(opts || {}));
+    // Local DHCP/ICS readiness re-check (2D): the pane's REVERIFY. Delegates to
+    // the lifecycle authority, which no-ops honestly when the hotspot is not
+    // live or no verifier exists on this platform.
+    reg('wifi:hotspot-verify', () => hotspotLifecycle.verify());
+    // Live adapter monitor snapshot (2B): the pull the renderer uses to seed the
+    // ADAPTER card on PIT WALL entry before the first change-push arrives. The
+    // monitor is the same main-process authority that pushes 'adapter-state'.
+    reg('wifi:adapter-state', () => (adapterMonitor
+        ? adapterMonitor.snapshot()
+        : { seq: 0, ok: null, ifaces: [], error: null, added: [], removed: [] }));
 
     // --- Setup helpers: address suggestion + reachability ---
     reg('setup:addr-hint', () => addrHint.get());
@@ -251,16 +286,70 @@ function wireHotspotPush({ lifecycle, broadcast }) {
     return lifecycle.onChange((snap) => broadcast(PUSH_CHANNELS.hotspotState, snap));
 }
 
+// Forward every adapter-monitor snapshot to the renderer push channel (2B), the
+// same one-way shape as the hotspot push. The channel name comes from
+// PUSH_CHANNELS so it cannot drift from the preload subscription. `broadcast` is
+// injected (webContents.send over all live windows; a spy in tests). Returns
+// the monitor's unsubscribe. Null-monitor-safe (off-platform there is nothing
+// to monitor): returns a no-op unsubscribe.
+function wireAdapterPush({ monitor, broadcast }) {
+    if (!monitor) return () => {};
+    return monitor.onChange((snap) => broadcast(PUSH_CHANNELS.adapterState, snap));
+}
+
+// Reconciles a LIVE hotspot against live adapter changes (2C/2D, Windows
+// observations #3/#4). It is the ONLY caller of lifecycle.markInterrupted, and
+// it re-runs the local readiness check when the adapter set changes under a
+// live hotspot. Injected everything, so it unit-tests with a fake monitor +
+// fake lifecycle. Decisions, kept deliberately conservative because the exact
+// physical adapter that backs a hotspot is not something we can prove locally
+// (that mapping is a Windows-validation item, see the runbook):
+//   - a removal event that empties the WLAN adapter list while live is
+//     UNAMBIGUOUS — the radio cannot broadcast with zero adapters — so mark the
+//     hotspot INTERRUPTED (LIVE would be a false state);
+//   - any other membership change under a live hotspot RE-VERIFIES readiness:
+//     if the backing adapter (and thus the ICS 192.168.137.x gateway) vanished,
+//     the verifier flips to DEGRADED honestly, without us guessing which
+//     adapter it was.
+// verify() is fire-and-forget (its own epoch guard drops stale completions);
+// its rejection is swallowed so an adapter blip can never crash the monitor.
+function createAdapterCoordinator({ adapterMonitor, hotspotLifecycle, log = () => {} }) {
+    if (!adapterMonitor || !hotspotLifecycle) return () => {};
+    return adapterMonitor.onChange((snap) => {
+        if (!snap || snap.ok === false || !(snap.removed && snap.removed.length)) return;
+        const hs = hotspotLifecycle.snapshot ? hotspotLifecycle.snapshot() : null;
+        if (!hs || hs.phase !== 'live') return;
+        if ((snap.ifaces || []).length === 0) {
+            hotspotLifecycle.markInterrupted('all WLAN adapters were removed while the hotspot was live');
+            return;
+        }
+        log(`[adapters] membership changed under a live hotspot — re-verifying readiness (removed: ${snap.removed.join(', ')})`);
+        Promise.resolve()
+            .then(() => hotspotLifecycle.verify && hotspotLifecycle.verify())
+            .catch((err) => log(`[adapters] readiness re-verify after adapter change failed: ${err && err.message ? err.message : err}`));
+    });
+}
+
 // BrowserWindow construction options (audit D3 security surface). The renderer
 // is fully sandboxed: context isolation ON, node integration OFF, sandbox ON,
 // and the ONLY bridge is the preload. Tests pin these so a convenience edit
 // (e.g. flipping nodeIntegration on to debug) cannot land silently.
-function createWindowOptions({ preloadPath, iconPath = null }) {
+//
+// Full screen (observation 2A): production launches full-screen so the pit-wall
+// operator gets the whole display, but this is NOT kiosk mode — `kiosk` is
+// pinned false and the window keeps its frame + menu accelerator, so F11 (wired
+// in main.js) still restores/exits. width/height are the RESTORED size the
+// window falls back to when the operator leaves full screen. `fullscreen` is a
+// window property, not tied to the loaded page, so a renderer reload (or the
+// single-page step switches) never drops out of full screen.
+function createWindowOptions({ preloadPath, iconPath = null, fullscreen = false }) {
     return {
         width: 1280,
         height: 720,
         backgroundColor: '#000000',
         autoHideMenuBar: true,
+        fullscreen: !!fullscreen,
+        kiosk: false,
         ...(iconPath ? { icon: iconPath } : {}),
         webPreferences: {
             preload: preloadPath,
@@ -269,6 +358,30 @@ function createWindowOptions({ preloadPath, iconPath = null }) {
             sandbox: true,
         },
     };
+}
+
+// Whether the main window should open full screen (2A). Pure so it unit-tests
+// without a display. Precedence: an explicit W17_FULLSCREEN env wins in BOTH
+// directions (the deliberate development override, and a way to force it on a
+// dev build or off on a packaged one); otherwise production (isPackaged) is
+// full-screen and an unpackaged dev run is windowed.
+function resolveFullscreen({ isPackaged = false, env = process.env } = {}) {
+    const raw = env && env.W17_FULLSCREEN;
+    if (raw === '1' || raw === 'true') return true;
+    if (raw === '0' || raw === 'false') return false;
+    return !!isPackaged;
+}
+
+// The operator's full-screen restore/exit affordance (2A). Electron has no
+// built-in F11 handler on Windows, so main.js feeds `before-input-event` here
+// and toggles on 'toggle'. Pure + string-only so it tests without a window or a
+// display. F11 toggles; Escape exits only WHILE full screen (so it never eats a
+// plain Escape a dialog/field wants). Returns null for anything else.
+function fullscreenKeyAction(input = {}, { isFullScreen = false } = {}) {
+    if (input.type !== 'keyDown') return null;
+    if (input.key === 'F11') return 'toggle';
+    if (input.key === 'Escape' && isFullScreen) return 'exit';
+    return null;
 }
 
 // Navigation policy (audit D3): this window shows exactly one local page. The
@@ -316,7 +429,11 @@ module.exports = {
     mediamtxPaths,
     registerIpcHandlers,
     wireHotspotPush,
+    wireAdapterPush,
+    createAdapterCoordinator,
     createWindowOptions,
+    resolveFullscreen,
+    fullscreenKeyAction,
     installNavigationPolicy,
     createTeardown,
 };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-    adapterRowState, scanStatusText, hotspotPaneState,
+    adapterRowState, scanStatusText, hotspotPaneState, classifyJoinError,
     joinPlan, networkBadge,
     WPA3_ONLY_MESSAGE, ENTERPRISE_MESSAGE, OPEN_NETWORK_WARNING, UNKNOWN_SECURITY_MESSAGE,
 } from '../shared/wifiView.mjs';
@@ -319,5 +319,59 @@ describe('hotspotPaneState — HOTSPOT pane model', () => {
         expect(v.status).toContain('hostednetwork start failed');
         expect(v.hint).toMatch(/may require administrator/);
         expect(v).toMatchObject({ warn: true, start: true, stop: false, inputs: true, recheck: true });
+    });
+
+    // ---- readiness + interrupted (2D, Windows observation #3/#4) ----
+    const live = (over = {}) => inactive({ phase: 'live', owned: true, backend: 'mobile', ssid: 'W17-GRID', hostIp: '192.168.137.1', ...over });
+
+    it('LIVE + readiness idle (no verifier): the plain success line, unchanged — REVERIFY not offered', () => {
+        const v = hotspotPaneState(live());
+        expect(v.status).toBe('LIVE (mobile) — join "W17-GRID" on the iPhone · this PC: 192.168.137.1');
+        expect(v).toMatchObject({ live: true, stop: true, reverify: false });
+    });
+
+    it('LIVE while VERIFYING: teal, still LIVE, but says readiness is being checked', () => {
+        const v = hotspotPaneState(live({ readiness: { status: 'verifying', reasons: [] } }));
+        expect(v.status).toMatch(/VERIFYING READINESS…$/);
+        expect(v).toMatchObject({ live: true, stop: true });
+    });
+
+    it('LIVE but DEGRADED: NOT a success line — amber, first reason as the hint, all reasons in detail, REVERIFY offered', () => {
+        const reasons = ['no local IPv4 on the hotspot subnet (192.168.137.x)', 'Internet Connection Sharing service (SharedAccess) is Stopped'];
+        const v = hotspotPaneState(live({ readiness: { status: 'degraded', reasons } }));
+        expect(v.status).toBe('LIVE (mobile) — NOT READY FOR CLIENTS');
+        expect(v.hint).toBe(reasons[0]);
+        expect(v.detail).toEqual(reasons);
+        expect(v).toMatchObject({ live: false, warn: true, stop: true, reverify: true });
+    });
+
+    it('LIVE + VERIFIED: the success line with a READY marker, REVERIFY offered', () => {
+        const v = hotspotPaneState(live({ readiness: { status: 'verified', reasons: [] } }));
+        expect(v.status).toBe('LIVE (mobile) — join "W17-GRID" on the iPhone · this PC: 192.168.137.1 · READY');
+        expect(v).toMatchObject({ live: true, stop: true, reverify: true });
+    });
+
+    it('INTERRUPTED (adapter lost while live) outranks readiness: amber, STOP to clean up, never plain LIVE', () => {
+        const v = hotspotPaneState(live({ interrupted: 'the WLAN adapter disappeared while the hotspot was live', readiness: { status: 'verified', reasons: [] } }));
+        expect(v.status).toMatch(/^HOTSPOT INTERRUPTED/);
+        expect(v.hint).toMatch(/STOP HOTSPOT to clean up/);
+        expect(v).toMatchObject({ live: false, warn: true, stop: true });
+    });
+});
+
+describe('classifyJoinError — short summary + expandable detail (2E)', () => {
+    it('maps the manager kind to a terse headline and keeps the full redacted reason as detail', () => {
+        expect(classifyJoinError({ kind: 'adapter-missing', error: 'adapter "Wi-Fi 2" was removed during the join — reconnect it and RESCAN' }))
+            .toEqual({ kind: 'adapter-missing', summary: 'ADAPTER REMOVED', detail: 'adapter "Wi-Fi 2" was removed during the join — reconnect it and RESCAN', hasDetail: true });
+        expect(classifyJoinError({ kind: 'join-timeout', error: 'not connected to X after 20s' }).summary).toBe('JOIN TIMED OUT');
+        expect(classifyJoinError({ kind: 'connect-failed', error: 'connect failed: netsh prose' }).summary).toBe('CONNECT COMMAND FAILED');
+        expect(classifyJoinError({ kind: 'add-profile-failed', error: 'add profile failed: x' }).summary).toBe('COULD NOT SAVE NETWORK PROFILE');
+        expect(classifyJoinError({ kind: 'status-unavailable', error: 'could not verify the join' }).summary).toBe('COULD NOT VERIFY CONNECTION');
+    });
+
+    it('an unknown/absent kind falls back to JOIN FAILED; hasDetail is false when the detail adds nothing', () => {
+        expect(classifyJoinError({ error: 'boom' })).toEqual({ kind: 'unknown', summary: 'JOIN FAILED', detail: 'boom', hasDetail: true });
+        expect(classifyJoinError({ kind: 'unknown', error: 'JOIN FAILED' }).hasDetail).toBe(false);
+        expect(classifyJoinError({})).toEqual({ kind: 'unknown', summary: 'JOIN FAILED', detail: '', hasDetail: false });
     });
 });

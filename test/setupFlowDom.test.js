@@ -173,8 +173,13 @@ describe('operational IPC rejections (audit N1)', () => {
     el('netPassword').value = PASSWORD;
     el('netJoinBtn').click();
     await tick();
-    expect(el('joinStatus').textContent).toBe('JOIN FAILED — the network layer did not respond; retry');
+    // 2E: the status line is a terse summary (never overlaps), the full fixed
+    // fallback rides the expandable DETAILS box; neither carries the password.
+    expect(el('joinStatus').textContent).toBe('JOIN FAILED');
     expect(el('joinStatus').textContent).not.toContain(PASSWORD);
+    expect(el('joinDetail').classList.contains('hidden')).toBe(false);
+    expect(el('joinDetailText').textContent).toBe('JOIN FAILED — the network layer did not respond; retry');
+    expect(el('joinDetailText').textContent).not.toContain(PASSWORD);
     expect(activeStep()).toBe('pitwall'); // a failed join never advances the flow
     // The rejection message carried the password; the renderer log must not.
     const logged = errSpy.mock.calls.flat().map(String).join('\n');
@@ -185,6 +190,7 @@ describe('operational IPC rejections (audit N1)', () => {
     el('netJoinBtn').click();
     await tick();
     expect(el('joinStatus').textContent).toBe('CONNECTED: PaddockNet');
+    expect(el('joinDetail').classList.contains('hidden')).toBe(true); // success clears the detail
   });
 
   it('a rejected scan shows SCAN FAILED with a retry hint, and RESCAN recovers', async () => {
@@ -1297,5 +1303,49 @@ describe('hotspot credential — transient join key + honest storage status (aud
     await loadPitwall(gs);
     expect(el('hsCredNote').classList.contains('hidden')).toBe(true);
     expect(el('hsCredNote').textContent).toBe('');
+  });
+});
+
+describe('live adapter monitor mirror (2B, Windows observation #2/#3)', () => {
+  it('a dongle plugged in while PIT WALL is open appears WITHOUT leaving the page; losing the selected adapter invalidates the pick (no auto-switch)', async () => {
+    let pushCb = null;
+    const settings = { ...defaultSettings(), fpvMode: 'iphone-hud', network: { kind: 'join', adapter: 'Wi-Fi 2', hotspot: { ssid: 'W17-GRID', password: HS_PASSWORD } } };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async () => settings),
+      // seed: both adapters present, saved = 'Wi-Fi 2'
+      adapterState: vi.fn(async () => ({ seq: 1, ok: true, ifaces: [{ name: 'Wi-Fi', connected: false }, { name: 'Wi-Fi 2', connected: false }], error: null, added: ['Wi-Fi', 'Wi-Fi 2'], removed: [] })),
+      onAdapterState: vi.fn((cb) => { pushCb = cb; return () => {}; }),
+    });
+    await loadPitwall(gs);
+    // seeded from the monitor snapshot: a picker with the saved adapter selected
+    expect([...el('adapterSelect').options].map((o) => o.value)).toEqual(['Wi-Fi', 'Wi-Fi 2']);
+    expect(el('adapterSelect').value).toBe('Wi-Fi 2');
+
+    // the selected dongle is pulled → live push (higher seq) → the card must
+    // mark it NOT DETECTED and select NOTHING (never silently fall to 'Wi-Fi').
+    pushCb({ seq: 2, ok: true, ifaces: [{ name: 'Wi-Fi', connected: false }], error: null, added: [], removed: ['Wi-Fi 2'] });
+    await tick();
+    expect(el('adapterName').textContent).toBe('Wi-Fi 2');
+    expect(el('adapterChip').textContent).toBe('NOT DETECTED');
+    expect(el('adapterSelect').value).toBe(''); // selection invalidated, NOT auto-switched
+
+    // the dongle comes back → live push → the picker offers it again
+    pushCb({ seq: 3, ok: true, ifaces: [{ name: 'Wi-Fi', connected: false }, { name: 'Wi-Fi 2', connected: false }], error: null, added: ['Wi-Fi 2'], removed: [] });
+    await tick();
+    expect([...el('adapterSelect').options].map((o) => o.value)).toEqual(['Wi-Fi', 'Wi-Fi 2']);
+  });
+
+  it('an out-of-order (lower-seq) adapter push is dropped', async () => {
+    let pushCb = null;
+    const gs = mockGs({
+      adapterState: vi.fn(async () => ({ seq: 5, ok: true, ifaces: [{ name: 'Wi-Fi', connected: false }], error: null, added: ['Wi-Fi'], removed: [] })),
+      onAdapterState: vi.fn((cb) => { pushCb = cb; return () => {}; }),
+    });
+    await loadPitwall(gs);
+    // a stale push (seq 2 < seeded 5) must not wipe the list
+    pushCb({ seq: 2, ok: true, ifaces: [], error: null, added: [], removed: ['Wi-Fi'] });
+    await tick();
+    expect(el('adapterStatus').textContent).not.toBe('NO WLAN ADAPTER DETECTED');
   });
 });

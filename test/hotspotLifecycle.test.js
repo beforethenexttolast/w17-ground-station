@@ -62,11 +62,12 @@ function build(routes, { manager: managerOverrides } = {}) {
 const CREDS = { ssid: 'W17-GRID', password: 'lights0ut!' };
 
 describe('HotspotLifecycle start/stop (audit B1)', () => {
-  it('initial snapshot: INACTIVE, unowned, probe never ran, no error', () => {
+  it('initial snapshot: INACTIVE, unowned, probe never ran, no error, readiness idle', () => {
     const { lifecycle } = build({});
     expect(lifecycle.snapshot()).toEqual({
       seq: 0, phase: 'inactive', owned: false, backend: null, ssid: '', hostIp: null,
-      lastError: null, probe: { status: 'idle' },
+      lastError: null, readiness: { status: 'idle', reasons: [] }, interrupted: null,
+      probe: { status: 'idle' },
     });
   });
 
@@ -377,5 +378,83 @@ describe('HotspotLifecycle capability probe (audit N3)', () => {
     lifecycle.onChange((snap) => stages.push(snap.probe.status));
     await lifecycle.probe();
     expect(stages).toEqual(['probing', 'supported']);
+  });
+});
+
+// ---------- local readiness verification (2D, Windows observation #4) ----------
+// A start-command success is NOT client-readiness. These use a minimal fake
+// manager + an injected verify seam (the real hotspotVerify has its own suite).
+const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
+function liveManager() {
+  let on = false;
+  return {
+    async start() { on = true; return { ok: true, method: 'mobile', ssid: 'W17-GRID', hostIp: '192.168.137.1' }; },
+    async stop() { on = false; return { ok: true }; },
+    active: () => (on ? 'mobile' : false),
+  };
+}
+
+describe('HotspotLifecycle readiness (2D)', () => {
+  it('a started hotspot shows VERIFYING, then settles to the verifier verdict (VERIFIED)', async () => {
+    const lifecycle = new HotspotLifecycle({ manager: liveManager(), verify: async () => ({ status: 'verified', reasons: [] }) });
+    const seen = [];
+    lifecycle.onChange((s) => seen.push(s.readiness.status));
+    await lifecycle.start(CREDS);
+    await flush();
+    expect(lifecycle.snapshot().readiness).toEqual({ status: 'verified', reasons: [] });
+    // VERIFYING was surfaced to the pane before the VERIFIED verdict (the exact
+    // emit count is an internal detail; the ordering is the contract).
+    expect(seen[0]).toBe('idle');
+    expect(seen.at(-1)).toBe('verified');
+    expect(seen.includes('verifying')).toBe(true);
+    expect(seen.indexOf('verifying')).toBeLessThan(seen.lastIndexOf('verified'));
+  });
+
+  it('a failing local check settles to DEGRADED with reasons (never a plain success)', async () => {
+    const lifecycle = new HotspotLifecycle({ manager: liveManager(), verify: async () => ({ status: 'degraded', reasons: ['no local IPv4 on the hotspot subnet (192.168.137.x)'] }) });
+    await lifecycle.start(CREDS);
+    await flush();
+    const snap = lifecycle.snapshot();
+    expect(snap.readiness.status).toBe('degraded');
+    expect(snap.readiness.reasons[0]).toMatch(/192\.168\.137/);
+  });
+
+  it('with NO verifier the hotspot stays readiness:idle (plain LIVE); public verify() then reports unsupported', async () => {
+    const lifecycle = new HotspotLifecycle({ manager: liveManager(), verify: null });
+    await lifecycle.start(CREDS);
+    await flush();
+    expect(lifecycle.snapshot().readiness).toEqual({ status: 'idle', reasons: [] });
+    expect(await lifecycle.verify()).toEqual({ ok: false, kind: 'unsupported', error: 'local verification is unavailable on this platform' });
+  });
+
+  it('public verify() on an inactive hotspot is a no-op (not-live), never a false ready state', async () => {
+    const lifecycle = new HotspotLifecycle({ manager: liveManager(), verify: async () => ({ status: 'verified', reasons: [] }) });
+    expect(await lifecycle.verify()).toEqual({ ok: false, kind: 'not-live', error: 'no live hotspot to verify' });
+  });
+
+  it('a verify completion that outlives the LIVE phase is DROPPED (stale) — it cannot resurrect readiness', async () => {
+    let releaseVerify;
+    const verify = () => new Promise((r) => { releaseVerify = r; });
+    const lifecycle = new HotspotLifecycle({ manager: liveManager(), verify });
+    await lifecycle.start(CREDS);               // kicks verify #1 (pending on the gate)
+    expect(lifecycle.snapshot().readiness.status).toBe('verifying');
+    await lifecycle.stop();                     // hotspot gone; readiness reset to idle
+    expect(lifecycle.snapshot().readiness).toEqual({ status: 'idle', reasons: [] });
+    releaseVerify({ status: 'verified', reasons: [] }); // stale completion arrives late
+    await flush();
+    expect(lifecycle.snapshot().readiness).toEqual({ status: 'idle', reasons: [] }); // NOT flipped to verified
+  });
+
+  it('markInterrupted only bites once and only while LIVE (adapter loss ⇒ never a false LIVE)', async () => {
+    const lifecycle = new HotspotLifecycle({ manager: liveManager(), verify: async () => ({ status: 'verified', reasons: [] }) });
+    expect(lifecycle.markInterrupted('x')).toBe(false); // inactive: nothing to interrupt
+    await lifecycle.start(CREDS);
+    await flush();
+    expect(lifecycle.markInterrupted('the WLAN adapter disappeared')).toBe(true);
+    const snap = lifecycle.snapshot();
+    expect(snap.phase).toBe('live');
+    expect(snap.interrupted).toBe('the WLAN adapter disappeared');
+    expect(snap.readiness).toEqual({ status: 'degraded', reasons: ['the WLAN adapter disappeared'] });
+    expect(lifecycle.markInterrupted('again')).toBe(false); // idempotent while already interrupted
   });
 });

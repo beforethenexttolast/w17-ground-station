@@ -10,7 +10,7 @@ import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip } f
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
-import { adapterRowState, scanStatusText, hotspotPaneState, joinPlan, networkBadge } from '../shared/wifiView.mjs';
+import { adapterRowState, scanStatusText, hotspotPaneState, joinPlan, networkBadge, classifyJoinError } from '../shared/wifiView.mjs';
 import { probeStatusLine, PATH_ONLY_NOTE } from '../shared/reachability.mjs';
 import { summaryLine } from '../shared/setupSummary.mjs';
 import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId, pressedRoles } from '../shared/inputPresets.mjs';
@@ -127,6 +127,8 @@ for (const card of document.querySelectorAll('.modecard')) {
 const netTabs = el('netTabs'), paneJoin = el('paneJoin'), paneHotspot = el('paneHotspot'), paneGuide = el('paneGuide');
 const netList = el('netList'), netPwRow = el('netPwRow'), netPassword = el('netPassword'), netSecNote = el('netSecNote');
 const joinStatus = el('joinStatus'), hsStatus = el('hsStatus'), guideStatus = el('guideStatus');
+const joinDetail = el('joinDetail'), joinDetailText = el('joinDetailText');
+const hsDetail = el('hsDetail'), hsDetailText = el('hsDetailText'), hsReverify = el('hsReverify');
 const addrInput = el('iphoneAddr'), addrSuggest = el('addrSuggest'), addrStatus = el('addrStatus'), addrNote = el('addrNote');
 const adapterRow = el('adapterRow'), adapterSelect = el('adapterSelect');
 const adapterHint = el('adapterHint'), adapterStatus = el('adapterStatus');
@@ -225,11 +227,27 @@ async function refreshAdapters() {
   // renders the 'failed' card (wifiView.mjs) with RESCAN as the retry, same as
   // a netsh {ok:false}. The raw result is cached so a picker change can
   // re-render the card header without another netsh round-trip.
-  adapterRes = !caps?.canScan
-    ? { guide: true }
-    : (gs && gs.wifiInterfaces
+  if (!caps?.canScan) {
+    adapterRes = { guide: true };
+    renderAdapterCard(adapterRowState(adapterRes, settings?.network?.adapter));
+    return;
+  }
+  // Prefer the live monitor's current snapshot (same main-process authority
+  // that pushes 'adapter-state', so the card and the live pushes agree from the
+  // first paint). Fall back to a direct listInterfaces pull when the monitor
+  // channel is absent (older preload / DOM-test harness) or has not polled yet.
+  let res = null;
+  if (gs && gs.adapterState) {
+    const snap = await ipc(gs.adapterState(), null, 'wifi:adapter-state');
+    if (snap) adoptAdapterSnap(snap);
+    if (snap && snap.ok !== null && snap.ok !== undefined) res = { ok: snap.ok, ifaces: snap.ifaces || [], error: snap.error };
+  }
+  if (!res) {
+    res = gs && gs.wifiInterfaces
       ? await ipc(gs.wifiInterfaces(), { ok: false, error: 'adapter listing unavailable' }, 'wifi:interfaces')
-      : { ok: true, ifaces: [] });
+      : { ok: true, ifaces: [] };
+  }
+  adapterRes = res;
   renderAdapterCard(adapterRowState(adapterRes, settings?.network?.adapter));
 }
 
@@ -427,6 +445,17 @@ function showSecNote(text, warn, diag) {
   // diagnostics — never the primary message, never raw localized prose on screen.
   if (diag) netSecNote.title = diag; else netSecNote.removeAttribute('title');
 }
+// Show/hide an expandable DETAILS box (2E). Lines is a string or array; empty
+// hides and collapses the box so a stale detail can never linger under a new
+// operation's status line. Never a secret — callers pass already-redacted text.
+function showErrDetail(detailsEl, textEl, lines) {
+  const text = (Array.isArray(lines) ? lines.filter(Boolean).join('\n') : (lines || '')).trim();
+  if (!detailsEl || !textEl) return;
+  textEl.textContent = text;
+  detailsEl.classList.toggle('hidden', !text);
+  if (!text) detailsEl.removeAttribute('open');
+}
+
 function selectNetwork(n, row) {
   sounds.uiTick();
   for (const r of netList.children) r.classList.toggle('on', r === row);
@@ -435,6 +464,8 @@ function selectNetwork(n, row) {
   netPwRow.classList.add('hidden');
   netPassword.classList.remove('hidden');
   joinStatus.textContent = '';
+  joinStatus.classList.remove('live');
+  showErrDetail(joinDetail, joinDetailText, '');   // 2E: clear stale detail on a new selection
   const plan = joinPlan(n);
   joinTarget = plan.action === 'reject' ? null : n;
   if (plan.action === 'reject') { showSecNote(plan.reject, true, plan.diag); return; }
@@ -464,6 +495,7 @@ async function doJoin() {
   const ssid = joinTarget.ssid;
   const plan = joinPlan(joinTarget);
   joinStatus.textContent = `JOINING ${ssid}…`;
+  showErrDetail(joinDetail, joinDetailText, ''); // 2E: a new attempt clears the previous error's detail
   // The rejection fallback message is FIXED text: no netsh output, and never
   // anything derived from the password. The normalized security + known flags
   // let main pick the right profile (open/WPA2/saved). JOIN/Enter retries.
@@ -483,10 +515,19 @@ async function doJoin() {
     netPwRow.classList.add('hidden');
     netSecNote.classList.add('hidden');
     joinStatus.textContent = `CONNECTED: ${ssid}`;
+    joinStatus.classList.add('live');
+    showErrDetail(joinDetail, joinDetailText, ''); // success clears any prior detail
     radio(`PIT WALL: NETWORK CONFIRMED — ${ssid}`);
     save({ network: { kind: 'join', ssid } });
   } else {
-    joinStatus.textContent = res.error || 'JOIN FAILED';
+    // 2E: a terse summary in the status line (which now wraps and is width-
+    // bounded, so it can never overlap), the full redacted reason in the
+    // expandable DETAILS box. The classifier maps the manager's `kind`
+    // (adapter-missing / connect-failed / timeout / …) to the headline.
+    const c = classifyJoinError(res);
+    joinStatus.textContent = c.summary;
+    joinStatus.classList.remove('live');
+    showErrDetail(joinDetail, joinDetailText, c.hasDetail ? c.detail : '');
   }
 }
 el('netJoinBtn').addEventListener('click', doJoin);
@@ -513,6 +554,21 @@ function renderHotspotPane() {
   hsSsidInput.disabled = !v.inputs;
   hsPassInput.disabled = !v.inputs;
   hsRecheck.classList.toggle('hidden', !v.recheck);
+  // 2D: the DHCP/ICS readiness reasons go in the expandable DETAILS box (the
+  // hint carries just the first/headline reason); REVERIFY re-runs the local
+  // check on the live hotspot.
+  showErrDetail(hsDetail, hsDetailText, v.detail);
+  if (hsReverify) hsReverify.classList.toggle('hidden', !v.reverify);
+}
+
+if (hsReverify) {
+  hsReverify.addEventListener('click', async () => {
+    sounds.uiTick();
+    if (!gs || !gs.hotspotVerify) return;
+    // The authoritative readiness result arrives as a pushed 'hotspot-state'
+    // snapshot (VERIFYING… → verified/degraded); this call only triggers it.
+    await ipc(gs.hotspotVerify(), null, 'wifi:hotspot-verify');
+  });
 }
 
 // Snapshot adoption gate for BOTH the pull and the push paths: snapshots
@@ -536,6 +592,32 @@ if (gs && gs.onHotspotState) {
   gs.onHotspotState((snap) => {
     if (!adoptHotspotSnap(snap)) return;
     if (step === 'pitwall') renderHotspotPane();
+  });
+}
+
+// ---------- live adapter monitor mirror (2B) ----------
+// The MAIN process watches WLAN adapters for the whole app lifetime and pushes
+// a snapshot when membership/connection changes; this keeps the ADAPTER card
+// live while PIT WALL is open (a dongle plugged in now appears without leaving
+// the page; a pulled dongle is removed / marked NOT DETECTED). Snapshots carry
+// a monotonic seq (out-of-order pushes dropped). Selection is NEVER auto-
+// switched: adapterRowState invalidates a vanished saved adapter to selected:''
+// and the user re-picks — the card re-render alone enforces that here.
+let adapterSeq = -1;
+function adoptAdapterSnap(snap) {
+  if (!snap || snap.ok === null || snap.ok === undefined) return false; // not-yet-polled sentinel
+  if (typeof snap.seq === 'number') {
+    if (snap.seq <= adapterSeq) return false;
+    adapterSeq = snap.seq;
+  }
+  return true;
+}
+if (gs && gs.onAdapterState) {
+  gs.onAdapterState((snap) => {
+    if (!adoptAdapterSnap(snap)) return;
+    if (!caps?.canScan) return; // guide mode never lists host interfaces as WLAN adapters
+    adapterRes = { ok: snap.ok, ifaces: snap.ifaces || [], error: snap.error };
+    if (step === 'pitwall') renderAdapterCard(adapterRowState(adapterRes, settings?.network?.adapter));
   });
 }
 

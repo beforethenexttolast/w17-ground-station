@@ -150,13 +150,13 @@ describe('preload minimalism (audit D2)', () => {
         }
     });
 
-    it('the exposed surface is the pinned 21-method contract — additions are deliberate', () => {
+    it('the exposed surface is the pinned 24-method contract — additions are deliberate', () => {
         expect([...exposedKeys].sort()).toEqual([
-            'applySession', 'elrsLaunch', 'elrsStatus', 'getAddrHint', 'getConfig',
-            'getSettings', 'hotspotProbe', 'hotspotStart', 'hotspotState', 'hotspotStop',
-            'onHeadIntentDiagnostics', 'onHotspotState', 'onTelemetry', 'probeHost',
-            'sendCommandMirror', 'setSettings', 'wifiCapabilities', 'wifiInterfaces',
-            'wifiJoin', 'wifiScan', 'wifiStatus',
+            'adapterState', 'applySession', 'elrsLaunch', 'elrsStatus', 'getAddrHint',
+            'getConfig', 'getSettings', 'hotspotProbe', 'hotspotStart', 'hotspotState',
+            'hotspotStop', 'hotspotVerify', 'onAdapterState', 'onHeadIntentDiagnostics',
+            'onHotspotState', 'onTelemetry', 'probeHost', 'sendCommandMirror', 'setSettings',
+            'wifiCapabilities', 'wifiInterfaces', 'wifiJoin', 'wifiScan', 'wifiStatus',
         ]);
     });
 
@@ -185,7 +185,9 @@ describe('composition pins in main.js (audit D2)', () => {
     it('exactly one service construction and one lifecycle authority flow to IPC and the quit policy', () => {
         expect(mainCode.match(/createNetworkServices\(/g).length).toBe(1);
         expect(mainCode).toMatch(/createQuitPolicy\(\{\s*lifecycle:\s*hotspotLifecycle/);
-        expect(mainCode).toMatch(/hotspotLifecycle,?\s*\n?\s*addrHint/); // services object hands the same instance to IPC
+        // The services object hands the SAME hotspotLifecycle (and adapterMonitor)
+        // instance to IPC — pinned by the adjacency so a refactor can't fork it.
+        expect(mainCode).toMatch(/hotspotLifecycle,?\s*\n?\s*adapterMonitor,?\s*\n?\s*addrHint/);
     });
 
     it('shutdown never stops the hotspot — that decision belongs to the quit policy alone (Q1)', () => {

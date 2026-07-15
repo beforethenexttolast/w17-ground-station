@@ -28,10 +28,22 @@ contextBridge.exposeInMainWorld('groundStation', {
   // and re-renders on pushed changes; it never invents hotspot state.
   hotspotState: () => ipcRenderer.invoke('wifi:hotspot-state'),
   hotspotProbe: (opts) => ipcRenderer.invoke('wifi:hotspot-probe', opts),
+  // Re-run the local DHCP/ICS readiness check on a live hotspot (2D REVERIFY).
+  hotspotVerify: () => ipcRenderer.invoke('wifi:hotspot-verify'),
   onHotspotState: (cb) => {
     const handler = (_event, snapshot) => cb(snapshot);
     ipcRenderer.on('hotspot-state', handler);
     return () => ipcRenderer.removeListener('hotspot-state', handler);
+  },
+  // Live WLAN adapter monitor (2B): a pull to seed the ADAPTER card on entry,
+  // plus a one-way main -> renderer subscription that fires when adapters are
+  // added/removed while PIT WALL is open. Same read-only shape as the hotspot
+  // push — the renderer only mirrors the main-process adapter truth.
+  adapterState: () => ipcRenderer.invoke('wifi:adapter-state'),
+  onAdapterState: (cb) => {
+    const handler = (_event, snapshot) => cb(snapshot);
+    ipcRenderer.on('adapter-state', handler);
+    return () => ipcRenderer.removeListener('adapter-state', handler);
   },
   // Setup helpers: last-sender address suggestion (user-confirmed) + ping.
   getAddrHint: () => ipcRenderer.invoke('setup:addr-hint'),
