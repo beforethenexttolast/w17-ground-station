@@ -1,7 +1,25 @@
 # iPhone bridge readiness — Windows ground-station assessment
 
-**Status: readiness report only. Nothing in this document is implemented; no source code
-was changed to produce it.** Date: 2026-07-08.
+> **STATUS: SUPERSEDED — historical design record (2026-07-08).** This was a
+> pre-implementation readiness assessment. **W2 (Windows → iPhone telemetry, UDP 5601) and
+> W3 (iPhone → Windows head-tracking, UDP 5602, LOG-ONLY) are now implemented and shipped**;
+> the recommended batches in §7 have been executed. For current truth, use:
+> `README.md` (behavior + env vars), `docs/windows_bridge_contract.md` (the packet
+> contract, authoritative on the iPhone side), `docs/iphone_windows_bridge_test_plan.md`
+> (bench validation), and the pre-hardware hardening audit. Two contract points below are
+> corrected inline where they were drafted from an earlier plan:
+> - the staleness authority is **300 ms receive-time** (age ≤ 300 ms fresh, ≥ 301 ms stale),
+>   **not 400 ms** (see the contract §"Stale Timeout");
+> - there is **no session "re-arm"** on staleness — that draft idea did not enter the
+>   contract.
+>
+> Production ownership of UDP 5602 has also moved to the owned mapper fork (`w17-mapper`);
+> the ground station is a viewer/config/log-only consumer with, additionally, a **read-only,
+> display-only** head-intent diagnostics subscriber (see
+> `docs/head_intent_diagnostics.md`). No head-tracking path produces control output.
+
+**Original status (2026-07-08): readiness report only; no source code was changed to
+produce it.**
 
 Scope: prepare the Windows ground station to (a) export normalized telemetry snapshots to
 an iPhone companion HUD over UDP, and (b) receive iPhone head-tracking *intent* packets —
@@ -170,13 +188,15 @@ or a hotspot) — same unknown as the video phase; measure in W4.
 > see `w17-control-fw/project-review/head_tracking_unlock_plan.md §2.3.7-§2.3.8`). The mapper
 > now hosts the log-only head-intent receiver (new pure-Go `pkg/headintent`, implemented +
 > tested 2026-07-15). This ground station stays **viewer / configuration / log-only** and
-> gains, later, only a **read-only** head-intent diagnostic snapshot from the mapper (transport
-> TBD — owner picks gRPC vs localhost-HTTP; no control relay). **The GS `HeadTrackingReceiver`
+> gains only a **read-only, display-only** head-intent diagnostic snapshot from the mapper.
+> *(Transport since RESOLVED and SHIPPED: gRPC — the GS subscribes to the mapper's read-only
+> `WatchHeadIntentDiagnostics` stream on `:10000`; no control relay. See
+> `docs/head_intent_diagnostics.md` — this is CB8 slice 3B.)* **The GS `HeadTrackingReceiver`
 > below and the mapper receiver are mutually exclusive on 5602** (plain exclusive UDP bind, no
 > `SO_REUSEPORT`): if the GS receiver is retained for rollback, it must **not** bind 5602 while
-> the mapper is the active ingester. No change to the canonical iPhone contract. The 400 ms
-> figure in §3.4 below is superseded by the canonical **300 ms** receive-time authority
-> (299/300 fresh, 301 stale).
+> the mapper is the active ingester. No change to the canonical iPhone contract. The
+> original 400 ms draft figure (§4 below) is corrected to the canonical **300 ms**
+> receive-time authority (age ≤ 300 fresh, ≥ 301 stale); there is no re-arm gate.
 
 ### 3.1 Where the receiver fits
 
@@ -248,21 +268,21 @@ Structural, not aspirational:
   ground station is viewer-only (`README.md`); driving is elrs-joystick-control on a COM
   port this app never opens for write. Even a hypothetically malicious packet has no code
   path to reach the car. The bridge work must preserve exactly this property.
-- **Stale timeout:** intent packets older than **400 ms** (receiver wall-clock since last
-  accepted packet; > the required ~300 ms floor, distinct from the HUD's 1000 ms
-  `TELEMETRY_FRESH_MS`) are rejected as `stale` and the session gate re-arms (a fresh
-  `centered` packet is required to resume acceptance).
-  *(Superseded 2026-07-14: the ratified stale authority is **300 ms receive-time**,
-  matching the canonical contract §3 and the implemented `W17_HEADTRACK_STALE_MS`
-  default of 300. Deterministic boundary: age ≤ 300 ms fresh, > 300 ms stale. See
-  `w17-control-fw/project-review/head_tracking_unlock_plan.md §1.1`.)* Rationale: head-tracking is a
-  future *rate-limited camera aim*, not a control loop; when mapping is eventually
-  designed, stale intent must decay to center, never hold last value. In *this* phase the
-  timeout only classifies log entries — but the constant and test land now so W-later
-  inherits them. [I]
+- **Stale timeout (ratified):** the stale authority is **300 ms receive-time** — receiver
+  wall-clock age since the last accepted packet, distinct from the HUD's 1000 ms
+  `TELEMETRY_FRESH_MS`. Deterministic boundary: age ≤ 300 ms fresh, ≥ 301 ms stale,
+  matching the canonical contract §"Stale Timeout" and the implemented
+  `W17_HEADTRACK_STALE_MS` default of 300. There is **no session "re-arm"** on staleness —
+  the receiver simply reports the `stale` state and resumes reporting fresh states when
+  packets return. *(This corrects the original 2026-07-08 draft, which proposed a 400 ms
+  timeout with a re-arm gate; neither entered the contract. See
+  `w17-control-fw/project-review/head_tracking_unlock_plan.md §1.1`.)* Rationale for a future
+  active phase: head-tracking would be a *rate-limited camera aim*, not a control loop, so
+  when mapping is eventually designed, stale intent must decay to center, never hold last
+  value. In *this* phase the timeout only classifies log entries. [I]
 - **Rejection classes (all logged with reason, none processed):** malformed JSON / bad
   schema / bad version, `enabled: false`, uncentered session start, out-of-range values,
-  stale (seq regression or 400 ms gap).
+  stale (seq regression or a receive-age gap past the 300 ms boundary).
 - **Authority:** the DualShock via elrs-joystick-control remains the only control
   authority; the TX16S handset remains the radio-level backup. Nothing the iPhone sends
   can change either. Head-tracking, when eventually mapped, goes iPhone → Windows →
@@ -296,7 +316,7 @@ Structural, not aspirational:
 | **Snapshot builder** | canned merged telemetry + link state → exact export JSON (fields, units, `v`, `seq`, `tMs`); partial telemetry → partial snapshot (absent ≠ zero); demo-only `armed`/`failsafe` never exported as real. |
 | **UDP sender (mock)** | with an injected fake socket + fake clock: coalesces emit bursts to the configured cadence; stops cleanly; disabled-by-default (no socket created without the env flag). Practical because the sender takes the socket factory as a constructor arg, mirroring `ReplaySource`'s injected scheduler. |
 | **Intent parser** | golden accepted packet decodes exactly; each rejection class (malformed, bad-schema, bad-version, out-of-range, disabled, uncentered, seq-regression) returns its distinct `reason`; oversized datagram rejected before parse. |
-| **Stale timeout** | injected clock: gap > 400 ms → `stale` + session gate re-arms (next packet must be centered); gap < 400 ms accepted; boundary case pinned. |
+| **Stale timeout** | injected clock: receive-age ≥ 301 ms → `stale`; ≤ 300 ms fresh; deterministic boundary pinned (no re-arm gate). |
 | **Log-only guard** | receiver with N mixed packets produces log lines + diagnostics counters and **nothing else** — its emitted-events list is empty, no IPC spy called; public surface is exactly `{start, stop, getDiagnostics}`. |
 | **No-control-path regression** | static assertion test: no module in `main/`+`shared/` matches `/serialport.*write|dgram/` outside the two bridge files; head-tracking module imported only by `main.js` + its test; `shared/crsf.js` still exports no RC-channel encoder. Cheap grep-style test that turns the phase's safety rule into CI. |
 

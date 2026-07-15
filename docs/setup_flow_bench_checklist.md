@@ -15,12 +15,26 @@ pan/tilt is out of scope. When done, summarize results into `../CURRENT_STATUS.m
 dev preview against canned netsh output (the app shows a SIMULATED WIFI tag when it
 is active) — it is never valid bench evidence; only the real OS layer counts here.
 
-Prereqs: Windows GS host at checkpoint ≥ `802df74`, `npm install` + `npm test` green,
-RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
+Prereqs:
+- Windows GS host at the current `main` HEAD (`git rev-parse --short HEAD`; pull past the
+  pre-hardware hardening pass — through E1, plus CB8 slices 3B/3C). Do not pin a floor
+  hash here; it drifts — read the current HEAD and the current test count from CI/README.
+- `npm install`, then **`npm run setup`** (fetches the pinned `mediamtx` binary and repairs
+  the Electron binary if a script gate blocked the postinstall), then `npm test` green.
+- **mediamtx configured for the camera:** edit `mediamtx/mediamtx.yml` → `paths.cam.source`
+  to the real camera RTSP URL (see `SETUP.md` §2–§3) — without it the video checks below
+  can never pass.
+- RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
+
+For the full evidence ledger this checklist feeds, see the **authoritative
+hardware-evidence matrix** in `docs/audits/2026-07-12-pre-hardware-hardening-audit.md`
+(§ "Authoritative hardware-evidence matrix"); each item below maps to a matrix row.
 
 ## 1. Baseline
 
-- [ ] `git rev-parse --short HEAD`, `npm test` output (expect 263/263 at `802df74`).
+- [ ] `git rev-parse --short HEAD`; `npm test` green (current total — see README/CI, not a
+      frozen number; at time of writing the suite is 746 tests across 43 files);
+      `npm run smoke:electron` → 4/4 scenarios PASS.
 - [ ] `npm start` boots to GARAGE; `⚙` menu opens; `settings.json` appears under
       `%APPDATA%/w17-ground-station/` after any change.
 - Evidence: console excerpt + screenshot of GARAGE.
@@ -119,8 +133,43 @@ RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
 - [ ] Radio sounds: default silent; enable in `⚙` → cues audible; disable → silent.
 - Evidence: short screen recording of lights-out into the HUD.
 
+## 11. Hardening-pass bench items (batches A–E)
+
+The pre-hardware hardening pass added behaviors that the original steps 1–10 don't fully
+exercise. Verify these on the real OS; each maps to a matrix row in the audit.
+
+- [ ] **A — Hotspot STOP + quit ownership.** START HOTSPOT → LIVE; **STOP HOTSPOT** returns
+      it to READY (second device drops). Quit while LIVE (app-owned) → the *STOP AND QUIT /
+      LEAVE RUNNING / CANCEL* dialog appears; LEAVE RUNNING quits with the hotspot still up;
+      STOP AND QUIT stops then quits. Turn a hotspot on from Windows Settings (not the app),
+      then quit the app → **no** dialog (externally-owned hotspot untouched). Force a stop
+      failure if possible → the app keeps ownership and STOP stays retryable.
+      Evidence: status lines + the quit dialog screenshot.
+- [ ] **B — Wi-Fi security classification (real `netsh wlan show networks mode=bssid`).**
+      Against a real open, WPA2-PSK, WPA2/WPA3-transition, WPA3-only, and enterprise AP:
+      open → joins with the `OPEN NETWORK — unencrypted` warning; WPA2 + transition → join;
+      WPA3-only + enterprise → rejected up front with the controlled message (never a raw
+      netsh error); an unidentifiable *new* network → rejected conservatively; a network
+      with a saved Windows profile → joins via the profile. Record each AP's real
+      Authentication/Encryption strings. Evidence: scan screenshot + per-class result lines.
+- [ ] **C — Reachability classification (real Windows `ping`).** A live host shows `TTL=`
+      → REACHABLE; a dead host → timeout; a router-originated "Destination host unreachable"
+      → classed **unreachable** (not a false green). Repeat on a localized Windows build if
+      available. Evidence: raw ping output + the GRID line for each case.
+- [ ] **D — Video-state lock (real camera → mediamtx → WHEP).** Live stream → GRID VIDEO
+      LOCK green and W2 `video_lock:true` only while actually `playing`; kill/stall the
+      stream → lock clears within a reconnect (waiting/stalled/dropped/error all clear it,
+      not just an emptied element); recovery re-locks. Evidence: screen recording of a drop
+      + recovery.
+- [ ] **E — Credential DPAPI round-trip (packaged app, real Windows account).** Save a
+      hotspot password → `settings.json` shows an empty `password` and a `passwordEnc` DPAPI
+      blob (no plaintext, incl. `.bak`); restart → recovered. Copy the settings file to a
+      **different** Windows account/machine → the app prompts to re-enter (no crash, other
+      settings intact). With secure storage unavailable → session-only (lost on restart, no
+      plaintext). Evidence: on-disk `settings.json` excerpt (redacted) + the re-enter/notes.
+
 ## Sign-off
 
 - [ ] Results + deviations summarized into `../CURRENT_STATUS.md` (checkpoint hash,
-      what passed, what's still open). Any needed source fix → new reviewed change,
-      then re-run the affected steps.
+      what passed, what's still open) and into the audit's hardware-evidence matrix. Any
+      needed source fix → new reviewed change, then re-run the affected steps.

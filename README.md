@@ -27,11 +27,15 @@ on the raw stream) is always available.
 npm install
 npm run setup               # fetch mediamtx + repair the Electron binary if the install
                             #   was blocked by a script gate (see Troubleshooting)
-npm test                    # pure-core unit tests (no hardware)
+npm test                    # unit/integration suite (pure-core + wiring; no hardware)
+npm run smoke:electron      # boot the REAL app in 4 scenarios; passes on a structured
+                            #   readiness handshake, not on process launch (no hardware)
 npm start                   # launch the app (video needs the camera; see docs/SETUP.md)
 npm run demo                # launch with the replay telemetry source (live-looking, no car)
 npm run build               # package a Windows .exe (electron-builder; unsigned by
                             #   default -- code-signing is opt-in, see docs/CODESIGNING.md)
+npm run proto:check         # verify the head-intent proto mirror matches ../w17-mapper
+                            #   (dev-only; not part of the hermetic test suite)
 ```
 
 (Two different "demos": the floating **▶ HUD preview · simulated** button on the setup
@@ -39,8 +43,13 @@ gate just plays simulated inputs/physics into the HUD, while `npm run demo` feed
 replay **telemetry** source — live-looking car data, no car.)
 
 Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just the
-deployment target). Cross-platform is proven by CI + the pure-core tests; the GUI + WebRTC
-video are verified on the target machine.
+deployment target). CI runs the full suite on Ubuntu (fast gate) and, on windows-latest,
+runs the suite **plus** `npm run smoke:electron` (a real boot of the app under a scrubbed,
+Wi-Fi-simulated environment) **plus** an `electron-builder --dir` package build — so the
+deployment target proves tests, runtime boot, and packaging every push. CI does **not**
+prove real Wi-Fi, camera, iPhone, ELRS, or Windows DPAPI behavior — those are bench items
+(`docs/setup_flow_bench_checklist.md`). The GUI + WebRTC video are verified on the target
+machine.
 
 ### Pre-ride setup flow (pit wall)
 
@@ -51,9 +60,19 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    view later). Persisted values stay `solo` / `iphone-hud` — display labels only.
 2. **PIT WALL** *(iPhone mode, Windows)* — scan and join a WiFi network, or start a local
    hotspot (SSID `W17-GRID` by default; Mobile Hotspot backend preferred, legacy
-   `hostednetwork` fallback for the RT5370 dongle). An ADAPTER row always shows which
-   WLAN adapter netsh will use: readonly with one adapter, a picker with several
-   (pinning scan/join to the chosen interface, persisted), and a dongle
+   `hostednetwork` fallback for the RT5370 dongle). Each scanned network is classified by
+   security before you can act on it: **open** networks join with an `OPEN NETWORK —
+   unencrypted` warning; **WPA2-PSK** and **WPA2/WPA3 transition** networks join normally
+   (the WPA2-compatible path); **WPA3-only**, **enterprise (802.1X)**, and networks whose
+   security can't be identified are rejected up front with a clear message (never a raw
+   netsh error), unless Windows already has a saved profile for that network (which is
+   joined through the stored profile). Hidden-network manual entry is out of scope. The
+   hotspot has an explicit lifecycle: **START HOTSPOT** / **STOP HOTSPOT** with live
+   state (STARTING → LIVE → STOPPING), and the app only ever stops a hotspot **it**
+   started — quitting with an app-owned hotspot live prompts *STOP AND QUIT / LEAVE
+   RUNNING / CANCEL*; an externally-owned hotspot is never touched. An ADAPTER row always
+   shows which WLAN adapter netsh will use: readonly with one adapter, a picker with
+   several (pinning scan/join to the chosen interface, persisted), and a dongle
    troubleshooting hint when none is detected or listing fails. RESCAN re-detects
    adapters as well as networks, so plugging the dongle in mid-step just works.
    The client-isolation warning is a one-line hint (full text on hover) — pick a network
@@ -73,7 +92,12 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    driving. Then five red lights… lights out.
 
 Choices persist in `settings.json` under Electron's userData dir; **env vars always
-override persisted settings** (dev/CI behavior unchanged). The ⚙ menu is a modal
+override persisted settings** (dev/CI behavior unchanged). The one persisted secret — the
+hotspot password — is **encrypted at rest** via Electron `safeStorage` (Windows DPAPI /
+macOS Keychain / Linux libsecret); it is never written to disk in plaintext (including the
+`.bak`), there is no app-managed key, and when secure storage is unavailable the password
+is kept for the session only rather than persisted. Transient Wi-Fi *join* passwords are
+never persisted at all. The ⚙ menu is a modal
 (backdrop click / Escape closes) holding radio-sound (off by default), the start-lights
 countdown toggle (on by default; off = straight into the HUD), the log-only head-track
 toggle, the elrs-joystick-control path (launch-only: this app starts it detached and can
@@ -194,9 +218,10 @@ H.264). `docs/TELEMETRY.md` defines the telemetry contract for the car firmware.
 | path | role |
 |---|---|
 | `shared/` | pure, unit-tested: CRSF parser (ported from the firmware), telemetry types, replay source, feel constants, iPhone snapshot builder |
-| `main/` | Electron main: mediamtx supervisor, telemetry source, IPC push, iPhone telemetry bridge (UDP send) |
+| `main/` | Electron main: mediamtx supervisor, telemetry source, IPC push, iPhone telemetry bridge (UDP send), read-only head-intent diagnostics subscriber |
 | `renderer/` | the HUD page, WHEP video client, telemetry overlay |
 | `mediamtx/` | pinned config (binary fetched, not committed) |
+| `proto/` | subscriber-only mirror of the mapper's head-intent diagnostics `.proto` + its canonical drift-guard snapshot |
 | `test/` | vitest specs, reusing the firmware's golden CRSF vectors |
 
 Architecture, tradeoffs, and the design-review findings are recorded in the plan and in

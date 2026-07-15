@@ -8,10 +8,13 @@ remains **blocked until the separate safety milestone**.
 
 Contract: [`windows_bridge_contract.md`](windows_bridge_contract.md) (Windows copy;
 authoritative source in `iPhone_rc/docs/` + `schemas/` + `examples/`). Design record:
-[`iphone_bridge_readiness.md`](iphone_bridge_readiness.md). iPhone-side companions:
-`iPhone_rc/docs/WINDOWS_BRIDGE_LOG_ONLY_TEST.md`, `REAL_IPHONE_BENCH_TEST_PLAN.md`,
-`SIMULATOR_TESTING.md`. State as of 2026-07-08: ground-station `08b3300` (W1–W3 pushed),
-`npm test` 118/118.
+[`iphone_bridge_readiness.md`](iphone_bridge_readiness.md) (historical). iPhone-side
+companions: `iPhone_rc/docs/WINDOWS_BRIDGE_LOG_ONLY_TEST.md`,
+`REAL_IPHONE_BENCH_TEST_PLAN.md`, `SIMULATOR_TESTING.md`.
+
+_(Historical marker: W1–W3 were first pushed at ground-station `08b3300` when the suite was
+118 tests, 2026-07-08. The suite has grown substantially since — read the current total from
+README/CI rather than any number frozen here.)_
 
 ---
 
@@ -79,7 +82,7 @@ All commands below run from `iPhone_rc/`. (These mirror `WINDOWS_BRIDGE_LOG_ONLY
 | 3.4 | Uncalibrated | hand-send a packet with `"calibrated": false` (e.g. via `nc -u` or a python one-liner — the fake sender has no flag for this optional field) | `not_centered`; logged only |
 | 3.5 | Malformed rejected | `--malformed` | `[headtrack] rejected packet: malformed-json`; invalid count +1; last valid state preserved |
 | 3.6 | Missing required fields rejected | hand-send `{"seq":1}` etc. | rejected with a distinct reason (`bad-timestamp`/`bad-angles`/`bad-tracking-enabled`…); flood-capped at 5 logs/window while all are counted |
-| 3.7 | Stale > ~300 ms | stop the sender | `state: active_log_only -> stale` within ~300–400 ms; rate line age grows |
+| 3.7 | Stale at the 300 ms boundary | stop the sender | `state: active_log_only -> stale` shortly after the 300 ms receive-age boundary (age ≤ 300 fresh, ≥ 301 stale); rate line age grows |
 | 3.8 | Seq diagnostics | restart the sender (seq resets to 1) | regression logged as a diagnostic count, not a fault; packets still accepted |
 | 3.9 | **No control output — ever** | throughout 3.1–3.8 | no CRSF/servo/pan-tilt/vehicle effect exists (there is no code path; `test/noControlPath.test.js` pins it); only log lines + `getDiagnostics()` |
 
@@ -105,7 +108,7 @@ Reference session (already observed on this machine, real fake-sender vs real re
 1. Terminal logs: ground-station console (`[iphone]` + `[headtrack]` lines), fake-sender stdout.
 2. iPhone screen recording of fresh → stale → lost telemetry, and Debug/Setup packet-age/malformed counters.
 3. Packet samples: ≥ 1 captured JSON datagram per direction (raw text), incl. one stale-flagged W2 packet.
-4. `npm test` output (expect 118/118).
+4. `npm test` output (green; the current total is in README/CI — do not expect a frozen count).
 5. Windows config: the exact env vars used.
 6. Firewall rule screenshot/state + iOS Local Network & Motion permission state.
 7. Git state of all repos (`status`, `rev-parse HEAD`) before/after — proving docs-only/no-drift.

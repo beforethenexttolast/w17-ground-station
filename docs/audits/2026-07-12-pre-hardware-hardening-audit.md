@@ -1,7 +1,27 @@
 # Pre-hardware hardening audit — w17-ground-station
 
-**Status: working document for the 2026-07 pre-hardware hardening pass. Uncommitted
-until user review. Updated after every completed batch.**
+**Status: working document for the 2026-07 pre-hardware hardening pass. Updated after every
+completed batch.**
+
+> **CURRENT STATE (2026-07-15).** Batches **A1–E1 are COMMITTED and pushed** — the pass
+> landed as `79fa2e0` (A1→D1/D4 + partial D2), then `0564141` (D2), `297ca79` (D3),
+> `8ceb931` (D3 Windows-CI test fix), and **`0e85702` (E1 credential encryption)**, which is
+> the tip of `origin/main`. **Windows CI is GREEN at `0e85702`** (Ubuntu suite + windows-latest
+> suite + `npm run smoke:electron` + `electron-builder --dir`). **Batch F (documentation
+> sync) is COMPLETE and UNCOMMITTED** (this pass; see the "Batch F status" section). **Batch
+> G (proposals) has not started.**
+>
+> **BASELINE SHIFT — a separate feature track landed on top of the hardening pass.** After
+> E1, VR-FPV **CB8 slices 3B/3C** were committed to `main`: `03f43e2` (a read-only,
+> display-only mapper head-intent-diagnostics gRPC subscriber) and **`dce91f8`** (proto-drift
+> guard + cross-process integration evidence) — the current `main` **HEAD**. These two commits
+> are **local and unpushed** (ahead of `origin/main` by 2) and have **not yet run through CI**.
+> They add no control path (subscriber-only, display-only; the head-intent chip always reads
+> `NO CONTROL`; enabling the consumer force-disables the local W3 receiver so UDP 5602 keeps a
+> single owner). The current suite is **746 tests across 43 files** (686/38 at E1 + 60 CB8
+> tests). CB8 is not one of the hardening batches (A–G); it is recorded here as a baseline
+> shift only. See `docs/head_intent_diagnostics.md` and
+> `docs/2026-07-15_cb8_slice3c_integration_evidence.md`.
 
 | | |
 |---|---|
@@ -177,7 +197,16 @@ REQUIRES HARDWARE / REQUIRES USER DECISION. Since the tree is unchanged from
   `docs/iphone_bridge_readiness.md` §4 describes a 400 ms stale timeout + re-arming
   centered gate superseded by the contract (300 ms, no re-arm) — implementation follows
   the contract; readiness doc is stale.
-- **Revalidation: STILL PRESENT.** Batch: **F**.
+- **Revalidation: STILL PRESENT → FIXED in Batch F (2026-07-15).** All operator/workspace
+  docs synced to the true HEAD `dce91f8` / 746-tests-43-files: `../CURRENT_STATUS.md` stale
+  `3c16954`/217 block rewritten with a software/host/CI/hardware classification;
+  `docs/setup_flow_bench_checklist.md` prereqs now require `npm run setup` + the
+  `mediamtx.yml` camera-source edit (and drop the frozen commit/test floor);
+  `docs/iphone_bridge_readiness.md` corrected to the ratified 300 ms receive-time authority
+  with no re-arm and re-bannered as a superseded design record (W2/W3 shipped);
+  README/SETUP gained the Wi-Fi security scope, hotspot STOP/quit-ownership, safeStorage
+  credential policy, and `npm run smoke:electron`. Contract §1–§7 untouched. See the
+  Batch F status section. Batch: **F — DONE (code/doc), uncommitted for review**.
 
 **L6 — Hotspot password persisted in plaintext.**
 - Evidence: `renderer/setupFlow.js:173-184` (`leavePitwall` saves `hotspot.password`
@@ -324,8 +353,8 @@ Windows). Tests: `test/runCommand.test.js` (timeout result shape, cross-platform
 | D3 | V2 Electron boot smoke (Windows CI job) | objective — **DONE** (local; CI execution pending push) |
 | D4 | Command-generation tests (spaces, non-ASCII SSIDs, special-char passwords, argv separation, XML escaping) | objective — **DONE** |
 | E1 | L6 credential storage policy + never-log guarantee | **user decision: policy** (never-log objective) — **DONE (code), DPAPI bench-pending** |
-| F | L5 + all doc sync (checklist prereqs, CURRENT_STATUS pointer, readiness-doc stale note, adapter/hotspot/sim/permission docs; contract §1–§7 untouched) | objective |
-| G | Wider proposal pass (proposals only, no unapproved implementation) | proposals |
+| F | L5 + all doc sync (checklist prereqs, CURRENT_STATUS pointer, readiness-doc stale note, adapter/hotspot/sim/permission docs; contract §1–§7 untouched) | objective — **DONE (uncommitted)** |
+| G | Wider proposal pass (proposals only, no unapproved implementation) | proposals — **NOT STARTED** |
 
 ## 4. User decisions (log)
 
@@ -365,6 +394,43 @@ Authentication); a real new-open-network join via the installed open profile; an
 Windows `ping` output — confirm a live host shows `TTL=` (→ reachable) and a
 router-originated "Destination host unreachable" is classed `unreachable` not a false green,
 including on a localized Windows build.
+
+### Authoritative hardware-evidence matrix
+
+The single ledger for what is proven and how. **Class** is one of: **host-verified** (proven
+on the macOS dev host), **CI-verified** (proven by Windows CI at `0e85702`), **simulation-only**
+(dev preview via `W17_WIFI_SIM` / fakes — never bench evidence), **hardware-pending** (must be
+proven on the real bench). `docs/setup_flow_bench_checklist.md` is the operator runbook; the
+step numbers in "Procedure" refer to it (items 1–10 + hardening items A–E). Nothing marked
+hardware-pending is software-incomplete — the code exists and is host/CI-tested; only the
+real-hardware observation is outstanding.
+
+| # | Evidence item | Platform / hardware | Procedure | Expected result | Artifact to save | Closes | Class |
+|---|---|---|---|---|---|---|---|
+| 1 | Windows Wi-Fi adapter enumeration | Windows + ≥1 WLAN adapter | Checklist §2 ADAPTER row | Correct adapter name/description/state/SSID/signal; 1=readonly card, 0=NO WLAN ADAPTER | Screenshot of the ADAPTER card | A3/M2 | hardware-pending (sim-only today) |
+| 2 | RT5370 adapter selection | Windows + built-in + RT5370 | Checklist §2 (plug dongle → RESCAN → pick) | Two-adapter picker; scan/join pinned to the chosen interface | Screenshot + `netsh wlan show networks interface=` spot-check | A3/M2 | hardware-pending |
+| 3 | Saved-adapter-missing handling | Windows + removable RT5370 | Checklist §2 (unplug saved dongle → RESCAN) | Saved name shown NOT DETECTED; explicit re-choose required (no silent fallback) | Screenshot of degraded card | A3/Q7 | hardware-pending |
+| 4 | Scan security classification | Windows + real open/WPA2/WPA3-transition/WPA3-only/enterprise APs | Checklist §11-B | Open→warn+join; WPA2+transition→join; WPA3-only/enterprise/new-unknown→rejected up front (no raw netsh error) | Scan screenshot + real Authentication/Encryption strings per AP | B3/L2 (Q3) | hardware-pending (sim-only today) |
+| 5 | Real new open-network join | Windows + open AP | Checklist §11-B / §2 | Open profile installed, joins, `OPEN NETWORK — unencrypted` warning, no credential persisted | `netsh wlan show interfaces` after join | B3/L2 | hardware-pending |
+| 6 | Real WPA2 join | Windows + WPA2-PSK AP | Checklist §2 | Joins; no leftover `w17-wlan-*.xml` (private mkdtemp removed) | Console + `%TEMP%` listing | A3/D4 | hardware-pending |
+| 7 | Mobile Hotspot (WinRT) start/stop | Windows + tetherable profile | Checklist §3 + §11-A | START→LIVE (mobile), SSID actually broadcast = `W17-GRID`; STOP→READY; second device joins/pings | Status lines + peer ping + Settings screenshot | A1/H1, B1/M3 | hardware-pending (sim-only today) |
+| 8 | hostednetwork fallback start/stop | Windows + RT5370, no tetherable profile | Checklist §4 + §11-A | Falls back to LIVE (hosted); elevation required message when unelevated; second device joins | `netsh wlan show drivers`, status lines, ping | A1/H1, B1/M3, B2/L1 | hardware-pending |
+| 9 | Localized Windows error classification | Non-English Windows | Checklist §2/§4 | Scan populates; start-failure + elevation classified locale-neutrally (no English-keyword dependence) | Screenshots on the localized build | B2/L1 | hardware-pending |
+| 10 | Quit dialog + hotspot ownership | Windows + app-owned vs external hotspot | Checklist §11-A | Dialog (STOP AND QUIT / LEAVE RUNNING / CANCEL) only for an app-owned hotspot; external never touched; failed stop retains ownership | Quit-dialog screenshot + both status paths | B1/M3 (Q1/Q2), N2 | hardware-pending |
+| 11 | Ping reachable/timeout/unreachable | Windows + live host, dead host, routed net | Checklist §5 + §11-C | `TTL=`→REACHABLE; no reply→timeout; router "Destination host unreachable"→**unreachable** (no false green) | Raw ping output + GRID line per case | B4/L4 | hardware-pending |
+| 12 | Windows DPAPI credential persistence | Packaged Windows app, real account | Checklist §11-E | `settings.json` shows empty `password` + `passwordEnc` DPAPI blob; restart recovers; no plaintext incl. `.bak` | Redacted `settings.json` excerpt | E1/L6 (Q6) | hardware-pending (host-verified on macOS Keychain) |
+| 13 | Cross-user / foreign / corrupt ciphertext | Second Windows account/machine | Checklist §11-E | Undecryptable token → clean re-enter prompt, unrelated settings intact, no crash | Notes + screenshot of the re-enter state | E1/L6 | hardware-pending (host-verified on macOS) |
+| 14 | Real mediamtx + camera/WHEP stream | Windows + OpenIPC camera (H.264) | `SETUP.md` §1–§3; checklist §10/§11-D | WHEP answers at `:8889/cam/whep`; video renders full-screen | Screenshot of live video + mediamtx log | video baseline | hardware-pending |
+| 15 | Video waiting/stall/drop/error + recovery | Windows + camera | Checklist §11-D | `playing`=green only; waiting/stalled/dropped/error clear GRID VIDEO LOCK + W2 `video_lock`; recovery re-locks | Screen recording of drop→recover | C1/L3 | hardware-pending (host-verified logic, not real WebRTC) |
+| 16 | Real iPhone W2 telemetry on GRID | Windows + iPhone HUD app + shared net | Test plan §2; checklist §8 | iPhone HUD shows live values after GRID `session:apply`; int/double type discipline holds | iPhone screen recording + captured datagram | W2 | hardware-pending |
+| 17 | iOS Local Network permission | iPhone (first UDP use) | Test plan §1/§2.2 | Permission prompt; green ping does not imply UDP receive until allowed | Permission-state screenshot | V3 (C4) | hardware-pending |
+| 18 | ELRS status + launch | Windows + elrs-joystick-control | Checklist §6 | LAUNCH starts it detached; `tasklist` detect → OK; survives GS quit/kill | Task Manager screenshot after GS quit | launch-only | hardware-pending |
+| 19 | Packaged Windows app boot/smoke | windows-latest (CI) + packaged `.exe` (bench) | CI `package-smoke`; `npm run smoke:electron` | CI: suite + 4/4 smoke scenarios + `electron-builder --dir` green | CI run link (`0e85702`) + local smoke log | D3/V2 | **CI-verified** at `0e85702` (packaged real-use = hardware-pending) |
+| 20 | Integrated bench / soak | Full bench (camera + iPhone + ELRS + hotspot) | Checklist §10 end-to-end, extended | Full GARAGE→GRID→START→lights with all subsystems live; counters stable over a soak | Screen recording + counter dump | CB10 gate | hardware-pending |
+
+> CB8 head-intent diagnostics (slices 3B/3C) validated cross-process against the live
+> `w17-mapper` gRPC on macOS — see `docs/2026-07-15_cb8_slice3c_integration_evidence.md`
+> (host-verified, display-only). Not part of this hardening matrix.
 
 ## 6. Change log
 
@@ -835,36 +901,80 @@ including on a localized Windows build.
   (lost on restart, no plaintext), corrupt ciphertext→no crash + unrelated settings intact
   (never printed a decrypted secret). `git diff --check` clean. Real **Windows DPAPI**
   behavior REQUIRES HARDWARE (bench). NOT committed. See the Batch E1 status section below.
+- 2026-07-15 — **E1 COMMITTED by the user as `0e85702`** ("feat: encrypt persisted hotspot
+  credentials") on top of `8ceb931` — exactly the 10 M + 2 ?? E1 delta the checkpoint listed
+  as uncommitted (`main/credentialStore.js` + rewritten `main/settingsStore.js` + the
+  settings:get credential status + renderer note + smoke/test additions). Pushed to
+  `origin/main`. **Windows CI GREEN at `0e85702`** (run `29364521697`): the ubuntu `test`
+  job + the windows-latest `package-smoke` job (`npm ci` → `ensure-electron` → `npm test` →
+  `npm run smoke:electron` → `electron-builder --dir`) both passed. The audit checkpoint text
+  that framed E1 as uncommitted on `8ceb931` is superseded by this entry.
+- 2026-07-15 — **BASELINE SHIFT: CB8 slices 3B/3C landed on `main` (separate feature track).**
+  After E1, the VR-FPV head-intent-diagnostics track committed two more commits on top of
+  `0e85702`: `03f43e2` ("feat: subscribe to mapper head-intent diagnostics (CB8 slice 3B,
+  display-only)") and **`dce91f8`** ("test: proto-drift guard + cross-process integration
+  evidence (CB8 slice 3C)") — the current `main` **HEAD**. Both are **local/unpushed** (ahead
+  of `origin/main` by 2) and have **not run through CI**. They add a read-only, subscriber-only
+  gRPC consumer of the mapper's head-intent diagnostics (`main/HeadIntentDiagnosticsClient.js`
+  + `proto/head_intent_diagnostics.proto` mirror + `shared/headIntentView.mjs` chip that always
+  reads `NO CONTROL`), a hermetic proto-drift guard (`test/protoDrift.test.js`), and the
+  `proto:check`/`proto:sync` scripts. **No control path** (no setter at the wire level; enabling
+  the consumer force-disables the local W3 receiver so UDP 5602 keeps one owner). Suite grew to
+  **746/746 (43 files)** (686/38 at E1 + 60 CB8 tests). CB8 is NOT a hardening batch (A–G) — it
+  is recorded here as a baseline shift only. See `docs/head_intent_diagnostics.md` and
+  `docs/2026-07-15_cb8_slice3c_integration_evidence.md`.
+- 2026-07-15 — **Batch F COMPLETE (documentation sync) — UNCOMMITTED.** All operator/workspace
+  docs synced to the true HEAD `dce91f8` / 746-tests-43-files after confirming the actual repo
+  state (HEAD had advanced 2 commits past the interrupted session's `0e85702` baseline; the user
+  chose to sync to the true HEAD and record CB8 as a baseline shift). Documents changed: this
+  audit (banner + L5 close + F-row + hardware-evidence matrix + change log + transfer checkpoint
+  + Batch F status section), `README.md`, `docs/SETUP.md`, `docs/setup_flow_bench_checklist.md`,
+  `docs/iphone_bridge_readiness.md`, `docs/iphone_windows_bridge_test_plan.md`, and
+  `../CURRENT_STATUS.md` (manual repo). `docs/windows_bridge_contract.md` §1–§7 untouched
+  (inspected for consistency only). No runtime source or test change. See the Batch F status
+  section. Validation: `npm test` **746/746 (43 files)**, `npm run smoke:electron` **4/4 PASS**,
+  `git diff --check` clean.
 
 ---
 
 ## Current transfer checkpoint
 
 **Purpose: a self-contained handoff for a fresh model with NO conversation history or
-session memory. Describes the ACTUAL working tree after Batches A1–D3 (all COMMITTED) plus
-**Batch E1** (hotspot credential at-rest encryption — code complete, UNCOMMITTED). D1/D4,
-D2 (`0564141`), and D3 (`297ca79`) landed; the D3 Windows-CI test correction landed as
-`8ceb931` (now HEAD) and **Windows CI is GREEN** (run `29361964757` — `npm test` + the boot
-smoke both ran green on windows-latest, closing the last D3 gate). Authoritative
-cross-account handoff (session memory is a convenience copy). **Next up after E1 review is
-Batch F (doc sync); G remains untouched.** E1 stays uncommitted for user review — do not
-commit or push; do not start F or G.**
+session memory. Describes the ACTUAL working tree at `main` HEAD `dce91f8`.** Batches
+**A1–E1 are COMMITTED and pushed** (`79fa2e0` → `0564141` → `297ca79` → `8ceb931` →
+**`0e85702`** = E1 = tip of `origin/main`); **Windows CI is GREEN at `0e85702`**. On top of
+that, a separate feature track added **CB8 slices 3B/3C** (`03f43e2`, `dce91f8`) — **local,
+unpushed, and not yet CI'd** (see the baseline-shift change-log entry). **Batch F
+(documentation sync) is COMPLETE and UNCOMMITTED** (docs-only; see the Batch F status
+section). **Batch G (proposals) has not started — do not start it.** Suite is **746/746
+(43 files)**. Authoritative cross-account handoff (session memory is a convenience copy).
 
 ### Repository state
 
 - Repo: `w17-ground-station` (nested git repo under `.../Documents/projects/`).
-- Branch: `main`. **HEAD commit: `8ceb931`** ("test: make mediamtx path assertions
-  cross-platform", **committed by the user**, pushed) — the test-only correction that made
-  Windows CI green. Parents: `297ca79` ("test: add deterministic Electron boot smoke", D3)
-  ← `0564141` ("test: harden main-process integration wiring", D2) ← `79fa2e0` ("a lot of
-  chagnes", the user's 62-file A1→D1/D4 + partial-D2 + contract-mirror commit) ← `cf038c2`
-  (the commit this audit originally examined; every finding above still references that
-  baseline).
-- **Windows CI is GREEN at HEAD** (`8ceb931`, run `29361964757`): the windows-latest
+- Branch: `main`. **HEAD commit: `dce91f8`** ("test: proto-drift guard + cross-process
+  integration evidence (CB8 slice 3C)") — a CB8 feature-track commit, **local/unpushed**.
+  Parents: `03f43e2` ("feat: subscribe to mapper head-intent diagnostics (CB8 slice 3B,
+  display-only)", also local/unpushed) ← **`0e85702`** ("feat: encrypt persisted hotspot
+  credentials", E1 — **tip of `origin/main`**) ← `8ceb931` (D3 Windows-CI test fix) ←
+  `297ca79` (D3) ← `0564141` (D2) ← `79fa2e0` (the user's 62-file A1→D1/D4 + partial-D2 +
+  contract-mirror commit) ← `cf038c2` (the commit this audit originally examined; the
+  numbered findings above still reference that baseline).
+- **`main` is ahead of `origin/main` by 2** (the two CB8 commits). Everything through E1
+  (`0e85702`) is pushed; `03f43e2` and `dce91f8` are not.
+- **Windows CI is GREEN at `0e85702`** (run `29364521697`): the windows-latest
   `package-smoke` job ran `npm ci` → `ensure-electron` → `npm test` → `npm run smoke:electron`
-  (the boot smoke's first remote execution, PASS) → the `electron-builder --dir` package step.
-  The ubuntu `test` job is green too. D3 is fully closed.
-- **Uncommitted right now — Batch E1 (10 M + 2 ??):**
+  → the `electron-builder --dir` package step; the ubuntu `test` job is green too. **The two
+  CB8 commits (`03f43e2`, `dce91f8`) have not run through CI** (unpushed) — pushing them will
+  exercise it.
+- **Uncommitted right now — Batch F (documentation sync, docs-only).** No runtime source or
+  test change. Files (this repo): `README.md`, `docs/SETUP.md`,
+  `docs/setup_flow_bench_checklist.md`, `docs/iphone_bridge_readiness.md`,
+  `docs/iphone_windows_bridge_test_plan.md`, and this audit
+  (`docs/audits/2026-07-12-pre-hardware-hardening-audit.md`). Plus, in the **manual repo**
+  (`.../projects/`), `../CURRENT_STATUS.md`. `docs/windows_bridge_contract.md` §1–§7 untouched.
+  Batch F stays uncommitted for user review — do not commit or push.
+- HISTORICAL — the Batch E1 delta (now inside `0e85702`):
   ```
    M main/appWiring.js          (settings:get returns non-secret `credential` status)
    M main/main.js               (inject createCredentialStore({ safeStorage }))
@@ -879,11 +989,11 @@ commit or push; do not start F or G.**
   ?? main/credentialStore.js    (versioned safeStorage token wrapper, main-only)
   ?? test/credentialStore.test.js (10, DI fake safeStorage)
   ```
-  (plus this audit-doc update, `M docs/audits/2026-07-12-pre-hardware-hardening-audit.md`.)
-  Verified locally: focused credential/settings/DOM/guard 124/124, wifi/hotspot + D2/D3
-  regressions 361/361, full `npm test` **686/686 (38 files, 0 skips)**, real
-  `npm run smoke:electron` **4/4 PASS**, real-Electron E1 acceptance PASS on live macOS
-  Keychain, no orphans/temp dirs, `git diff --check` clean. NOT committed.
+  At E1-commit time this delta was verified locally: focused credential/settings/DOM/guard
+  124/124, wifi/hotspot + D2/D3 regressions 361/361, full `npm test` **686/686 (38 files)**,
+  real `npm run smoke:electron` **4/4 PASS**, real-Electron E1 acceptance PASS on live macOS
+  Keychain, `git diff --check` clean. It is now committed as `0e85702`. (The suite is
+  **746/43** at the current HEAD `dce91f8` after the CB8 3B/3C additions.)
 - HISTORICAL — the Batch D3 delta (now inside `297ca79`):
   ```
    M .github/workflows/ci.yml   (package-smoke job: ensure-electron + npm test + smoke + artifact-on-failure)
@@ -1026,6 +1136,65 @@ commit or push; do not start F or G.**
   `main/wifiManager.js` (3rd touch — mkdtemp temp dir), `main/runCommand.js` (2nd touch —
   `winTreeKillArgs` export); **new** `test/commandGeneration.test.js`.
 
+### Batch F status: COMPLETE (documentation sync) — UNCOMMITTED
+
+Scope was exactly **F** (finding L5 + all documentation sync). **Docs-only — no runtime
+source or test change**, so no batch-status/no-control-path/contract invariant is affected;
+`docs/windows_bridge_contract.md` §1–§7 were inspected for consistency but **not edited**.
+
+**Baseline reconciliation (why the numbers moved).** F was scoped by the interrupted session
+against HEAD `0e85702` / 686-tests-38-files. On resumption the actual repo was reconfirmed:
+`main` HEAD is **`dce91f8`**, two local/unpushed commits past `0e85702` — the CB8 slice 3B/3C
+feature track (see the baseline-shift change-log entry). The user chose to **sync docs to the
+true HEAD** (`dce91f8` / **746 tests, 43 files**) and record CB8 as a baseline shift, stating
+CI truthfully: **green at `0e85702`; the two CB8 commits are unpushed and un-CI'd.**
+
+**Documentation inventory — changed.**
+
+| Doc | Change |
+|---|---|
+| `README.md` | Added `npm run smoke:electron` + `npm run proto:check` to Run; rewrote the CI/cross-platform wording (Ubuntu + windows-latest suite/smoke/package; CI does NOT prove hardware); added the Wi-Fi security scope, hotspot STOP + quit-ownership, and safeStorage credential policy; added `proto/` + head-intent subscriber to the layout. |
+| `docs/SETUP.md` | Expanded §6 with the full network security scope (open-warn / WPA2 / WPA2-WPA3 transition / WPA3-only reject / enterprise reject / unknown conservative reject / saved-profile carve-out / hidden out of scope), the hotspot start/stop/quit lifecycle + ownership, and a locale-neutral note; added §7 (safeStorage/DPAPI credential-at-rest policy). |
+| `docs/setup_flow_bench_checklist.md` | Dropped the frozen `802df74`/263 floor; prereqs now require `npm run setup` (mediamtx fetch + Electron repair) + the `mediamtx.yml` camera-source edit; baseline points to the current count (746/43) via README/CI; added hardening bench items A–E (hotspot STOP+quit, security classification, ping classification, video-state lock, DPAPI round-trip); linked the hardware-evidence matrix. |
+| `docs/iphone_bridge_readiness.md` | Re-bannered as a SUPERSEDED historical design record (W2/W3 shipped, W3 log-only); corrected every 400 ms/re-arm reference to the ratified **300 ms receive-time, no re-arm** authority. |
+| `docs/iphone_windows_bridge_test_plan.md` | Marked the 2026-07-08 `08b3300` hash + 118/118 count historical; pointed the current total to README/CI; tightened the §3.7 stale window to the 300 ms boundary. |
+| `../CURRENT_STATUS.md` (manual repo) | Rewrote the stale `3c16954`/217 block into a software/host/CI/hardware classification at `dce91f8`/746-43; added file count + unpushed-CB8/CI note to the checkpoint row. |
+| this audit | Current-state banner + baseline-shift record; L5 closed; batch-plan F/G rows; the authoritative hardware-evidence matrix (§5); change-log entries (E1-committed, CB8 shift, F); rewritten transfer checkpoint; this Batch F status section. |
+
+**Documentation inventory — reviewed, no change needed** (inspected for consistency):
+`CLAUDE.md`, `../CLAUDE.md`, `docs/windows_bridge_contract.md` (§1–§7 hard boundary — clean;
+the 300/301 ms + no-re-arm contract is what the readiness doc was corrected against),
+`docs/TELEMETRY.md`, `docs/camera_aim_display_semantics.md`, `docs/video_topology_baseline.md`,
+`docs/CODESIGNING.md`, `docs/proposals/iphone_mdns_discovery.md`, `../WORKSPACE_MAP.md`,
+`package.json`, `.github/workflows/ci.yml`, `electron-builder.yml`. The CB8 docs
+(`docs/head_intent_diagnostics.md`, `docs/2026-07-15_cb8_slice3c_integration_evidence.md`)
+shipped with their commits and are already accurate — left as-is.
+
+**Stale claims corrected:** test totals `263`→746/43 (bench checklist) and `118`→"see
+README/CI" (test plan, marked historical); `217`/`3c16954` block rewritten (CURRENT_STATUS);
+frozen `802df74` floor removed (checklist); `400 ms`/`re-arm` → `300 ms receive-time`/no
+re-arm (readiness); "nothing implemented" → W2/W3-shipped banner (readiness); README CI wording
+made honest about what CI does and does not prove. Historical change-log/status entries that
+name old hashes/counts were left intact (clearly dated). The 2026-07-09 `dab3039`/118 Windows
+bring-up note stays as a labeled historical fact.
+
+**Current classification (unchanged by F — F only documents it):**
+- **Software: COMPLETE through Batch E1** + CB8 3B/3C (display-only). Suite 746/43.
+- **Host tests: GREEN** (full suite + `npm run smoke:electron` 4/4 on macOS).
+- **Windows CI: GREEN at `0e85702`**; the two CB8 commits are unpushed/un-CI'd.
+- **Hardware evidence: PENDING** — the §5 authoritative matrix is the ledger.
+- Nothing hardware-pending is software-incomplete; the code exists and is host/CI-tested.
+
+**Validation (this pass):** `git status --short` = docs-only (6 files in this repo + 1 in the
+manual repo); repository/workspace stale-claim searches re-run (remaining hits are labeled
+historical); referenced paths/commands/links checked; Markdown headings/fences/tables
+inspected; `npm test` **746/746 (43 files)**; `npm run smoke:electron` **4/4 PASS**;
+`git diff --check` clean.
+
+**Batch G starting point:** a proposals-only pass — **not started, do not start without an
+explicit ask.** Before G, note `main` is 2 local/unpushed commits (CB8 3B/3C) past
+`origin/main`; pushing them will trigger their first Windows CI run.
+
 ### Batch D3 status: COMPLETE + COMMITTED (`297ca79`) — Windows CI GREEN after the `8ceb931` test-only correction (boot smoke ran remotely, PASS)
 
 Scope was exactly **D3** (V2 closure: a REAL Electron boot smoke + a Windows CI step). It
@@ -1038,9 +1207,9 @@ untouched. **The D3 delta (3 M + 4 ??) was COMMITTED by the user as `297ca79` on
 `0564141`.** Its first Windows CI run (`29361212326`) failed at the `npm test` step on
 three POSIX-separator expectations in the `mediamtxPaths` tests (a test-only defect
 exposed the first time the suite ran on Windows — `main/appWiring.js` was correct; see the
-2026-07-14 change-log entries). A test-only correction to `test/appWiring.test.js` is
-applied and PENDING commit/push; **E1 is GATED until the rerun of the windows-latest job is
-green.**
+2026-07-14 change-log entries). That test-only correction to `test/appWiring.test.js`
+landed as `8ceb931`; **the windows-latest job then ran green (boot smoke's first remote
+execution, PASS), E1 was committed as `0e85702` with CI green, and Batch F is now done.**
 
 **Architecture — a two-process smoke with a pure protocol between them.**
 
@@ -1118,11 +1287,12 @@ proves a secret riding a child's stdout is scrubbed.
 `actions/upload-artifact@v4` (`if: failure()`, the sanitized logs) → the UNCHANGED existing
 package steps `npm run app:rebuild` + `npx electron-builder --dir`. The real smoke runs
 BEFORE packaging. Validated with js-yaml 4.3.0: parses, no duplicate job keys, two jobs
-(`test`, `package-smoke`), no admin/interactive step. **Remote execution ran once on the
+(`test`, `package-smoke`), no admin/interactive step. Remote execution first ran on the
 `297ca79` push (`29361212326`) and FAILED at `npm test` on the three `mediamtxPaths`
-POSIX-separator expectations — a test-only defect, now corrected (pending commit/push).
-Because `npm test` failed, the `smoke:electron` step was skipped, so the boot smoke itself
-has still not run remotely; it will on the next push once the test correction is in.**
+POSIX-separator expectations — a test-only defect corrected in `8ceb931`. **Superseded /
+now green:** the `8ceb931` push ran the windows-latest job end-to-end (the boot smoke's
+first remote execution, PASS), and the E1 push `0e85702` (run `29364521697`) is green too.
+The boot smoke now runs remotely on every push.
 
 **Development-app smoke decision.** The smoke boots the REAL unmodified `main/main.js` (not
 a packaged build) with a scrubbed env and Wi-Fi sim: it proves the app's runtime boot,
@@ -1145,15 +1315,14 @@ bench inventory (real netsh/WinRT/ping/localized-Windows, camera→mediamtx→WH
 telemetry, iPhone W2/Local-Network + W3 log-only runbook); the windows-latest CI job has now
 run green (D3 fully closed). Sim/dev-preview is never bench evidence.
 
-**Exact F starting point (E1 is DONE; do NOT start F until the user resumes).** **E1** is
-complete (see the Batch E1 status section below) and uncommitted. **F** — L5 + doc sync:
-`../CURRENT_STATUS.md` pointer (records `3c16954`/217; HEAD is `8ceb931`/686 — the
-checkpoint-hash + test-count drift the user has been deferring), `docs/setup_flow_bench_checklist.md`
-prereqs (missing `npm run setup` mediamtx fetch + the `mediamtx.yml` camera-source edit),
-`docs/iphone_bridge_readiness.md` §4 stale-timeout note (400 ms/re-arm → contract's 300 ms/no
-re-arm), and an E1 note in `README.md`/`docs/SETUP.md` (credential is DPAPI-encrypted at rest;
-session-only when secure storage is unavailable). **`docs/windows_bridge_contract.md` §1–§7
-stays untouched.** **G** — proposals only. G remains untouched.
+**Batch F is COMPLETE (E1 committed as `0e85702`).** E1 landed as `0e85702` (Windows CI
+green); **F (documentation sync) is done and uncommitted** — see the Batch F status section.
+F synced all operator/workspace docs to the true HEAD `dce91f8` / 746-tests-43-files, closed
+finding L5, corrected the readiness doc to 300 ms/no-re-arm, added the Wi-Fi security scope +
+hotspot STOP/quit-ownership + safeStorage credential policy + `npm run smoke:electron` to
+README/SETUP, and rewrote `../CURRENT_STATUS.md`'s stale `3c16954`/217 block.
+`docs/windows_bridge_contract.md` §1–§7 stayed untouched. **G** — proposals only — **has not
+started; do not start it.**
 
 ### Batch E1 status: COMPLETE (code) — hotspot credential at-rest encryption; real Windows DPAPI bench-pending
 
@@ -2334,42 +2503,35 @@ sim preview is never bench evidence.
   cannot see it (no linked-CSS/layout). No other bare-`.hidden`-on-an-unscoped-element cases
   were found in the B3/B4 diff, but it is worth a sweep in a later pass.
 
-### Next batch (do NOT start until the user resumes)
+### Next batch — Batch G (proposals only); do NOT start it until the user asks
 
 1. ~~B3 (Wi-Fi security scope) + B4 (reachability classification)~~ — **DONE 2026-07-13**.
-2. ~~Batch C — C1 video state / C2 replay chip / C3 env-locks / C5 W2-on-GRID docs (C4
-   re-validated)~~ — **DONE 2026-07-13** (this batch; see the Batch C status section + change
-   log). Stop-for-review is in effect; do NOT start Batch D until the user resumes.
-3. ~~Batch D1 + D4~~ — **DONE 2026-07-13** (directory sweep + command-generation
-   hardening; see the Batch D1 + D4 status section).
-4. ~~Batch D2~~ — **DONE 2026-07-14** (main-process + setup-flow integration coverage,
-   composition-root refactor onto `main/appWiring.js`, COMMITTED by the user as `0564141`;
-   see the Batch D2 status section).
-5. ~~Batch D3~~ — **DONE 2026-07-14** (deterministic real-Electron boot smoke +
-   windows-latest CI step; see the Batch D3 status section above). Local: full suite
-   **658/658 (37 files)** and **4/4** real smoke scenarios PASS. **Remote CI execution
-   remains pending the next commit/push** — nothing is committed.
-6. **Exact next starting point — Batch E1** (objective never-log guarantee + a logged Q6
-   decision), then **F** (doc sync). E1 = Q6 credential encryption (safeStorage/DPAPI,
-   transparent plaintext→encrypted migration, ciphertext incl. `.bak`, in-memory-only
-   session fallback when OS encryption is unavailable, undecryptable-secret recovery,
-   redaction tests); the persisted hotspot password reaching the renderer inside
-   `settings.network.hotspot` is the documented E1 residual to close. F = L5 + doc sync
-   (`../CURRENT_STATUS.md` pointer + checklist prereqs + readiness-doc stale note; contract
-   §1–§7 untouched). G = proposals only, untouched. **Do NOT start until the user resumes.**
-7. Bench items accumulate in §5 + the per-batch bench notes; Batch C adds: real camera → mediamtx
-   → WHEP so the video-state model runs against genuine WebRTC drops/stalls, and a real iPhone
-   confirming W2 telemetry appears on GRID entry (C5). Nothing new is hardware-proven.
+2. ~~Batch C — C1 video state / C2 replay chip / C3 env-locks / C5 W2-on-GRID docs~~ —
+   **DONE 2026-07-13** (see the Batch C status section + change log).
+3. ~~Batch D1 + D4~~ — **DONE 2026-07-13** (directory sweep + command-generation hardening).
+4. ~~Batch D2~~ — **DONE 2026-07-14** (integration coverage; COMMITTED as `0564141`).
+5. ~~Batch D3~~ — **DONE 2026-07-14** (real-Electron boot smoke + windows-latest CI step);
+   COMMITTED as `297ca79`, test-fix `8ceb931`. **Windows CI is GREEN** (smoke ran remotely).
+6. ~~Batch E1~~ — **DONE, COMMITTED as `0e85702`** (hotspot credential at-rest encryption;
+   Windows CI green). See the Batch E1 status section.
+7. ~~Batch F (documentation sync)~~ — **DONE 2026-07-15 (uncommitted)** — see the Batch F
+   status section. Synced all docs to the true HEAD `dce91f8` / 746-tests-43-files.
+8. **Exact next starting point — Batch G (proposals only).** A wider proposal pass; NO
+   unapproved implementation. **Do NOT start it until the user explicitly asks.** (Note the
+   baseline shift: `main` HEAD is now `dce91f8`, two local/unpushed CB8 commits past E1.)
+9. Bench items accumulate in §5 + the authoritative hardware-evidence matrix; nothing new is
+   hardware-proven. The pushed CB8 commits will also need a Windows CI run.
 
 Recommended first actions for the next session: read this checkpoint + §4 decisions;
-`git log --oneline -3` (expect HEAD **`0564141`** "test: harden main-process integration
-wiring" ← **`79fa2e0`** "a lot of chagnes" ← `cf038c2`); `git status --short` (expect the
-**Batch D3 delta: 3 M + 4 ??** — `M .github/workflows/ci.yml`, `M` this audit file,
-`M package.json`; `?? scripts/electron-smoke.js`, `?? scripts/smokeMain.js`,
-`?? scripts/smokeShared.js`, `?? test/electronSmoke.test.js`); `npm test` (expect
-**658/658**, 37 files); `npm run smoke:electron` (expect **4/4** scenarios PASS, no orphan
-process/temp dir); `git diff --check` (clean). All D3 work stays UNCOMMITTED until the user
-reviews.
+`git log --oneline -5` (expect HEAD **`dce91f8`** "test: proto-drift guard … (CB8 slice 3C)"
+← `03f43e2` (CB8 3B) ← **`0e85702`** "feat: encrypt persisted hotspot credentials" (E1, tip
+of `origin/main`) ← `8ceb931` ← `297ca79`); `git status --short` (expect the **Batch F
+docs-only delta**: `M README.md`, `M docs/SETUP.md`, `M docs/setup_flow_bench_checklist.md`,
+`M docs/iphone_bridge_readiness.md`, `M docs/iphone_windows_bridge_test_plan.md`, `M` this
+audit file — plus `M ../CURRENT_STATUS.md` in the manual repo); `git rev-list --count
+origin/main..main` = **2** (the unpushed CB8 commits); `npm test` (expect **746/746, 43
+files**); `npm run smoke:electron` (expect **4/4** scenarios PASS, no orphan process/temp
+dir); `git diff --check` (clean). Batch F stays UNCOMMITTED until the user reviews.
 
 ### Hard boundaries (unchanged, apply always)
 
