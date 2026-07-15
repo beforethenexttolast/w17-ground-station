@@ -100,6 +100,9 @@ self-contained (no `google/protobuf` imports to resolve).
 | File | Role |
 |---|---|
 | `proto/head_intent_diagnostics.proto` | subscriber-only proto mirror (one read-only RPC) |
+| `proto/canonical/head_intent_canonical.descriptor.json` | generated snapshot of the mapper's canonical head-intent contract (drift-guard input) |
+| `scripts/headIntentCanonicalDescriptor.js` | shared normalizer: proto-loader def → stable head-intent descriptor |
+| `scripts/check-canonical-proto.js` | cross-repo drift check / snapshot regen against a live `w17-mapper` checkout |
 | `main/headIntentGrpcConnect.js` | `@grpc/grpc-js` transport factory (main-only) |
 | `main/HeadIntentDiagnosticsClient.js` | reconnect/backoff/state consumer core (transport-injected) |
 | `main/headIntentDiagnosticsConfig.js` | env resolution + topology-(a) exclusivity |
@@ -119,8 +122,36 @@ self-contained (no `google/protobuf` imports to resolve).
   read-only watch RPC (no setter on the generated client).
 - `test/noControlPath.test.js` — subscriber is a one-way display path (client
   never writes, preload surface is receive-only).
+- `test/protoDrift.test.js` — **proto-drift guard (CB8 slice 3C).** HERMETIC:
+  proves `proto/head_intent_diagnostics.proto` is byte-faithful (package, enum
+  value name→number pairs, message field name/number/type/label tuples, `Empty`
+  shape, and the `WatchHeadIntentDiagnostics` method path + streaming direction)
+  to the checked-in canonical snapshot. No mapper checkout, no socket, no codegen.
+
+### Keeping the snapshot honest (cross-repo, non-hermetic)
+
+The snapshot is the single point of coupling to the mapper. It is generated from
+and re-verified against the LIVE mapper proto by `scripts/check-canonical-proto.js`:
+
+```sh
+npm run proto:check    # verify snapshot == live w17-mapper (exit 2 on drift, 3 if no checkout)
+npm run proto:sync     # regenerate the snapshot from the live mapper (after an intended change)
+# W17_MAPPER_REPO=/path/to/w17-mapper overrides the default ../w17-mapper location
+```
+
+`proto:check` reaches into a sibling `w17-mapper` checkout (default `../w17-mapper`),
+so it is deliberately kept OUT of the hermetic `vitest` suite. When a mapper change
+is intended, run `proto:sync`, review the JSON diff, then re-run the hermetic suite.
+Regeneration is idempotent (re-running `proto:sync` on an unchanged mapper is a
+zero-diff).
 
 End-to-end against a live `@grpc/grpc-js` server emitting `HeadIntentDiagnostics`
 was exercised during development (real wire dispatch, snake_case decode, enum
 strings, and reconnect after a server-side stream end), confirming read-only
 rendering and reconnect.
+
+A full cross-process run against the REAL `w17-mapper` gRPC `:10000` (every
+`HeadIntentState`, ingest-off → `UNAVAILABLE`, 4-stream cap → `RESOURCE_EXHAUSTED`,
+mapper-restart → bounded-backoff reconnect, byte-identical CRSF, and topology-(a)
+mutual exclusivity) is recorded in
+[`2026-07-15_cb8_slice3c_integration_evidence.md`](2026-07-15_cb8_slice3c_integration_evidence.md).

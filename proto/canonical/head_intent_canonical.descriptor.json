@@ -1,0 +1,215 @@
+{
+  "package": "JoystickControl",
+  "empty": {
+    "name": "Empty",
+    "fields": []
+  },
+  "enum": {
+    "name": "HeadIntentState",
+    "values": [
+      {
+        "name": "HEAD_INTENT_STATE_UNSPECIFIED",
+        "number": 0
+      },
+      {
+        "name": "HEAD_INTENT_STATE_DISABLED",
+        "number": 1
+      },
+      {
+        "name": "HEAD_INTENT_STATE_FAULT",
+        "number": 2
+      },
+      {
+        "name": "HEAD_INTENT_STATE_IDLE",
+        "number": 3
+      },
+      {
+        "name": "HEAD_INTENT_STATE_INVALID",
+        "number": 4
+      },
+      {
+        "name": "HEAD_INTENT_STATE_STALE",
+        "number": 5
+      },
+      {
+        "name": "HEAD_INTENT_STATE_INACTIVE",
+        "number": 6
+      },
+      {
+        "name": "HEAD_INTENT_STATE_NOT_CENTERED",
+        "number": 7
+      },
+      {
+        "name": "HEAD_INTENT_STATE_ACTIVE_LOG_ONLY",
+        "number": 8
+      }
+    ]
+  },
+  "message": {
+    "name": "HeadIntentDiagnostics",
+    "fields": [
+      {
+        "name": "state",
+        "number": 1,
+        "type": "TYPE_ENUM",
+        "typeName": "HeadIntentState",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "total_count",
+        "number": 2,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "valid_count",
+        "number": 3,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "invalid_count",
+        "number": 4,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "has_last_valid",
+        "number": 5,
+        "type": "TYPE_BOOL",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "last_valid_seq",
+        "number": 6,
+        "type": "TYPE_INT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "seq_gaps",
+        "number": 7,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "seq_repeats",
+        "number": 8,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "seq_regressions",
+        "number": 9,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "receive_age_ms",
+        "number": 10,
+        "type": "TYPE_INT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "rate_per_sec",
+        "number": 11,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "yaw_deg",
+        "number": 12,
+        "type": "TYPE_DOUBLE",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "pitch_deg",
+        "number": 13,
+        "type": "TYPE_DOUBLE",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "roll_deg",
+        "number": 14,
+        "type": "TYPE_DOUBLE",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "tracking_enabled",
+        "number": 15,
+        "type": "TYPE_BOOL",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "centered",
+        "number": 16,
+        "type": "TYPE_BOOL",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "has_centered",
+        "number": 17,
+        "type": "TYPE_BOOL",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "sender_timeout_ms",
+        "number": 18,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "has_sender_timeout",
+        "number": 19,
+        "type": "TYPE_BOOL",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "sender_clock_delta_ms",
+        "number": 20,
+        "type": "TYPE_INT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "stale_ms",
+        "number": 21,
+        "type": "TYPE_INT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "last_error",
+        "number": 22,
+        "type": "TYPE_STRING",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      }
+    ]
+  },
+  "method": {
+    "name": "WatchHeadIntentDiagnostics",
+    "path": "/JoystickControl.JoystickControl/WatchHeadIntentDiagnostics",
+    "requestStream": false,
+    "responseStream": true,
+    "requestType": "Empty",
+    "responseType": "HeadIntentDiagnostics"
+  }
+}
