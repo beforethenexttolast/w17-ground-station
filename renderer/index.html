@@ -42,6 +42,10 @@
              Separate from the PIT WALL SIMULATED WIFI tag and the W3 chip. -->
         <div class="replaychip hidden" id="replayChip">TELEMETRY · REPLAY</div>
         <div class="w3chip hidden" id="w3Chip">HEAD-TRACK LOG · NO CONTROL</div>
+        <!-- Mapper head-intent diagnostics (CB8 slice 3B): display-only mirror
+             of the mapper's read-only gRPC stream. Hidden until the consumer is
+             enabled (W17_MAPPER_HEADINTENT=1); always reads NO CONTROL. -->
+        <div class="hichip hidden" id="headIntentChip" title=""></div>
       </div>
     </div>
 

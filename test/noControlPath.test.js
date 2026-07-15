@@ -311,6 +311,40 @@ describe('no-control-path sweep — discovers a newly-created runtime file (audi
     }
   });
 
+  it('the mapper head-intent diagnostics consumer is a subscriber-only, one-way display path (CB8 slice 3B)', () => {
+    // The consumer CORE is transport-agnostic and read-only: it never writes to
+    // the gRPC call, never names a mapper RPC, and binds no socket (it is a gRPC
+    // client, not the 5602 receiver).
+    const core = read('../main/HeadIntentDiagnosticsClient.js');
+    expect(core).not.toMatch(/\.write\(/);
+    for (const forbidden of ['setConfig', 'setCRSFDeviceField', 'startLink', 'stopLink', 'dgram', '.bind(', "on('message'"]) {
+      expect(core, `diagnostics client core must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+
+    // The gRPC transport factory invokes ONLY the read-only watch RPC.
+    const connect = read('../main/headIntentGrpcConnect.js');
+    const rpcCalls = [...connect.matchAll(/\.(\w+)\(\{\}\)/g)].map((m) => m[1]); // client.<Method>({})
+    expect(rpcCalls).toContain('WatchHeadIntentDiagnostics');
+    for (const forbidden of ['setConfig', 'setCRSFDeviceField', 'startLink', 'stopLink', '.write(']) {
+      expect(connect, `gRPC factory must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+
+    // The renderer-facing surface is RECEIVE-ONLY: the single head-intent preload
+    // method is a subscription (ipcRenderer.on + removeListener), never an
+    // invoke/send toward main or the mapper.
+    const preload = read('../main/preload.cjs');
+    const headIntentMethods = [...preload.matchAll(/(\w*HeadIntent\w*)\s*:/g)].map((m) => m[1]);
+    expect(headIntentMethods).toEqual(['onHeadIntentDiagnostics']);
+    const body = preload.slice(
+      preload.indexOf('onHeadIntentDiagnostics:'),
+      preload.indexOf('},', preload.indexOf('onHeadIntentDiagnostics:')) + 2,
+    );
+    expect(body).toContain("ipcRenderer.on('head-intent-diagnostics'");
+    expect(body).toContain('removeListener');
+    expect(body).not.toContain('invoke');
+    expect(body).not.toContain('ipcRenderer.send');
+  });
+
   it('the allow/exception rules are narrow: a serial-exempt path is exempt only for serial, never for control output', () => {
     // CrsfSerialSource is allowed to say "SerialPort" (telemetry IN)…
     expect(scanRuntimeFile('main/CrsfSerialSource.js', 'const { SerialPort } = require("serialport");')).toEqual([]);

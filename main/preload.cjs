@@ -44,6 +44,15 @@ contextBridge.exposeInMainWorld('groundStation', {
     ipcRenderer.on('telemetry', handler);
     return () => ipcRenderer.removeListener('telemetry', handler);
   },
+  // READ-ONLY subscription to the mapper's head-intent diagnostics snapshot
+  // (CB8 slice 3B). One-way main -> renderer: the renderer only RENDERS the
+  // mapper's authoritative state. There is deliberately NO matching send/invoke
+  // — the renderer cannot talk back to the mapper on this or any channel.
+  onHeadIntentDiagnostics: (cb) => {
+    const handler = (_event, snapshot) => cb(snapshot);
+    ipcRenderer.on('head-intent-diagnostics', handler);
+    return () => ipcRenderer.removeListener('head-intent-diagnostics', handler);
+  },
   // READ-ONLY display mirror (throttle/brake/steering/camera as drawn on the
   // HUD) for the outbound iPhone telemetry bridge. One-way renderer -> main ->
   // UDP out; main only serializes it — it never feeds control, and nothing

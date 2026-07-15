@@ -165,6 +165,19 @@ or a hotspot) — same unknown as the video phase; measure in W4.
 
 ## 3. Head-tracking receive readiness (log-only)
 
+> **Update 2026-07-15 — owner decision #1 (topology (a)).** Production ownership of UDP
+> **5602 moves to the owned mapper fork** (`w17-mapper`, the forked elrs-joystick-control;
+> see `w17-control-fw/project-review/head_tracking_unlock_plan.md §2.3.7-§2.3.8`). The mapper
+> now hosts the log-only head-intent receiver (new pure-Go `pkg/headintent`, implemented +
+> tested 2026-07-15). This ground station stays **viewer / configuration / log-only** and
+> gains, later, only a **read-only** head-intent diagnostic snapshot from the mapper (transport
+> TBD — owner picks gRPC vs localhost-HTTP; no control relay). **The GS `HeadTrackingReceiver`
+> below and the mapper receiver are mutually exclusive on 5602** (plain exclusive UDP bind, no
+> `SO_REUSEPORT`): if the GS receiver is retained for rollback, it must **not** bind 5602 while
+> the mapper is the active ingester. No change to the canonical iPhone contract. The 400 ms
+> figure in §3.4 below is superseded by the canonical **300 ms** receive-time authority
+> (299/300 fresh, 301 stale).
+
 ### 3.1 Where the receiver fits
 
 Same seam as the sender: a thin `main/` UDP listener (e.g. `HeadTrackingReceiver`,

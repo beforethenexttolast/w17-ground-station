@@ -75,6 +75,18 @@ body{background:#000;color:var(--silver);
   border:1px solid var(--violet);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
   text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .replaychip.hidden{display:none}
+/* Mapper head-intent diagnostics chip (CB8 slice 3B): display-only mirror of the
+   mapper's authoritative state. Always reads "· NO CONTROL" — there is no
+   active-control state. Tone follows the mapper's state (teal live, amber warn,
+   red fault); default muted for idle/offline. */
+.hichip{display:inline-block;margin-top:.4em;padding:.15em .5em;color:var(--muted);
+  border:1px solid var(--muted);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
+  text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+.hichip.hidden{display:none}
+.hichip.hi-live{color:var(--teal);border-color:var(--teal)}
+.hichip.hi-warn{color:var(--amber);border-color:var(--amber)}
+.hichip.hi-error{color:var(--red);border-color:var(--red)}
+.hichip.hi-wait{color:var(--silver);border-color:var(--muted)}
 /* Last-known real values held (dimmed) while the telemetry stream is stale
    ('TELEMETRY LOST') -- the HUD never silently resumes simulated numbers. */
 .stale{opacity:.35}

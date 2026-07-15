@@ -1,0 +1,82 @@
+// W17 ground-station SUBSCRIBER-ONLY mirror of the mapper's read-only
+// head-intent diagnostics API. Consumed by the Electron MAIN process via
+// @grpc/proto-loader (main/headIntentGrpcConnect.js). CB8 slice 3B.
+//
+// CANONICAL SOURCE (do not fork the semantics): the mapper owns these
+// definitions in `w17-mapper/pkg/proto/server.proto` (owned fork of
+// elrs-joystick-control, upstream pinned 2b8031a, branch w17-headtrack). The
+// enum values, field numbers, and field types below are a FAITHFUL MIRROR of
+// that file's HeadIntentState + HeadIntentDiagnostics + Empty. If the mapper's
+// definitions change, re-mirror them here (see docs/head_intent_diagnostics.md).
+//
+// SAFETY / SCOPE (why this is a separate, minimal proto rather than a copy of
+// the whole service):
+//   * This app is a SUBSCRIBER. The only RPC declared here is the read-only
+//     server-streaming WatchHeadIntentDiagnostics. Every other RPC the mapper
+//     exposes (setConfig, setCRSFDeviceField, startLink, …) is deliberately
+//     ABSENT, so the generated client has no method that could mutate the
+//     mapper — no control path exists even at the wire-definition level.
+//   * There is intentionally NO head-intent SETTER anywhere in the mapper's
+//     service; this mirror keeps it that way on the client.
+//   * The gRPC method path is `/JoystickControl.JoystickControl/
+//     WatchHeadIntentDiagnostics`, so the package + service names below must
+//     match the mapper exactly; the (subset) service definition is enough for
+//     grpc-js to dispatch that one method.
+
+syntax = "proto3";
+
+package JoystickControl;
+
+// Empty request. Matches the mapper's JoystickControl.Empty (an empty message
+// serializes to zero bytes, which is all the streaming subscribe needs).
+message Empty {}
+
+// HeadIntentState mirrors the mapper's LOG-ONLY receiver states. There is
+// deliberately NO "active control" state; ACTIVE_LOG_ONLY means
+// fresh+enabled+centered but STILL produces no output.
+enum HeadIntentState {
+  HEAD_INTENT_STATE_UNSPECIFIED = 0;   // never sent; guards against a defaulted field
+  HEAD_INTENT_STATE_DISABLED = 1;      // receiver not running
+  HEAD_INTENT_STATE_FAULT = 2;         // socket/config error
+  HEAD_INTENT_STATE_IDLE = 3;          // running, no valid packet yet
+  HEAD_INTENT_STATE_INVALID = 4;       // only invalid packets seen
+  HEAD_INTENT_STATE_STALE = 5;         // had valid, silent > stale_ms
+  HEAD_INTENT_STATE_INACTIVE = 6;      // fresh valid, tracking disabled
+  HEAD_INTENT_STATE_NOT_CENTERED = 7;  // fresh valid, enabled, not centered
+  HEAD_INTENT_STATE_ACTIVE_LOG_ONLY = 8; // fresh valid, enabled, centered (still no output)
+}
+
+// HeadIntentDiagnostics is the mapper's authoritative, read-only snapshot.
+// Freshness (receive_age_ms) is computed BY THE MAPPER from its local monotonic
+// receive time; the iPhone timestamp is never the freshness authority. The
+// consumer must render these values as-is and never recompute them.
+message HeadIntentDiagnostics {
+  HeadIntentState state = 1;
+  uint64 total_count = 2;
+  uint64 valid_count = 3;
+  uint64 invalid_count = 4;
+  bool has_last_valid = 5;
+  int64 last_valid_seq = 6;
+  uint64 seq_gaps = 7;
+  uint64 seq_repeats = 8;
+  uint64 seq_regressions = 9;
+  int64 receive_age_ms = 10;          // server-computed; meaningful only if has_last_valid
+  int32 rate_per_sec = 11;
+  double yaw_deg = 12;                 // from the last valid packet
+  double pitch_deg = 13;
+  double roll_deg = 14;
+  bool tracking_enabled = 15;
+  bool centered = 16;
+  bool has_centered = 17;             // distinguishes "centered absent" from "false"
+  int32 sender_timeout_ms = 18;       // sender hint only; not the freshness authority
+  bool has_sender_timeout = 19;
+  int64 sender_clock_delta_ms = 20;   // diagnostic; meaningful only if has_last_valid
+  int64 stale_ms = 21;                // the receive-time freshness boundary
+  string last_error = 22;             // concise fault / last socket error, or ""
+}
+
+// SUBSCRIBER-ONLY service: exactly one read-only, server-streaming RPC and
+// nothing else. No request payload, no client->server head-intent method.
+service JoystickControl {
+  rpc WatchHeadIntentDiagnostics(Empty) returns (stream HeadIntentDiagnostics) {}
+}

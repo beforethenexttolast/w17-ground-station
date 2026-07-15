@@ -14,6 +14,7 @@ import { linkState } from '../shared/linkState.mjs';
 import { getPreset, selectGamepad, DEFAULT_PRESET } from '../shared/inputPresets.mjs';
 import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
 import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
+import { headIntentView } from '../shared/headIntentView.mjs';
 
 const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
@@ -21,7 +22,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   ersEl = el('ers'), ersPctEl = el('ersPct'), battVEl = el('battV'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
-  w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'),
+  w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'), headIntentChipEl = el('headIntentChip'),
   gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote'), feedNoteText = el('feedNoteText');
 
@@ -110,6 +111,18 @@ export function setW3Chip(active) { w3ChipEl.classList.toggle('hidden', !active)
 // Driven by the effective source only — independent of the SIMULATED WIFI tag
 // (a different subsystem) and of the W3 log-only chip (a different concern).
 export function setReplayChip(active) { replayChipEl.classList.toggle('hidden', !active); }
+// Mapper head-intent diagnostics chip (CB8 slice 3B): render the mapper's
+// read-only authoritative snapshot pushed one-way from main. DISPLAY-ONLY — the
+// pure view (shared/headIntentView.mjs) only maps the mapper's fields to chip
+// text; nothing here recomputes freshness/state, and there is no path back to
+// the mapper. The chip always reads "· NO CONTROL".
+export function renderHeadIntent(snapshot) {
+  if (!headIntentChipEl) return;
+  const view = headIntentView(snapshot);
+  headIntentChipEl.className = `hichip${view.visible ? '' : ' hidden'} hi-${view.tone}`;
+  headIntentChipEl.textContent = view.visible ? view.chip : '';
+  headIntentChipEl.title = view.visible ? (view.detail || '') : '';
+}
 // hudStatus: the GRID checklist's local probes — read-only display state.
 // `videoPlaying` is the confident-green derivation of the video-state model
 // (audit C1): true ONLY while frames are actually flowing.
@@ -378,6 +391,12 @@ async function init() {
   }
 
   window.groundStation.onTelemetry((t) => { telem = t; telemFresh = performance.now(); telemEverLive = true; });
+
+  // Mapper head-intent diagnostics: one-way subscription, display-only. Absent
+  // when the consumer is off (chip stays hidden). Never sends to the mapper.
+  if (window.groundStation.onHeadIntentDiagnostics) {
+    window.groundStation.onHeadIntentDiagnostics((snapshot) => renderHeadIntent(snapshot));
+  }
 
   if (cfg && cfg.whepUrl) {
     startWhep(feed, cfg.whepUrl, {

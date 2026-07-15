@@ -20,12 +20,15 @@ const { HotspotLifecycle } = require('./hotspotLifecycle.js');
 const { simScenario, createSimRun } = require('./wifiSim.js');
 const { resolveEffective } = require('../shared/settings.js');
 
-// The two main -> renderer push channels. The preload subscribes to exactly
-// these names (ipcSurface test pins both directions); main.js sends through
-// these constants so the strings cannot drift apart silently.
+// The main -> renderer push channels. The preload subscribes to exactly these
+// names (ipcSurface test pins both directions); main.js sends through these
+// constants so the strings cannot drift apart silently. `headIntent` carries the
+// mapper's read-only head-intent diagnostics snapshot for display (CB8 slice 3B)
+// — a ONE-WAY display channel with no renderer -> mapper reply path.
 const PUSH_CHANNELS = Object.freeze({
     telemetry: 'telemetry',
     hotspotState: 'hotspot-state',
+    headIntent: 'head-intent-diagnostics',
 });
 
 // Setup-flow platform services (thin IO; all soft-fail with reasons). With

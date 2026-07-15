@@ -558,7 +558,11 @@ describe('wireHotspotPush — authoritative snapshots to the renderer channel (a
     });
 
     it('push channel names match the preload subscription channels exactly', () => {
-        expect(PUSH_CHANNELS).toEqual({ telemetry: 'telemetry', hotspotState: 'hotspot-state' });
+        expect(PUSH_CHANNELS).toEqual({
+            telemetry: 'telemetry',
+            hotspotState: 'hotspot-state',
+            headIntent: 'head-intent-diagnostics',
+        });
     });
 });
 

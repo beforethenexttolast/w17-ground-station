@@ -19,6 +19,9 @@ const { MediamtxSupervisor } = require('./mediamtx.js');
 const { IphoneTelemetryBridge } = require('./IphoneTelemetryBridge.js');
 const { HeadTrackingReceiver } = require('./HeadTrackingReceiver.js');
 const { w3ConfigFor } = require('./headTrackingConfig.js');
+const { HeadIntentDiagnosticsClient } = require('./HeadIntentDiagnosticsClient.js');
+const { mapperHeadIntentConfigFromEnv, resolveHeadIntentModes } = require('./headIntentDiagnosticsConfig.js');
+const { createHeadIntentConnect } = require('./headIntentGrpcConnect.js');
 const { createSettingsStore } = require('./settingsStore.js');
 const { createCredentialStore } = require('./credentialStore.js');
 const { SessionRuntime } = require('./sessionRuntime.js');
@@ -87,8 +90,36 @@ const w3Receiver = createKeyedInstance({
   }),
 });
 
+// Mapper head-intent diagnostics SUBSCRIBER (CB8 slice 3B): a read-only gRPC
+// consumer of the mapper's WatchHeadIntentDiagnostics stream. It only RENDERS
+// the mapper's authoritative state — it binds no socket, opens nothing from the
+// renderer, and sends nothing to the mapper. Its snapshots go one-way to every
+// live window via PUSH_CHANNELS.headIntent. Constructed here and nowhere else.
+const broadcastHeadIntent = (snapshot) => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(PUSH_CHANNELS.headIntent, snapshot);
+  }
+};
+const headIntentClient = createKeyedInstance({
+  construct: (cfg) => new HeadIntentDiagnosticsClient({
+    connect: createHeadIntentConnect(cfg.addr, { log }),
+    broadcast: broadcastHeadIntent,
+    log,
+  }),
+});
+
+// Topology (a) mutual exclusivity: UDP 5602 has ONE owner. When the mapper
+// diagnostics consumer is enabled (W17_MAPPER_HEADINTENT=1) the mapper owns 5602
+// and the local W3 receiver MUST be off; otherwise the W3 wish decides. Both the
+// W3 receiver and the consumer are (re)applied here, at the single sanctioned
+// wiring point. Returns the W3 receiver-exists boolean for the session summary.
 function applyW3(effective) {
-  return w3Receiver.apply(w3ConfigFor(effective, process.env));
+  const { consumer, w3 } = resolveHeadIntentModes({
+    consumerCfg: mapperHeadIntentConfigFromEnv(process.env),
+    w3Cfg: w3ConfigFor(effective, process.env),
+  });
+  headIntentClient.apply(consumer);
+  return w3Receiver.apply(w3);
 }
 
 function createWindow() {
@@ -212,6 +243,7 @@ app.on('before-quit', (event) => quitPolicy.onBeforeQuit(event));
 const teardown = createTeardown({
   steps: [
     ['head-tracking receiver', () => w3Receiver.apply(null)],
+    ['head-intent diagnostics', () => headIntentClient.apply(null)],
     ['session runtime', () => { if (runtime) runtime.stopAll(); }],
     ['mediamtx', () => { if (mediamtx) mediamtx.stop(); }],
   ],

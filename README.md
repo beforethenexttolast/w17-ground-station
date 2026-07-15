@@ -142,6 +142,37 @@ by received packets. Either way the receiver stays LOG-ONLY — its only side ef
 beyond logs is exposing the last sender's IP as an address *suggestion* in the setup
 flow (user-confirmed, never packet contents).
 
+### Mapper head-intent diagnostics subscriber (optional, off by default, DISPLAY-ONLY)
+
+In the production VR-FPV topology the **mapper** (the owned elrs-joystick-control fork,
+`w17-mapper`) owns UDP 5602 head-intent ingest and republishes a **read-only** diagnostic
+snapshot over its existing gRPC service on `:10000`. This app can *subscribe* to that
+stream and render it — it never binds 5602 itself and never talks back to the mapper.
+
+```
+W17_MAPPER_HEADINTENT=1              # master enable (unset = off, no gRPC client)
+W17_MAPPER_GRPC_ADDR=127.0.0.1:10000 # mapper gRPC endpoint (default loopback)
+```
+
+- **Subscriber-only, display-only.** The consumer runs in the Electron **main** process
+  (`main/HeadIntentDiagnosticsClient.js` over `@grpc/grpc-js` + `@grpc/proto-loader`,
+  reading `proto/head_intent_diagnostics.proto`). It calls exactly one RPC — the read-only
+  server-streaming `WatchHeadIntentDiagnostics` — and the mirrored proto declares **no
+  setter**, so there is no control path even at the wire level. Snapshots go one-way to
+  the renderer, which only draws them (`shared/headIntentView.mjs`); it never recomputes
+  freshness or reinterprets `receive_age_ms` — the mapper is authoritative.
+- **Mutual exclusivity (topology (a)).** UDP 5602 has exactly one owner. Enabling this
+  consumer means the **mapper** owns 5602, so the local W3 receiver (`W17_HEADTRACK`) is
+  **force-disabled** while `W17_MAPPER_HEADINTENT=1` — even if the W3 wish/env would
+  otherwise enable it (a second bind on 5602 would fail anyway). Turn the consumer off to
+  return to Electron-owns-5602 (log-only W3) mode.
+- **Robustness.** Reconnects with bounded backoff on stream end/drop; a mapper restart, a
+  disabled ingest (`UNAVAILABLE`), or the mapper's 4-stream cap (`RESOURCE_EXHAUSTED`) all
+  render as clear HUD display states (`MAPPER OFFLINE / INGEST OFF`, `STREAM BUSY · CAP 4`,
+  `RECONNECTING`), never crashes — and never affect the elrs launcher.
+- The HUD session panel shows a `HEAD-INTENT · <state> · NO CONTROL` chip while the
+  consumer is enabled; hidden otherwise. See `docs/head_intent_diagnostics.md`.
+
 ### Troubleshooting (dev environment)
 
 - **"Electron failed to install correctly"** — your npm blocked Electron's postinstall (a

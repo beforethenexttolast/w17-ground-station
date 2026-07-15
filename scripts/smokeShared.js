@@ -33,13 +33,14 @@ const REQUIRED_STAGES = Object.freeze([
 
 // The exact preload surface (main/preload.cjs exposeInMainWorld keys), sorted.
 // test/electronSmoke.test.js pins this list against the parsed preload source,
-// and test/ipcSurface.test.js pins the same 20-method contract independently —
+// and test/ipcSurface.test.js pins the same 21-method contract independently —
 // the smoke asserts the LIVE page sees exactly this and nothing else.
 const EXPECTED_API = Object.freeze([
   'applySession', 'elrsLaunch', 'elrsStatus', 'getAddrHint', 'getConfig',
   'getSettings', 'hotspotProbe', 'hotspotStart', 'hotspotState', 'hotspotStop',
-  'onHotspotState', 'onTelemetry', 'probeHost', 'sendCommandMirror', 'setSettings',
-  'wifiCapabilities', 'wifiInterfaces', 'wifiJoin', 'wifiScan', 'wifiStatus',
+  'onHeadIntentDiagnostics', 'onHotspotState', 'onTelemetry', 'probeHost',
+  'sendCommandMirror', 'setSettings', 'wifiCapabilities', 'wifiInterfaces',
+  'wifiJoin', 'wifiScan', 'wifiStatus',
 ]);
 
 // The smoke deliberately runs WITHOUT mediamtx (W17_MEDIAMTX_DIR points at an

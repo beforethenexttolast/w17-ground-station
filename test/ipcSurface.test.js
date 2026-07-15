@@ -150,12 +150,13 @@ describe('preload minimalism (audit D2)', () => {
         }
     });
 
-    it('the exposed surface is the pinned 20-method contract — additions are deliberate', () => {
+    it('the exposed surface is the pinned 21-method contract — additions are deliberate', () => {
         expect([...exposedKeys].sort()).toEqual([
             'applySession', 'elrsLaunch', 'elrsStatus', 'getAddrHint', 'getConfig',
             'getSettings', 'hotspotProbe', 'hotspotStart', 'hotspotState', 'hotspotStop',
-            'onHotspotState', 'onTelemetry', 'probeHost', 'sendCommandMirror', 'setSettings',
-            'wifiCapabilities', 'wifiInterfaces', 'wifiJoin', 'wifiScan', 'wifiStatus',
+            'onHeadIntentDiagnostics', 'onHotspotState', 'onTelemetry', 'probeHost',
+            'sendCommandMirror', 'setSettings', 'wifiCapabilities', 'wifiInterfaces',
+            'wifiJoin', 'wifiScan', 'wifiStatus',
         ]);
     });
 
