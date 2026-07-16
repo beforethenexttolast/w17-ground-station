@@ -11,7 +11,8 @@
 //     speed/rpm/ers so the HUD is fully alive from the gamepad alone.
 import { startWhep } from './whep.js';
 import { linkState } from '../shared/linkState.mjs';
-import { getPreset, selectGamepad, DEFAULT_PRESET } from '../shared/inputPresets.mjs';
+import { getPreset, selectGamepad, DEFAULT_PRESET, dedupeGamepads, resolveSelectedPad } from '../shared/inputPresets.mjs';
+import { wheelValues } from '../shared/wheelProfile.mjs';
 import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
 import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
 import { headIntentView } from '../shared/headIntentView.mjs';
@@ -91,6 +92,32 @@ export function setControllerChoice({ id = '', preset = DEFAULT_PRESET } = {}) {
   refreshPad();
 }
 function pad() { const ps = navigator.getGamepads ? navigator.getGamepads() : []; return selectGamepad(ps, preferredPadId); }
+
+// Session wheel source (Batch 7 / P5c). The SEAT FIT input type is a per-session
+// choice that ALWAYS boots GAMEPAD (never persisted, decision #2), so these
+// default to the gamepad path and setupFlow.js sets them once at START via
+// setInputSource(). When the type is wheel/both, the HUD mirrors the calibrated
+// wheel for STR/THR/BRK ONLY — pan/tilt (a wheel has no aim stick) and every
+// mirrored button stay gamepad-sourced, so camera-aim semantics are untouched and
+// a GAMEPAD session is bit-identical to before (the override block is skipped).
+// DISPLAY MIRROR ONLY: wheelValues just reads navigator.getGamepads(); nothing
+// here reaches a control output (driving stays with elrs-joystick-control).
+let inputType = 'gamepad';   // 'gamepad' | 'wheel' | 'both'
+let wheelProfile = null;     // normalized profile passed from SEAT FIT; null in GAMEPAD
+let wheelPadKey = '';        // session key (slot+id) of the wheel device; '' = first slot
+export function setInputSource({ type = 'gamepad', profile = null, wheelKey = '' } = {}) {
+  inputType = (type === 'wheel' || type === 'both') ? type : 'gamepad';
+  wheelProfile = profile;
+  wheelPadKey = wheelKey || '';
+}
+// The pad the wheel mirror reads. START happens in the same session (no restart),
+// so the session key from SEAT FIT still resolves the same slot; a wheel that
+// disconnects after START resolves to null → wheelValues reads neutral, never a
+// stale deflection (task §5).
+function wheelPad() {
+  const ps = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  return resolveSelectedPad(ps, { chosenKey: wheelPadKey });
+}
 function refreshPad() {
   const p = pad();
   S.connected = !!p;
@@ -213,6 +240,18 @@ function readInputs() {
     prev.drs = !!keys.d;
     S.boost = !!keys.b;
     S.overtake = !!keys.o;
+  }
+  // Wheel override (Batch 7): in a wheel/both session the calibrated wheel
+  // supplies STR/THR/BRK ONLY, replacing whatever the gamepad/keyboard path set
+  // above. GAMEPAD sessions skip this entirely (bit-identical). Camera pan/tilt
+  // and every mirrored button are deliberately left as set above — a wheel has no
+  // aim stick, and this batch scopes the wheel to the three driving axes. A
+  // missing wheel pad reads neutral via wheelValues (never a stale deflection).
+  if (inputType === 'wheel' || inputType === 'both') {
+    const { steer, thr, brk } = wheelValues(wheelPad(), wheelProfile);
+    S.steer = steer;
+    S.throttle = thr;
+    S.brake = brk;
   }
 }
 

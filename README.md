@@ -89,6 +89,12 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    from the pad type and shown as a visual button-mapping preview (informational only — no
    camera/pan-tilt mapping) next to a live test strip. Pressing a button lights it up in
    the preview, proving the mapping instantly. Keyboard fallback remains.
+   An **input type** switch (GAMEPAD / WHEEL / BOTH, chosen per session) adds optional
+   **steering-wheel** support: a generic wheel profile with manual axis/button assignment +
+   pedal rest/full calibration and a live wheel/pedal input preview. The wheel mirrors
+   **steering / throttle / brake only** on the HUD (camera pan/tilt stays gamepad-only); it
+   is a display mirror like everything else here — no control path. Activation always boots
+   GAMEPAD and is never saved; only the calibrated wheel profile persists.
 4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
    iPhone reachability (iPhone mode), elrs-joystick-control detected (with a LAUNCH
    button). A summary strip shows what's configured (mode · network · adapter · pad) and

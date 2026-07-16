@@ -33,12 +33,14 @@ export function padPreviewSvg(presetKey) {
   // button name AND its role BOTH inside the pill (e.g. "R2 · THR"), so no
   // floating caption is needed — the pills attach to the body's top corners.
   // The name is its own tspan so a per-preset label stays greppable as `>NAME<`.
-  // role must be a trusted literal — may contain intentional HTML entities (&#9650;/&#9660;);
-  // never pass dynamic/user input, it is interpolated unescaped (name is escaped).
+  // BOTH name and role are esc()'d (Batch 7 / Batch-6 rider b): the glyphs are
+  // literal Unicode (▲/▼), not HTML entities, so escaping is a no-op on today's
+  // trusted literals yet closes the unescaped-interpolation trap for any future
+  // label.
   const pill = (x, y, name, dataRole, role) =>
     `<rect class="pp-pill" data-role="${dataRole}" x="${x}" y="${y}" width="88" height="18" rx="5"/>` +
     `<text x="${x + 44}" y="${y + 13}" text-anchor="middle">` +
-    `<tspan class="pp-name">${esc(name)}</tspan><tspan class="pp-role"> · ${role}</tspan></text>`;
+    `<tspan class="pp-name">${esc(name)}</tspan><tspan class="pp-role"> · ${esc(role)}</tspan></text>`;
   const caption = (x, y, anchor, role, name) =>
     `<text x="${x}" y="${y}" text-anchor="${anchor}">` +
     `<tspan class="pp-role">${esc(role)} </tspan><tspan class="pp-name">${esc(name)}</tspan></text>`;
@@ -47,9 +49,9 @@ export function padPreviewSvg(presetKey) {
 
     <!-- shoulder pills: mapped name + role INSIDE each pill, attached to the body's top corners -->
     ${pill(48, 50, n.brake, 'brake', 'BRAKE')}
-    ${pill(48, 72, n.gearDown, 'gearDown', 'GEAR &#9660;')}
+    ${pill(48, 72, n.gearDown, 'gearDown', 'GEAR ▼')}
     ${pill(304, 50, n.throttle, 'throttle', 'THR')}
-    ${pill(304, 72, n.gearUp, 'gearUp', 'GEAR &#9650;')}
+    ${pill(304, 72, n.gearUp, 'gearUp', 'GEAR ▲')}
 
     <!-- face-button cluster (centre): DRS above, OT + BOOST below with captions
          middle-anchored under each button. The lower pair is spread to cx186/256

@@ -40,6 +40,10 @@ active pan/tilt, no U4, W3 stays log-only. See `docs/camera_aim_display_semantic
 > 8. **Duplicate enumeration** — watch for one physical pad showing up twice (XInput +
 >    DirectInput). Record whether it appears as one row or two, the `id`/`SLOT` of each,
 >    and which one the mirror follows. (This is the known-unsolved case from §5.6.)
+>    **(Batch 7)** The steering-wheel device selection (BOTH mode) uses the SAME
+>    session-stable slot+id key as the gamepad mirror, so this dual-backend / no-reliable-
+>    unit-id item now covers the wheel too — validate that selecting a wheel vs a gamepad in
+>    BOTH mode, and reconnecting the wheel at a different slot, behaves per items 6–8.
 > 9. **Selected-controller stability** — once selected, the choice stays put across live
 >    input, button presses, and layout changes; it is not stolen by a later-connected pad.
 >

@@ -6,7 +6,7 @@
 // glue over the pure step/checklist/address modules in shared/. It never
 // touches control — the START buttons only dismiss a viewer overlay.
 
-import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip } from './hud.js';
+import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
@@ -25,7 +25,7 @@ import { padPreviewSvg } from './padPreview.js';
 import { wheelPreviewSvg } from './wheelPreview.js';
 import {
   normalizeWheelSettings, wheelValues, pressedWheelRoles, detectInputChange,
-  WHEEL_BUTTON_ROLES,
+  WHEEL_BUTTON_ROLES, WHEEL_BUTTON_LABELS, MAX_DEADZONE,
 } from '../shared/wheelProfile.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 
@@ -765,10 +765,11 @@ let listenPrev = null;       // pad snapshot captured when the listen started
 let listenTimer = null;      // auto-cancel timer for a stuck listen
 
 const WHEEL_AXIS_ROLES = new Set(['steer', 'throttle', 'brake', 'combined']);
-// Button roles come from the model (shared/wheelProfile.mjs) — single source of
-// truth shared with pressedWheelRoles/normalizeWheelSettings, so a new/renamed
-// role can never drift out of this panel. Labels stay local (display only).
-const WHEEL_BUTTON_LABELS = { gearUp: 'GEAR ▲', gearDown: 'GEAR ▼', drs: 'DRS', boost: 'BOOST', overtake: 'OT' };
+// Button roles AND their display labels both come from the model
+// (shared/wheelProfile.mjs): WHEEL_BUTTON_ROLES is the single source of truth
+// shared with pressedWheelRoles/normalizeWheelSettings, and WHEEL_BUTTON_LABELS is
+// shared with the wheel viz pills (renderer/wheelPreview.js) so this panel and the
+// picture can never drift (Batch 7 rider b).
 const LISTEN_TIMEOUT_MS = 6000;
 const fmtCal = (n) => Number(n).toFixed(2);
 
@@ -799,6 +800,22 @@ function resolveWheelPad(pads) {
 // patch shape is exactly { wheel: { profile } } — the active input type is
 // deliberately never written (decision #2).
 function saveWheel() { save({ wheel: { profile: wheelProfile } }); }
+
+// Hand the live HUD the session input source at START (task §134). GAMEPAD passes
+// only the type, so the HUD mirror stays bit-identical to before. WHEEL/BOTH also
+// pass the calibrated profile and the wheel device's session key, resolved NOW so
+// the HUD follows the SAME device SEAT FIT mirrored (START is in-session, slots
+// stable). The active input type is passed but NEVER persisted (decision #2); only
+// the profile persists, via saveWheel(). No IPC — a renderer→renderer call.
+function applyInputSource() {
+  const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  const wp = (inputType === 'wheel' || inputType === 'both') ? resolveWheelPad(pads) : null;
+  setInputSource({
+    type: inputType,
+    profile: wheelProfile,
+    wheelKey: wp ? gamepadKey(wp) : wheelPadKey,
+  });
+}
 
 // Show/hide the two panels + the two right-column mirrors for the chosen input
 // type, and light the matching pill. Switching abandons any in-flight listen so
@@ -884,7 +901,7 @@ function renderWheelPanel() {
     + `<button class="pill${sep ? '' : ' on'}" data-pmode="combined">COMBINED</button></div>`
     + (sep ? pedalRow('THR', 'throttle') + pedalRow('BRK', 'brake') : combinedRow())
     + '<div class="wheeldz"><span class="wlabel">DEADZONE</span>'
-    + `<input type="range" id="wheelDeadzone" min="0" max="0.5" step="0.01" value="${p.deadzone}">`
+    + `<input type="range" id="wheelDeadzone" min="0" max="${MAX_DEADZONE}" step="0.01" value="${p.deadzone}">`
     + '<span class="wval" data-wval="deadzone"></span></div>'
     + '<div class="colhead">BUTTONS</div>'
     + WHEEL_BUTTON_ROLES.map((role) => wheelRow(WHEEL_BUTTON_LABELS[role], role)).join('');
@@ -1154,7 +1171,7 @@ function placeStickDot(side, x, y) {
   const dot = padPreview.querySelector(`[data-stick="${side}"]`);
   if (!dot) return;
   const cx0 = Number(dot.dataset.cx), cy0 = Number(dot.dataset.cy);
-  const spread = 18; // well radius minus the dot radius, in SVG units
+  const spread = 19; // well radius (24) minus the dot radius (5) — full deflection sits the dot exactly at the well edge (Batch 7 rider c)
   dot.setAttribute('cx', String(cx0 + x * spread));
   dot.setAttribute('cy', String(cy0 + y * spread));
 }
@@ -1400,6 +1417,7 @@ startAnywayBtn.addEventListener('click', () => beginStart());
 async function beginStart() {
   if (lightsRunning) return;
   leaveGrid();
+  applyInputSource(); // hand the HUD the session input source before it goes live
   await save({ setupCompleted: true });
   runLights();
 }

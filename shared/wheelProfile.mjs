@@ -33,6 +33,14 @@ export const DEFAULT_WHEEL_PROFILE = Object.freeze({
     }),
 });
 
+// The single source of truth for the deadzone upper bound (Batch 7 rider a): the
+// SEAT FIT slider caps at this AND normalizeWheelSettings clamps to it, so a
+// hand-edited/corrupt settings value can never exceed what the UI can display and
+// round-trip. 0.5 is a deliberate, generous UX cap — a pedal deadzone past half
+// travel is pathological, and the only writer of `deadzone` is that slider, so
+// this only ever repairs garbage input.
+export const MAX_DEADZONE = 0.5;
+
 const clamp01 = (n) => (n < 0 ? 0 : n > 1 ? 1 : n);
 const clampAxis = (n) => (n < -1 ? -1 : n > 1 ? 1 : n);
 const finite = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
@@ -98,6 +106,18 @@ export function wheelValues(pad, profile = DEFAULT_WHEEL_PROFILE) {
 // now. Buttons only (mirrors inputPresets.pressedRoles) — pedals are axes, read
 // via wheelValues, and an UNASSIGNED role (index null) is simply skipped.
 export const WHEEL_BUTTON_ROLES = ['gearUp', 'gearDown', 'drs', 'boost', 'overtake'];
+
+// Display labels for the mirrored wheel buttons — the SINGLE source shared by the
+// SEAT FIT assign panel (renderer/setupFlow.js) and the wheel viz pills
+// (renderer/wheelPreview.js) so the panel and the picture can never drift (Batch 7
+// rider b). Literal glyphs (▲/▼), not HTML entities, so the string is correct in
+// any DOM context (both consumers assign it as innerHTML/textContent). A label may
+// legitimately differ from its role name (GEAR ▲ vs gearUp); keeping the mapping
+// here makes that intentional and one-place.
+export const WHEEL_BUTTON_LABELS = Object.freeze({
+    gearUp: 'GEAR ▲', gearDown: 'GEAR ▼', drs: 'DRS', boost: 'BOOST', overtake: 'OT',
+});
+
 const PRESS_THRESHOLD = 0.05; // analog buttons count as pressed past this
 
 export function pressedWheelRoles(pad, profile = DEFAULT_WHEEL_PROFILE) {
@@ -155,7 +175,8 @@ export function detectInputChange(prev, pad, { axisThreshold = 0.4 } = {}) {
 // profile, filling every field from DEFAULT_WHEEL_PROFILE. Persisted settings
 // can be partial, wrong-typed, or hostile, so every value is validated: axis
 // indices become non-negative integers, calibration endpoints clamp into
-// [-1, 1], the deadzone into [0, 1), pedalMode is whitelisted, and each button
+// [-1, 1], the deadzone into [0, MAX_DEADZONE] (the same bound the SEAT FIT slider
+// enforces — rider a), pedalMode is whitelisted, and each button
 // is a non-negative integer index or null (unassigned). Never throws.
 const axisIndex = (v, dflt) => {
     const n = finite(v);
@@ -195,7 +216,7 @@ export function normalizeWheelSettings(raw) {
             throttleEnd: cal(c.throttleEnd, D.combined.throttleEnd),
             brakeEnd: cal(c.brakeEnd, D.combined.brakeEnd),
         },
-        deadzone: dz === null ? D.deadzone : (dz < 0 ? 0 : dz >= 1 ? 0.99 : dz),
+        deadzone: dz === null ? D.deadzone : (dz < 0 ? 0 : dz > MAX_DEADZONE ? MAX_DEADZONE : dz),
         // Derived from WHEEL_BUTTON_ROLES (single source of truth shared with
         // pressedWheelRoles) so a new/renamed role can never be silently dropped
         // from persisted settings. An explicit null is a deliberate unassign and

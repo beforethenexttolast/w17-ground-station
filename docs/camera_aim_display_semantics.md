@@ -1,9 +1,10 @@
 # Camera-aim display semantics — commanded vs measured
 
 **Status: §1–§4 are the 2026-07-14 documentation pass (no code/contract change made by
-this file). §5 (2026-07-16) records the SEAT FIT controller-mirror / CAMERA MODE slice
-that was implemented in code+tests elsewhere in this repo — this file remains documentation
-and changes no contract.** This is the ground-station source of truth for what camera
+this file). §5 (2026-07-16) records the SEAT FIT controller-mirror / CAMERA MODE slice,
+and §6 (2026-07-16) the steering-wheel input mirror (Batch 7) — both implemented in
+code+tests elsewhere in this repo. This file remains documentation and changes no
+contract.** This is the ground-station source of truth for what camera
 pan/tilt values *mean* wherever this app displays or exports them. The mapper/unlock sequencing lives in
 `w17-control-fw/project-review/head_tracking_unlock_plan.md`; the bridge contract remains
 canonical in `iPhone_rc/docs/windows_bridge_contract.md` with an implementation copy in
@@ -175,3 +176,45 @@ footnote overlays never cover the controls. Contract tests live in
 `test/responsiveLayout.test.js`; DOM tests cannot prove *physical* overlap, so
 **pixel-level visual validation at 1920×1080 / 1600×900 / 1366×768 / 1280×720 remains a
 manual step on Windows** (see the Windows handoff prompt).
+
+## 6. Steering-wheel input mirror (implemented 2026-07-16, Batch 7)
+
+The optional steering-wheel support (SEAT FIT input type GAMEPAD / WHEEL / BOTH, chosen
+per session) extends the SAME display-mirror semantics to a wheel; it introduces **no new
+meaning** and **no new control path**. It is DISPLAY-ONLY: no IPC/RPC was added (the
+preload surface stays the pinned 24-method contract, `test/ipcSurface.test.js`),
+`test/noControlPath.test.js` is unchanged, and the wheel modules (`shared/wheelProfile.mjs`,
+`renderer/wheelPreview.js`, `renderer/hud.js`) carry none of the forbidden control
+vocabulary.
+
+### 6.1 The wheel is an input mirror, using the same vocabulary
+
+- The SEAT FIT wheel viz (`renderer/wheelPreview.js`) shows **observed wheel input** — a
+  steering needle and calibrated pedal-travel bars — under the header **`OBSERVED WHEEL
+  INPUT · NOT PROOF OF CAR / CAMERA MOTION`**. Like the pad preview it says **input**,
+  never **"camera aim" / "measured" / a gimbal position**. A wheel has no aim stick, so it
+  makes no camera-motion claim at all.
+- On the live HUD (`renderer/hud.js`), a wheel/both session mirrors the wheel for
+  **steering / throttle / brake ONLY** (`wheelValues(pad, profile)`). These feed the same
+  command widgets the gamepad drives — a mirror of the driver's input, not a car-side
+  measurement. Driving still comes from elrs-joystick-control, which reads the device
+  itself; this app only observes it.
+
+### 6.2 Pan/tilt stays gamepad-only — camera-aim semantics untouched
+
+Camera **pan/tilt is never wheel-sourced**. The camera dot keeps reading the gamepad right
+stick (`S.camPan`/`S.camTilt`) under every input type, exactly as §2.1 requires; a GAMEPAD
+session is bit-identical to before, and the wheel override touches only STR/THR/BRK. So all
+of the §5.4 invariants stand unchanged: **Head Tracking is LOCKED**, **ACTIVE AUTHORITY is
+`NOT REPORTED BY MAPPER`**, and this viewer never fabricates an active aiming source — the
+mapper remains the camera authority, and the browser observing a wheel or a stick is not the
+mapper selecting one.
+
+### 6.3 Activation is per-session; only calibration persists
+
+The input type **always boots GAMEPAD** and is never persisted (a fresh load starts on
+GAMEPAD even with a saved wheel profile). Only the calibrated `wheel.profile` persists,
+through the existing `settings:set` path (`{ wheel: { profile } }`) — no new key. The wheel
+device selection uses the same **session-stable key (slot + `Gamepad.id`)** as the gamepad
+mirror, so the identical-device / slot-reassignment limitation documented in §5.6 applies
+equally to the wheel; it is not persisted as a hardware identity.

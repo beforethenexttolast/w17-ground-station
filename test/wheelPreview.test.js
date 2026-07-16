@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { wheelPreviewSvg } from '../renderer/wheelPreview.js';
+import { WHEEL_BUTTON_LABELS } from '../shared/wheelProfile.mjs';
 
 // The SEAT FIT wheel viz is DISPLAY / INPUT-MIRROR only — the sibling of
 // padPreview.js. These pin its live-update seam (data-wheel for steer/thr/brk,
@@ -38,13 +39,18 @@ describe('wheelPreviewSvg', () => {
     expect(svg).not.toMatch(/data-wheel="[^"]+"[^>]*data-role|data-role="[^"]+"[^>]*data-wheel/);
   });
 
-  it('labels the mirrored roles (gears, DRS, boost, overtake, plus STEER/THR/BRK)', () => {
-    for (const label of ['STEER', 'THR', 'BRK', 'DRS', 'BOOST', 'OT']) {
+  it('labels the mirrored roles (STEER/THR/BRK) and uses the SHARED button labels (rider b)', () => {
+    for (const label of ['STEER', 'THR', 'BRK']) {
       expect(svg, `labels ${label}`).toContain(label);
     }
-    // GEAR up/down use ▲/▼ entities like the pad preview shoulder pills.
-    expect(svg).toContain('GEAR &#9650;');
-    expect(svg).toContain('GEAR &#9660;');
+    // The button pills render EXACTLY the shared WHEEL_BUTTON_LABELS map — the same
+    // one the SEAT FIT assign panel uses — so the panel and this picture can never
+    // drift. Literal glyphs (▲/▼), not HTML entities.
+    for (const label of Object.values(WHEEL_BUTTON_LABELS)) {
+      expect(svg, `pills render shared label ${label}`).toContain(`>${label}</text>`);
+    }
+    expect(svg).toContain('GEAR ▲');
+    expect(svg).toContain('GEAR ▼');
   });
 
   it('is display-semantics clean: observed INPUT, never aim/measured/gimbal', () => {
@@ -56,8 +62,8 @@ describe('wheelPreviewSvg', () => {
   });
 
   it('produces well-formed markup — no raw "<" outside a known element', () => {
-    // Every "<" must open a known SVG element (or an XML comment); the entities
-    // (&#9650; etc.) are already escaped literals.
+    // Every "<" must open a known SVG element (or an XML comment); the button
+    // labels are literal Unicode glyphs (▲/▼), which carry no "<".
     expect(svg.match(/<(?!\/?(svg|rect|circle|text|tspan|line)\b|!--)/g)).toBeNull();
   });
 });

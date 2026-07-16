@@ -14,6 +14,12 @@
 // (height driven by the calibrated 0..1 travel); each button pill carries a
 // data-role hook so a pressed mirrored button lights up. Styling lives in
 // hud.css (.wp-* classes).
+//
+// Button labels come from WHEEL_BUTTON_LABELS in the model — the SAME map the
+// SEAT FIT assign panel uses — so the panel and this picture can never drift
+// (Batch 7 rider b).
+
+import { WHEEL_BUTTON_LABELS } from '../shared/wheelProfile.mjs';
 
 // The steering wheel geometry: the needle pivots on (cx, cy) and its rotation is
 // applied by seatfitTick via a `rotate(deg cx cy)` transform, so the pivot must
@@ -25,13 +31,12 @@ const WHEEL = { cx: 66, cy: 74, rim: 46, needleTop: 30 };
 const BAR = { y0: 122, h: 100, w: 24 };
 
 export function wheelPreviewSvg() {
-  // A button pill: role label inside, data-role hook for the live press mirror.
-  // role is a trusted literal (may carry intentional entities e.g. &#9650;),
-  // interpolated unescaped exactly like padPreview's pill role; there is no
-  // dynamic/user text in this viz.
-  const pill = (x, role, dataRole) =>
+  // A button pill: its label inside, data-role hook for the live press mirror.
+  // The label is a trusted frozen constant from the model (WHEEL_BUTTON_LABELS);
+  // there is no dynamic/user text in this viz, so it is interpolated as-is.
+  const pill = (x, label, dataRole) =>
     `<rect class="wp-pill" data-role="${dataRole}" x="${x}" y="152" width="46" height="18" rx="4"/>` +
-    `<text class="wp-btn" x="${x + 23}" y="165" text-anchor="middle">${role}</text>`;
+    `<text class="wp-btn" x="${x + 23}" y="165" text-anchor="middle">${label}</text>`;
   const bar = (x, key, label) =>
     `<rect class="wp-track" x="${x}" y="${BAR.y0 - BAR.h}" width="${BAR.w}" height="${BAR.h}" rx="3"/>` +
     `<rect class="wp-fill ${key}" data-wheel="${key}" data-y0="${BAR.y0}" data-h="${BAR.h}" ` +
@@ -49,12 +54,12 @@ export function wheelPreviewSvg() {
     ${bar(150, 'thr', 'THR')}
     ${bar(196, 'brk', 'BRK')}
 
-    <!-- mirrored BUTTON roles (light on press) -->
-    ${pill(4, 'GEAR &#9650;', 'gearUp')}
-    ${pill(54, 'GEAR &#9660;', 'gearDown')}
-    ${pill(104, 'DRS', 'drs')}
-    ${pill(154, 'BOOST', 'boost')}
-    ${pill(204, 'OT', 'overtake')}
+    <!-- mirrored BUTTON roles (light on press); labels shared with the assign panel -->
+    ${pill(4, WHEEL_BUTTON_LABELS.gearUp, 'gearUp')}
+    ${pill(54, WHEEL_BUTTON_LABELS.gearDown, 'gearDown')}
+    ${pill(104, WHEEL_BUTTON_LABELS.drs, 'drs')}
+    ${pill(154, WHEEL_BUTTON_LABELS.boost, 'boost')}
+    ${pill(204, WHEEL_BUTTON_LABELS.overtake, 'overtake')}
 
     <!-- display-semantics label: observed INPUT, never a car/camera-motion claim -->
     <text class="wp-obs" x="130" y="188" text-anchor="middle">OBSERVED WHEEL INPUT</text>

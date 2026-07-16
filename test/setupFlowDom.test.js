@@ -1479,11 +1479,12 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
     expect(el('tsPan').style.left).toBe(`${50 + 0.4 * 42}%`);
     expect(el('tsTilt').style.left).toBe(`${50 + -0.8 * 42}%`);
     // Stick wells: right dot moves in X (pan) AND Y (tilt); left dot in X only.
+    // spread = 19 SVG units (well radius 24 − dot radius 5); Batch 7 rider c.
     const right = el('padPreview').querySelector('[data-stick="right"]');
-    expect(Number(right.getAttribute('cx'))).toBeCloseTo(Number(right.dataset.cx) + 0.4 * 18);
-    expect(Number(right.getAttribute('cy'))).toBeCloseTo(Number(right.dataset.cy) + -0.8 * 18);
+    expect(Number(right.getAttribute('cx'))).toBeCloseTo(Number(right.dataset.cx) + 0.4 * 19);
+    expect(Number(right.getAttribute('cy'))).toBeCloseTo(Number(right.dataset.cy) + -0.8 * 19);
     const left = el('padPreview').querySelector('[data-stick="left"]');
-    expect(Number(left.getAttribute('cx'))).toBeCloseTo(Number(left.dataset.cx) + -0.5 * 18);
+    expect(Number(left.getAttribute('cx'))).toBeCloseTo(Number(left.dataset.cx) + -0.5 * 19);
     expect(Number(left.getAttribute('cy'))).toBe(Number(left.dataset.cy)); // steering is X-only
   });
 

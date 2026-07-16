@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_WHEEL_PROFILE, pedalValue, splitCombined, wheelValues,
   pressedWheelRoles, detectInputChange, normalizeWheelSettings,
+  MAX_DEADZONE, WHEEL_BUTTON_ROLES, WHEEL_BUTTON_LABELS,
 } from '../shared/wheelProfile.mjs';
 
 // A wheel-shaped fake pad: axes plus optional buttons. Pedals are AXES here (the
@@ -236,9 +237,12 @@ describe('normalizeWheelSettings — corrupt/partial persisted settings', () => 
     expect(n.brake.axis).toBe(2); // floored from 2.7
   });
 
-  it('deadzone is clamped into [0, 1)', () => {
+  it('deadzone is clamped into [0, MAX_DEADZONE] — the same bound the SEAT FIT slider enforces (rider a)', () => {
     expect(normalizeWheelSettings({ deadzone: -1 }).deadzone).toBe(0);
-    expect(normalizeWheelSettings({ deadzone: 5 }).deadzone).toBe(0.99);
+    // Above the cap repairs to MAX_DEADZONE (not a near-1 value the slider could
+    // never display / round-trip): the slider and the model agree on one bound.
+    expect(normalizeWheelSettings({ deadzone: 5 }).deadzone).toBe(MAX_DEADZONE);
+    expect(normalizeWheelSettings({ deadzone: MAX_DEADZONE }).deadzone).toBe(MAX_DEADZONE); // the cap itself is admitted
     expect(normalizeWheelSettings({ deadzone: 0.2 }).deadzone).toBe(0.2);
     expect(normalizeWheelSettings({ deadzone: 'x' }).deadzone).toBe(DEFAULT_WHEEL_PROFILE.deadzone);
   });
@@ -268,6 +272,29 @@ describe('normalizeWheelSettings — corrupt/partial persisted settings', () => 
     expect(() => wheelValues(pad([0, 0, 0]), n)).not.toThrow();
     const v = wheelValues(pad([0.3, 0, 0]), n);
     expect(v.steer).toBe(0.3);
+  });
+});
+
+// The shared constants that keep the model, the SEAT FIT panel, and the wheel viz
+// from drifting (Batch 7 riders a + b).
+describe('shared wheel constants', () => {
+  it('MAX_DEADZONE is a sane single-source bound and the default sits within it', () => {
+    expect(MAX_DEADZONE).toBe(0.5);
+    expect(DEFAULT_WHEEL_PROFILE.deadzone).toBeLessThanOrEqual(MAX_DEADZONE);
+  });
+
+  it('WHEEL_BUTTON_LABELS labels exactly the button roles — frozen, one per role (rider b)', () => {
+    expect(Object.keys(WHEEL_BUTTON_LABELS).sort()).toEqual([...WHEEL_BUTTON_ROLES].sort());
+    for (const role of WHEEL_BUTTON_ROLES) {
+      expect(typeof WHEEL_BUTTON_LABELS[role], `${role} has a label`).toBe('string');
+      expect(WHEEL_BUTTON_LABELS[role].length, `${role} label non-empty`).toBeGreaterThan(0);
+    }
+    // Literal glyphs, never HTML entities — both consumers assign them straight
+    // into the DOM (innerHTML/textContent), so an entity would render as raw text.
+    expect(WHEEL_BUTTON_LABELS.gearUp).toBe('GEAR ▲');
+    expect(WHEEL_BUTTON_LABELS.gearDown).toBe('GEAR ▼');
+    expect(Object.values(WHEEL_BUTTON_LABELS).join('')).not.toContain('&#');
+    expect(Object.isFrozen(WHEEL_BUTTON_LABELS)).toBe(true);
   });
 });
 
