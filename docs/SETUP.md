@@ -94,11 +94,18 @@ The in-app PIT WALL step drives this, but the facts to verify on the bench:
   (run as administrator) — the UI suggests it from a locale-neutral elevation check
   instead of failing silently.
 - **Hotspot lifecycle (start, stop, quit):** the hotspot has an explicit
-  STARTING → LIVE → STOPPING lifecycle owned by the main process. **STOP HOTSPOT** sits
-  beside START; a failed stop keeps the app's ownership and stays retryable. The app only
-  ever stops a hotspot **it** started — an externally-owned hotspot is never touched.
-  Quitting while an app-owned hotspot is live prompts a dialog (*STOP AND QUIT / LEAVE
-  RUNNING / CANCEL*); it never appears for a hotspot the app did not start.
+  STARTING → VERIFYING → READY / NOT READY FOR CLIENTS → STOPPING lifecycle owned by the
+  main process. A successful start *command* is not treated as client-readiness: the app
+  classifies local readiness (WinRT tether state, the ICS `192.168.137.x` gateway, and the
+  `SharedAccess`/`icssvc` service state) into **READY** (nothing locally wrong) or **NOT
+  READY FOR CLIENTS** (a degraded signal), and marks the hotspot interrupted if its backing
+  adapter disappears — verification is event-triggered, with no blind sleeps and no physical
+  DHCP claim. To verify a client actually reaches the hotspot is a **hardware** step (bench),
+  not something CI or local readiness can prove. **STOP HOTSPOT** sits beside START; a failed
+  stop keeps the app's ownership and stays retryable. The app only ever stops a hotspot
+  **it** started — an externally-owned hotspot is never touched. Quitting while an app-owned
+  hotspot is live prompts a dialog (*STOP AND QUIT / LEAVE RUNNING / CANCEL*); it never
+  appears for a hotspot the app did not start.
 - **Hotspot credential at rest:** the hotspot password is encrypted via Electron
   `safeStorage` (DPAPI on Windows) and never written to disk in plaintext (see §7). When
   secure storage is unavailable it is kept for the session only, not persisted.

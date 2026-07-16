@@ -93,5 +93,12 @@ Windows host: verify full-screen + F11; adapter insert/remove/reinsert while PIT
 hotspot on internal vs USB adapter; the Pixel DHCP path (SSID → auth → IPv4 → gateway/DNS →
 local service); that app state matches Windows state incl. the degraded state when ICS/DHCP
 readiness fails; the non-overlapping auth error; and redacted-only logs. Collect the redacted
-diagnostics bundle it specifies. These two CB8 commits + this slice have **not** run Windows CI
-yet (CI is green through `0e85702`).
+diagnostics bundle it specifies.
+
+**CI update (2026-07-16).** This slice landed as `e0a5cdc` (on top of the Batch F doc-sync
+`8c5af12`); it and the earlier CB8 commits are now pushed. **Windows CI is GREEN at `e0a5cdc`**
+(run `29440396447`): the ubuntu `test` job + the windows-latest `package-smoke` job
+(`npm ci` → `ensure-electron` → `npm test` **798/798, 46 files** → `npm run smoke:electron`
+**4/4** → `electron-builder --dir`) both passed. CI proves the code on windows-latest; it does
+**not** substitute for the real-Windows / Pixel **hardware** validation above, which is still
+outstanding.

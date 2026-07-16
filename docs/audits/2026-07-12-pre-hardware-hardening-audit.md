@@ -3,25 +3,34 @@
 **Status: working document for the 2026-07 pre-hardware hardening pass. Updated after every
 completed batch.**
 
-> **CURRENT STATE (2026-07-15).** Batches **A1–E1 are COMMITTED and pushed** — the pass
-> landed as `79fa2e0` (A1→D1/D4 + partial D2), then `0564141` (D2), `297ca79` (D3),
-> `8ceb931` (D3 Windows-CI test fix), and **`0e85702` (E1 credential encryption)**, which is
-> the tip of `origin/main`. **Windows CI is GREEN at `0e85702`** (Ubuntu suite + windows-latest
-> suite + `npm run smoke:electron` + `electron-builder --dir`). **Batch F (documentation
-> sync) is COMPLETE and UNCOMMITTED** (this pass; see the "Batch F status" section). **Batch
-> G (proposals) has not started.**
+> **CURRENT STATE (2026-07-16).** Everything through Batch E1, the CB8 3B/3C feature track,
+> the earlier Batch F documentation-sync, and the Windows reliability slice **is COMMITTED and
+> pushed** — the chain is `79fa2e0` (A1→D1/D4 + partial D2) → `0564141` (D2) → `297ca79` (D3) →
+> `8ceb931` (D3 Windows-CI test fix) → `0e85702` (E1 credential encryption) → `03f43e2` (CB8 3B)
+> → `dce91f8` (CB8 3C) → `8c5af12` (the 2026-07-15 Batch F doc-sync, committed with the terse
+> message "some chages") → **`e0a5cdc`** ("feat(network): harden Windows adapter and hotspot
+> lifecycle" — the Windows reliability slice), which is the **tip of `origin/main`** and the
+> current `main` **HEAD**. `main` is **level with `origin/main` (0 ahead / 0 behind)** — nothing
+> is unpushed. **Windows CI is GREEN at `e0a5cdc`** (run `29440396447`: the ubuntu `test` job +
+> the windows-latest `package-smoke` job = suite + `npm run smoke:electron` + `electron-builder
+> --dir`). The suite is now **798 tests across 46 files**. **Batch F (this 2026-07-16
+> documentation re-sync) is being committed this session** (docs-only; see the "Batch F status"
+> section). **Batch G (proposals) has not started.**
 >
-> **BASELINE SHIFT — a separate feature track landed on top of the hardening pass.** After
-> E1, VR-FPV **CB8 slices 3B/3C** were committed to `main`: `03f43e2` (a read-only,
-> display-only mapper head-intent-diagnostics gRPC subscriber) and **`dce91f8`** (proto-drift
-> guard + cross-process integration evidence) — the current `main` **HEAD**. These two commits
-> are **local and unpushed** (ahead of `origin/main` by 2) and have **not yet run through CI**.
-> They add no control path (subscriber-only, display-only; the head-intent chip always reads
-> `NO CONTROL`; enabling the consumer force-disables the local W3 receiver so UDP 5602 keeps a
-> single owner). The current suite is **746 tests across 43 files** (686/38 at E1 + 60 CB8
-> tests). CB8 is not one of the hardening batches (A–G); it is recorded here as a baseline
-> shift only. See `docs/head_intent_diagnostics.md` and
-> `docs/2026-07-15_cb8_slice3c_integration_evidence.md`.
+> **What landed since the 2026-07-15 Batch F.** (1) The CB8 3B/3C commits (`03f43e2`, `dce91f8`)
+> and the Batch F doc-sync (`8c5af12`) were pushed and are CI-green. (2) A **Windows reliability
+> slice** landed as **`e0a5cdc`**: main-process adapter live-push (`adapterMonitor.js`), the
+> hotspot readiness model (`hotspotVerify.js` → verifying/verified/degraded/interrupted),
+> packaged full-screen + F11, a width-bounded join-error summary/detail UX, and a secret-redaction
+> backstop (`shared/redact.js`). It is display/main-process **hardening only** — no bridge schema,
+> canonical contract, control path, CRSF encoder, pan/tilt, firmware, mapper, or iPhone change; W3
+> stays log-only. The suite moved 746→**798** (+52 reliability tests); see
+> `docs/2026-07-15_windows_reliability_slice.md`. CB8 (still display-only; the head-intent chip
+> always reads `NO CONTROL`, and enabling the consumer force-disables the local W3 receiver so
+> UDP 5602 keeps a single owner) is recorded as a baseline shift, not a hardening batch (A–G); see
+> `docs/head_intent_diagnostics.md` and `docs/2026-07-15_cb8_slice3c_integration_evidence.md`.
+> A separate SEAT-FIT / camera-mode display track is **in progress and uncommitted** on this host
+> — it is **not** part of this Batch F and is not documented here as shipped.
 
 | | |
 |---|---|
@@ -206,7 +215,8 @@ REQUIRES HARDWARE / REQUIRES USER DECISION. Since the tree is unchanged from
   with no re-arm and re-bannered as a superseded design record (W2/W3 shipped);
   README/SETUP gained the Wi-Fi security scope, hotspot STOP/quit-ownership, safeStorage
   credential policy, and `npm run smoke:electron`. Contract §1–§7 untouched. See the
-  Batch F status section. Batch: **F — DONE (code/doc), uncommitted for review**.
+  Batch F status section. Batch: **F — DONE (docs), COMMITTED (`8c5af12`; re-synced
+  2026-07-16 for the `e0a5cdc` reliability slice)**.
 
 **L6 — Hotspot password persisted in plaintext.**
 - Evidence: `renderer/setupFlow.js:173-184` (`leavePitwall` saves `hotspot.password`
@@ -350,10 +360,10 @@ Windows). Tests: `test/runCommand.test.js` (timeout result shape, cross-platform
 | C5 | D2 W2-on-GRID timing | Q5 logged — **DONE** (documented, unchanged) |
 | D1 | V1 directory-sweep no-control-path guard (existing assertions preserved) | objective — **DONE** |
 | D2 | V2/N1 setup-flow DOM tests (smallest env; likely jsdom via vitest) | objective — **DONE** |
-| D3 | V2 Electron boot smoke (Windows CI job) | objective — **DONE** (local; CI execution pending push) |
+| D3 | V2 Electron boot smoke (Windows CI job) | objective — **DONE** (windows-latest CI ran green; `297ca79`/`8ceb931`, latest at `e0a5cdc`) |
 | D4 | Command-generation tests (spaces, non-ASCII SSIDs, special-char passwords, argv separation, XML escaping) | objective — **DONE** |
 | E1 | L6 credential storage policy + never-log guarantee | **user decision: policy** (never-log objective) — **DONE (code), DPAPI bench-pending** |
-| F | L5 + all doc sync (checklist prereqs, CURRENT_STATUS pointer, readiness-doc stale note, adapter/hotspot/sim/permission docs; contract §1–§7 untouched) | objective — **DONE (uncommitted)** |
+| F | L5 + all doc sync (checklist prereqs, CURRENT_STATUS pointer, readiness-doc stale note, adapter/hotspot/sim/permission docs; contract §1–§7 untouched) | objective — **DONE, COMMITTED** (`8c5af12`; re-synced 2026-07-16 for the `e0a5cdc` slice) |
 | G | Wider proposal pass (proposals only, no unapproved implementation) | proposals — **NOT STARTED** |
 
 ## 4. User decisions (log)
@@ -398,7 +408,7 @@ including on a localized Windows build.
 ### Authoritative hardware-evidence matrix
 
 The single ledger for what is proven and how. **Class** is one of: **host-verified** (proven
-on the macOS dev host), **CI-verified** (proven by Windows CI at `0e85702`), **simulation-only**
+on the macOS dev host), **CI-verified** (proven by Windows CI at `e0a5cdc`, run `29440396447`), **simulation-only**
 (dev preview via `W17_WIFI_SIM` / fakes — never bench evidence), **hardware-pending** (must be
 proven on the real bench). `docs/setup_flow_bench_checklist.md` is the operator runbook; the
 step numbers in "Procedure" refer to it (items 1–10 + hardening items A–E). Nothing marked
@@ -425,7 +435,7 @@ real-hardware observation is outstanding.
 | 16 | Real iPhone W2 telemetry on GRID | Windows + iPhone HUD app + shared net | Test plan §2; checklist §8 | iPhone HUD shows live values after GRID `session:apply`; int/double type discipline holds | iPhone screen recording + captured datagram | W2 | hardware-pending |
 | 17 | iOS Local Network permission | iPhone (first UDP use) | Test plan §1/§2.2 | Permission prompt; green ping does not imply UDP receive until allowed | Permission-state screenshot | V3 (C4) | hardware-pending |
 | 18 | ELRS status + launch | Windows + elrs-joystick-control | Checklist §6 | LAUNCH starts it detached; `tasklist` detect → OK; survives GS quit/kill | Task Manager screenshot after GS quit | launch-only | hardware-pending |
-| 19 | Packaged Windows app boot/smoke | windows-latest (CI) + packaged `.exe` (bench) | CI `package-smoke`; `npm run smoke:electron` | CI: suite + 4/4 smoke scenarios + `electron-builder --dir` green | CI run link (`0e85702`) + local smoke log | D3/V2 | **CI-verified** at `0e85702` (packaged real-use = hardware-pending) |
+| 19 | Packaged Windows app boot/smoke | windows-latest (CI) + packaged `.exe` (bench) | CI `package-smoke`; `npm run smoke:electron` | CI: suite + 4/4 smoke scenarios + `electron-builder --dir` green | CI run link (`e0a5cdc`, run `29440396447`) + local smoke log | D3/V2 | **CI-verified** at `e0a5cdc` (packaged real-use = hardware-pending) |
 | 20 | Integrated bench / soak | Full bench (camera + iPhone + ELRS + hotspot) | Checklist §10 end-to-end, extended | Full GARAGE→GRID→START→lights with all subsystems live; counters stable over a soak | Screen recording + counter dump | CB10 gate | hardware-pending |
 
 > CB8 head-intent diagnostics (slices 3B/3C) validated cross-process against the live
@@ -934,46 +944,62 @@ real-hardware observation is outstanding.
   (inspected for consistency only). No runtime source or test change. See the Batch F status
   section. Validation: `npm test` **746/746 (43 files)**, `npm run smoke:electron` **4/4 PASS**,
   `git diff --check` clean.
+- 2026-07-16 — **Pushed; a Windows reliability slice landed; Batch F re-synced and committed.**
+  The 2026-07-15 Batch F doc-sync was committed as **`8c5af12`** (terse message "some chages")
+  and the CB8 3B/3C commits (`03f43e2`, `dce91f8`) were pushed — all CI-green. A **Windows
+  reliability slice** then landed as **`e0a5cdc`** ("feat(network): harden Windows adapter and
+  hotspot lifecycle"): main-process adapter live-push (`main/adapterMonitor.js`), the hotspot
+  readiness/interrupted model (`main/hotspotVerify.js` → verifying/verified/degraded), packaged
+  full-screen + F11, the width-bounded join-error summary/detail UX, and a secret-redaction
+  backstop (`shared/redact.js`) — display/main-process **hardening only**, no bridge/contract/
+  control/CRSF/pan-tilt/firmware/mapper/iPhone change; W3 stays log-only. `main` is now **level
+  with `origin/main` (0 ahead / 0 behind)**; **Windows CI is GREEN at `e0a5cdc`** (run
+  `29440396447`: ubuntu `test` + windows-latest `package-smoke`). The suite moved 746→**798 /
+  46 files** (+52 reliability tests). This session re-synchronized the status/operator docs to
+  the true HEAD `e0a5cdc` / 798-46 / CI-green and committed them as a **docs-only** commit (see
+  the Batch F status section). A separate **SEAT-FIT / camera-mode display track is in progress
+  and uncommitted** on this host — **not** part of this Batch F and not recorded as shipped.
 
 ---
 
 ## Current transfer checkpoint
 
 **Purpose: a self-contained handoff for a fresh model with NO conversation history or
-session memory. Describes the ACTUAL working tree at `main` HEAD `dce91f8`.** Batches
-**A1–E1 are COMMITTED and pushed** (`79fa2e0` → `0564141` → `297ca79` → `8ceb931` →
-**`0e85702`** = E1 = tip of `origin/main`); **Windows CI is GREEN at `0e85702`**. On top of
-that, a separate feature track added **CB8 slices 3B/3C** (`03f43e2`, `dce91f8`) — **local,
-unpushed, and not yet CI'd** (see the baseline-shift change-log entry). **Batch F
-(documentation sync) is COMPLETE and UNCOMMITTED** (docs-only; see the Batch F status
-section). **Batch G (proposals) has not started — do not start it.** Suite is **746/746
-(43 files)**. Authoritative cross-account handoff (session memory is a convenience copy).
+session memory. Describes the ACTUAL working tree at `main` HEAD `e0a5cdc`.** Everything
+through E1, CB8 3B/3C, the 2026-07-15 Batch F doc-sync, and the Windows reliability slice
+**is COMMITTED and pushed** (`79fa2e0` → `0564141` → `297ca79` → `8ceb931` → `0e85702` (E1) →
+`03f43e2` (CB8 3B) → `dce91f8` (CB8 3C) → `8c5af12` (Batch F doc-sync) → **`e0a5cdc`** (Windows
+reliability slice) = tip of `origin/main`). `main` is **level with `origin/main` (0 ahead /
+0 behind)**; **Windows CI is GREEN at `e0a5cdc`** (run `29440396447`). **Batch F (the 2026-07-16
+documentation re-sync) is committed this session** (docs-only; see the Batch F status section).
+**Batch G (proposals) has not started — do not start it.** Suite is **798/798 (46 files)**.
+A separate SEAT-FIT / camera-mode display track is **in progress and uncommitted** on this host
+(not part of Batch F). Authoritative cross-account handoff (session memory is a convenience copy).
 
 ### Repository state
 
 - Repo: `w17-ground-station` (nested git repo under `.../Documents/projects/`).
-- Branch: `main`. **HEAD commit: `dce91f8`** ("test: proto-drift guard + cross-process
-  integration evidence (CB8 slice 3C)") — a CB8 feature-track commit, **local/unpushed**.
-  Parents: `03f43e2` ("feat: subscribe to mapper head-intent diagnostics (CB8 slice 3B,
-  display-only)", also local/unpushed) ← **`0e85702`** ("feat: encrypt persisted hotspot
-  credentials", E1 — **tip of `origin/main`**) ← `8ceb931` (D3 Windows-CI test fix) ←
-  `297ca79` (D3) ← `0564141` (D2) ← `79fa2e0` (the user's 62-file A1→D1/D4 + partial-D2 +
-  contract-mirror commit) ← `cf038c2` (the commit this audit originally examined; the
-  numbered findings above still reference that baseline).
-- **`main` is ahead of `origin/main` by 2** (the two CB8 commits). Everything through E1
-  (`0e85702`) is pushed; `03f43e2` and `dce91f8` are not.
-- **Windows CI is GREEN at `0e85702`** (run `29364521697`): the windows-latest
-  `package-smoke` job ran `npm ci` → `ensure-electron` → `npm test` → `npm run smoke:electron`
-  → the `electron-builder --dir` package step; the ubuntu `test` job is green too. **The two
-  CB8 commits (`03f43e2`, `dce91f8`) have not run through CI** (unpushed) — pushing them will
-  exercise it.
-- **Uncommitted right now — Batch F (documentation sync, docs-only).** No runtime source or
-  test change. Files (this repo): `README.md`, `docs/SETUP.md`,
-  `docs/setup_flow_bench_checklist.md`, `docs/iphone_bridge_readiness.md`,
-  `docs/iphone_windows_bridge_test_plan.md`, and this audit
-  (`docs/audits/2026-07-12-pre-hardware-hardening-audit.md`). Plus, in the **manual repo**
-  (`.../projects/`), `../CURRENT_STATUS.md`. `docs/windows_bridge_contract.md` §1–§7 untouched.
-  Batch F stays uncommitted for user review — do not commit or push.
+- Branch: `main`. **HEAD commit: `e0a5cdc`** ("feat(network): harden Windows adapter and
+  hotspot lifecycle" — the Windows reliability slice) — **pushed, tip of `origin/main`**.
+  Parents: `8c5af12` (the 2026-07-15 Batch F doc-sync, message "some chages") ← `dce91f8`
+  (CB8 3C) ← `03f43e2` (CB8 3B) ← **`0e85702`** (E1, "feat: encrypt persisted hotspot
+  credentials") ← `8ceb931` (D3 Windows-CI test fix) ← `297ca79` (D3) ← `0564141` (D2) ←
+  `79fa2e0` (the user's 62-file A1→D1/D4 + partial-D2 + contract-mirror commit) ← `cf038c2`
+  (the commit this audit originally examined; the numbered findings above still reference that
+  baseline).
+- **`main` is level with `origin/main` (0 ahead / 0 behind)** — everything above is pushed.
+- **Windows CI is GREEN at `e0a5cdc`** (run `29440396447`): the windows-latest `package-smoke`
+  job ran `npm ci` → `ensure-electron` → `npm test` (**798/798, 46 files**) → `npm run
+  smoke:electron` (**4/4**) → the `electron-builder --dir` package step; the ubuntu `test` job
+  is green too. (Earlier green anchors: E1 `0e85702` run `29364521697`; the Batch F doc-sync
+  `8c5af12` run `29417796510`.)
+- **Uncommitted right now — a separate SEAT-FIT / camera-mode display track** (renderer +
+  shared + tests + `docs/camera_aim_display_semantics.md`), in progress on this host. It is
+  **not** part of Batch F, is not documented here as shipped, and was left untouched. This
+  session's Batch F re-sync is **docs-only** and touches this audit,
+  `docs/setup_flow_bench_checklist.md`, `docs/2026-07-15_windows_reliability_slice.md`,
+  `README.md`, `docs/SETUP.md`, plus `../CURRENT_STATUS.md` in the manual repo.
+  `docs/windows_bridge_contract.md` §1–§7 untouched.
 - HISTORICAL — the Batch E1 delta (now inside `0e85702`):
   ```
    M main/appWiring.js          (settings:get returns non-secret `credential` status)
@@ -993,7 +1019,7 @@ section). **Batch G (proposals) has not started — do not start it.** Suite is 
   124/124, wifi/hotspot + D2/D3 regressions 361/361, full `npm test` **686/686 (38 files)**,
   real `npm run smoke:electron` **4/4 PASS**, real-Electron E1 acceptance PASS on live macOS
   Keychain, `git diff --check` clean. It is now committed as `0e85702`. (The suite is
-  **746/43** at the current HEAD `dce91f8` after the CB8 3B/3C additions.)
+  **798/46** at the current HEAD `e0a5cdc` after the CB8 3B/3C additions and the reliability slice.)
 - HISTORICAL — the Batch D3 delta (now inside `297ca79`):
   ```
    M .github/workflows/ci.yml   (package-smoke job: ensure-electron + npm test + smoke + artifact-on-failure)
@@ -1136,7 +1162,22 @@ section). **Batch G (proposals) has not started — do not start it.** Suite is 
   `main/wifiManager.js` (3rd touch — mkdtemp temp dir), `main/runCommand.js` (2nd touch —
   `winTreeKillArgs` export); **new** `test/commandGeneration.test.js`.
 
-### Batch F status: COMPLETE (documentation sync) — UNCOMMITTED
+### Batch F status: COMMITTED (documentation sync) — re-synced 2026-07-16 for the `e0a5cdc` slice
+
+**Update (2026-07-16) — the 2026-07-15 Batch F is COMMITTED; a re-sync landed this session.**
+The 2026-07-15 doc-sync described below was committed as **`8c5af12`** (message "some chages",
+CI-green run `29417796510`) and pushed; the CB8 3B/3C commits (`03f43e2`, `dce91f8`) were pushed
+too. A **Windows reliability slice** then landed as **`e0a5cdc`** (adapter live-push, hotspot
+readiness/interrupted model, packaged full-screen + F11, bounded join-error UX, secret-redaction
+backstop — display/main-process hardening only, no bridge/contract/control/firmware/mapper/iPhone
+change), moving the suite to **798/798 (46 files)** with **Windows CI GREEN at `e0a5cdc`** (run
+`29440396447`). This session re-synchronized the status/operator docs to the true HEAD `e0a5cdc` —
+`README.md` and `docs/SETUP.md` (hotspot readiness step), `docs/setup_flow_bench_checklist.md`
+(798/46 baseline), `docs/2026-07-15_windows_reliability_slice.md` (CI-green update), and this audit
+(banner, matrix CI SHA, change log, transfer checkpoints, this section) — plus `../CURRENT_STATUS.md`
+in the manual repo, and committed them as a **docs-only** commit. The SEAT-FIT / camera-mode display
+track uncommitted on this host is **not** part of it. The 2026-07-15 record below is retained as a
+dated account of that pass.
 
 Scope was exactly **F** (finding L5 + all documentation sync). **Docs-only — no runtime
 source or test change**, so no batch-status/no-control-path/contract invariant is affected;
@@ -1178,10 +1219,13 @@ made honest about what CI does and does not prove. Historical change-log/status 
 name old hashes/counts were left intact (clearly dated). The 2026-07-09 `dab3039`/118 Windows
 bring-up note stays as a labeled historical fact.
 
-**Current classification (unchanged by F — F only documents it):**
-- **Software: COMPLETE through Batch E1** + CB8 3B/3C (display-only). Suite 746/43.
+**Current classification (2026-07-16; F only documents it):**
+- **Software: COMPLETE through Batch E1** + CB8 3B/3C (display-only) + the `e0a5cdc` Windows
+  reliability slice. Suite **798/46**. (A separate SEAT-FIT / camera-mode display track is in
+  progress and uncommitted — not counted as shipped.)
 - **Host tests: GREEN** (full suite + `npm run smoke:electron` 4/4 on macOS).
-- **Windows CI: GREEN at `0e85702`**; the two CB8 commits are unpushed/un-CI'd.
+- **Windows CI: GREEN at `e0a5cdc`** (run `29440396447`); everything through `e0a5cdc` is pushed
+  and CI-covered.
 - **Hardware evidence: PENDING** — the §5 authoritative matrix is the ledger.
 - Nothing hardware-pending is software-incomplete; the code exists and is host/CI-tested.
 
@@ -1192,8 +1236,9 @@ inspected; `npm test` **746/746 (43 files)**; `npm run smoke:electron` **4/4 PAS
 `git diff --check` clean.
 
 **Batch G starting point:** a proposals-only pass — **not started, do not start without an
-explicit ask.** Before G, note `main` is 2 local/unpushed commits (CB8 3B/3C) past
-`origin/main`; pushing them will trigger their first Windows CI run.
+explicit ask.** `main` is level with `origin/main` (0 ahead / 0 behind) and CI-green at
+`e0a5cdc`; the in-progress SEAT-FIT / camera-mode display track is uncommitted and out of
+Batch F/G scope.
 
 ### Batch D3 status: COMPLETE + COMMITTED (`297ca79`) — Windows CI GREEN after the `8ceb931` test-only correction (boot smoke ran remotely, PASS)
 
@@ -1315,12 +1360,12 @@ bench inventory (real netsh/WinRT/ping/localized-Windows, camera→mediamtx→WH
 telemetry, iPhone W2/Local-Network + W3 log-only runbook); the windows-latest CI job has now
 run green (D3 fully closed). Sim/dev-preview is never bench evidence.
 
-**Batch F is COMPLETE (E1 committed as `0e85702`).** E1 landed as `0e85702` (Windows CI
-green); **F (documentation sync) is done and uncommitted** — see the Batch F status section.
-F synced all operator/workspace docs to the true HEAD `dce91f8` / 746-tests-43-files, closed
-finding L5, corrected the readiness doc to 300 ms/no-re-arm, added the Wi-Fi security scope +
-hotspot STOP/quit-ownership + safeStorage credential policy + `npm run smoke:electron` to
-README/SETUP, and rewrote `../CURRENT_STATUS.md`'s stale `3c16954`/217 block.
+**Batch F is COMPLETE and COMMITTED.** E1 landed as `0e85702` (Windows CI green); the
+2026-07-15 documentation sync was committed as `8c5af12` and **re-synced 2026-07-16** to the
+true HEAD `e0a5cdc` / 798-46 / CI-green (run `29440396447`) — see the Batch F status section.
+F closed finding L5, corrected the readiness doc to 300 ms/no-re-arm, added the Wi-Fi security
+scope + hotspot STOP/quit-ownership + safeStorage credential policy + `npm run smoke:electron`
+to README/SETUP, and rewrote `../CURRENT_STATUS.md`'s stale `3c16954`/217 block.
 `docs/windows_bridge_contract.md` §1–§7 stayed untouched. **G** — proposals only — **has not
 started; do not start it.**
 
@@ -2514,24 +2559,29 @@ sim preview is never bench evidence.
    COMMITTED as `297ca79`, test-fix `8ceb931`. **Windows CI is GREEN** (smoke ran remotely).
 6. ~~Batch E1~~ — **DONE, COMMITTED as `0e85702`** (hotspot credential at-rest encryption;
    Windows CI green). See the Batch E1 status section.
-7. ~~Batch F (documentation sync)~~ — **DONE 2026-07-15 (uncommitted)** — see the Batch F
-   status section. Synced all docs to the true HEAD `dce91f8` / 746-tests-43-files.
+7. ~~Batch F (documentation sync)~~ — **DONE.** The 2026-07-15 sync was committed as `8c5af12`;
+   re-synced 2026-07-16 to the true HEAD `e0a5cdc` / 798-46 / CI-green and committed docs-only.
+   See the Batch F status section.
 8. **Exact next starting point — Batch G (proposals only).** A wider proposal pass; NO
-   unapproved implementation. **Do NOT start it until the user explicitly asks.** (Note the
-   baseline shift: `main` HEAD is now `dce91f8`, two local/unpushed CB8 commits past E1.)
+   unapproved implementation. **Do NOT start it until the user explicitly asks.** (`main` HEAD is
+   now `e0a5cdc`, level with `origin/main`; a separate SEAT-FIT / camera-mode display track is in
+   progress and uncommitted — out of Batch F/G scope.)
 9. Bench items accumulate in §5 + the authoritative hardware-evidence matrix; nothing new is
-   hardware-proven. The pushed CB8 commits will also need a Windows CI run.
+   hardware-proven. All commits through `e0a5cdc` (incl. CB8 and the reliability slice) are
+   pushed and CI-covered; the real-Windows/Pixel validation of the reliability slice is still
+   outstanding (see `docs/2026-07-15_windows_reliability_slice.md`).
 
 Recommended first actions for the next session: read this checkpoint + §4 decisions;
-`git log --oneline -5` (expect HEAD **`dce91f8`** "test: proto-drift guard … (CB8 slice 3C)"
-← `03f43e2` (CB8 3B) ← **`0e85702`** "feat: encrypt persisted hotspot credentials" (E1, tip
-of `origin/main`) ← `8ceb931` ← `297ca79`); `git status --short` (expect the **Batch F
-docs-only delta**: `M README.md`, `M docs/SETUP.md`, `M docs/setup_flow_bench_checklist.md`,
-`M docs/iphone_bridge_readiness.md`, `M docs/iphone_windows_bridge_test_plan.md`, `M` this
-audit file — plus `M ../CURRENT_STATUS.md` in the manual repo); `git rev-list --count
-origin/main..main` = **2** (the unpushed CB8 commits); `npm test` (expect **746/746, 43
-files**); `npm run smoke:electron` (expect **4/4** scenarios PASS, no orphan process/temp
-dir); `git diff --check` (clean). Batch F stays UNCOMMITTED until the user reviews.
+`git log --oneline -5` (expect HEAD **`e0a5cdc`** "feat(network): harden Windows adapter and
+hotspot lifecycle" ← `8c5af12` (Batch F doc-sync) ← `dce91f8` (CB8 3C) ← `03f43e2` (CB8 3B) ←
+**`0e85702`** (E1)); `git status --short` (expect the **in-progress SEAT-FIT / camera-mode
+display track** — `M renderer/*`, `M shared/inputPresets.mjs`, `M docs/camera_aim_display_semantics.md`,
+`?? shared/cameraMode.mjs`, `?? test/*` — which is **not** Batch F/G, plus anything the
+2026-07-16 docs commit already captured); `git rev-list --count origin/main..main` = **0**
+(everything through `e0a5cdc` is pushed); `npm test` (the host tree may exceed the committed
+count while the SEAT-FIT track is present; the **CI-verified** total at `e0a5cdc` is **798/798,
+46 files**); `npm run smoke:electron` (expect **4/4** scenarios PASS, no orphan process/temp
+dir); `git diff --check` (clean). Batch G stays UNSTARTED until the user asks.
 
 ### Hard boundaries (unchanged, apply always)
 

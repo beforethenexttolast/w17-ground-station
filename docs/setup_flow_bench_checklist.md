@@ -33,7 +33,7 @@ hardware-evidence matrix** in `docs/audits/2026-07-12-pre-hardware-hardening-aud
 ## 1. Baseline
 
 - [ ] `git rev-parse --short HEAD`; `npm test` green (current total — see README/CI, not a
-      frozen number; at time of writing the suite is 746 tests across 43 files);
+      frozen number; at time of writing the suite is 798 tests across 46 files);
       `npm run smoke:electron` → 4/4 scenarios PASS.
 - [ ] `npm start` boots to GARAGE; `⚙` menu opens; `settings.json` appears under
       `%APPDATA%/w17-ground-station/` after any change.

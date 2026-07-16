@@ -68,9 +68,14 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    netsh error), unless Windows already has a saved profile for that network (which is
    joined through the stored profile). Hidden-network manual entry is out of scope. The
    hotspot has an explicit lifecycle: **START HOTSPOT** / **STOP HOTSPOT** with live
-   state (STARTING → LIVE → STOPPING), and the app only ever stops a hotspot **it**
-   started — quitting with an app-owned hotspot live prompts *STOP AND QUIT / LEAVE
-   RUNNING / CANCEL*; an externally-owned hotspot is never touched. An ADAPTER row always
+   state (STARTING → VERIFYING → READY / NOT READY FOR CLIENTS → STOPPING). A successful
+   start *command* is never shown as client-ready on its own: the app checks local
+   readiness (tether state, the ICS `192.168.137.x` gateway, and the required services)
+   and reports **READY** or **NOT READY FOR CLIENTS**, and if the backing adapter vanishes
+   the hotspot is marked interrupted — "ready" means "nothing locally wrong", never a proof
+   that a client obtained a lease. The app only ever stops a hotspot **it** started —
+   quitting with an app-owned hotspot live prompts *STOP AND QUIT / LEAVE RUNNING /
+   CANCEL*; an externally-owned hotspot is never touched. An ADAPTER row always
    shows which WLAN adapter netsh will use: readonly with one adapter, a picker with
    several (pinning scan/join to the chosen interface, persisted), and a dongle
    troubleshooting hint when none is detected or listing fails. RESCAN re-detects
