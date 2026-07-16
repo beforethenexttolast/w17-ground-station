@@ -608,6 +608,15 @@ describe('createWindowOptions — sandboxed renderer invariants (audit D3)', () 
         expect('icon' in opts).toBe(false);
     });
 
+    it('pins the 1024×640 small-display floor so the window cannot shrink below the laid-out size (Batch 4 / P4)', () => {
+        const opts = createWindowOptions({ preloadPath: '/p' });
+        // Default restored size stays 1280×720; the minimum is the smaller floor
+        // both target viewports (1280×800, 1366×768) sit above.
+        expect(opts).toMatchObject({ minWidth: 1024, minHeight: 640 });
+        expect(opts.minWidth).toBeLessThan(opts.width);
+        expect(opts.minHeight).toBeLessThan(opts.height);
+    });
+
     it('includes the icon only when a path is supplied', () => {
         expect(createWindowOptions({ preloadPath: '/p', iconPath: '/app/build/icon.png' }).icon)
             .toBe('/app/build/icon.png');

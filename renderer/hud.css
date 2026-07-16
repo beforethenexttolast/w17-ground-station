@@ -153,11 +153,14 @@ body{background:#000;color:var(--silver);
    overflows, so START/BACK/NEXT are always reachable (task §1). The generous
    block padding keeps content clear of the pinned footnote/radio overlays. The
    bottom band is sized to clear a full 3-toast radio stack + the footnote (task
-   Batch 2 §3). */
+   Batch 2 §3). Batch 4 (P4) raised the floor 5.5em -> 7em: a tall SEAT FIT with
+   a full 3-toast stack scrolled the tail of the camera-note paragraph ~17px
+   under the radio band at 1280x800 / 1366x768; 7em reserves enough scroll room
+   that the last line clears the band at max scroll (measured: 0px overlap). */
 .gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;
   justify-content:safe center;gap:clamp(.9em,2vh,1.4em);overflow-y:auto;overflow-x:hidden;
   background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,.9),rgba(2,4,4,.97));text-align:center;
-  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(5.5em,10vh,7em);}
+  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(7em,10vh,7.5em);}
 .gate.hidden{display:none}
 /* compact header: title + subtitle share one baseline row instead of stacking */
 .gatehead{display:flex;align-items:baseline;justify-content:center;gap:1em;flex-wrap:wrap}
@@ -169,6 +172,9 @@ body{background:#000;color:var(--silver);
 .gate .status.no{color:var(--amber)}
 .startbtn{pointer-events:auto;cursor:pointer;margin-top:.3em;font-family:inherit;font-weight:800;letter-spacing:.22em;text-transform:uppercase;
   font-size:clamp(13px,1.7vw,18px);color:var(--carbon);background:var(--teal);border:none;padding:.85em 2.4em;
+  /* Small-display floor (Batch 4 / P4): never exceed the wrapped action row, and
+     let a long label (START ANYWAY) wrap instead of forcing horizontal overflow. */
+  max-width:100%;white-space:normal;overflow-wrap:break-word;
   clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);transition:filter .12s,transform .12s;}
 .startbtn:hover{filter:brightness(1.15);transform:translateY(-1px)}
 .keys{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.08em;line-height:1.8;max-width:46ch}

@@ -36,9 +36,11 @@ describe('responsive layout — setup overlay scrolls, never clips (Phase 3)', (
     expect(gate).toMatch(/overflow-y:\s*auto/);          // 1280×720 etc.: scroll, not clip
     expect(gate).toMatch(/justify-content:\s*safe center/); // centre when it fits, top when not
     // Bottom padding reserves a band deep enough to clear a full 3-toast radio
-    // stack + the footnote so neither can cover START/BACK/NEXT (Batch 2 §3):
-    // the floor grew from clamp(4em,…) to clamp(5.5em,…).
-    expect(gate).toMatch(/padding:[^;]*clamp\(5\.5/);
+    // stack + the footnote so neither can cover START/BACK/NEXT (Batch 2 §3).
+    // Batch 4 (P4) raised the floor 5.5em → 7em: the measured worst case (a tall
+    // SEAT FIT with a full 3-toast stack) scrolled the camera-note tail ~17px
+    // under the radio band at 5.5em; 7em brings that to 0px at both target sizes.
+    expect(gate).toMatch(/padding:[^;]*clamp\(7em/);
   });
 
   it('the radio + footnote overlays are position:fixed viewport overlays, not scroll-flow children (Batch 2 §3)', () => {
@@ -98,6 +100,16 @@ describe('responsive layout — action rows wrap, never overlap (Phase 3)', () =
 
   it('BACK / NEXT keep clear spacing', () => {
     expect(rule('.setup-nav')).toMatch(/gap:/);
+  });
+
+  it('the start button caps at its row width and wraps its label (Batch 4 / P4)', () => {
+    // On the smallest target the START / START ANYWAY button must never push past
+    // its (wrapping) action row: max-width:100% caps it and white-space:normal
+    // lets a long label wrap instead of forcing horizontal overflow.
+    const sb = rule('.startbtn');
+    expect(sb).toMatch(/max-width:\s*100%/);
+    expect(sb).toMatch(/white-space:\s*normal/);
+    expect(sb).not.toMatch(/white-space:\s*nowrap/);
   });
 
   it('the GARAGE mode cards and the LAYOUT preset pills wrap', () => {

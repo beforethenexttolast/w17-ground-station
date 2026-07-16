@@ -342,10 +342,17 @@ function createAdapterCoordinator({ adapterMonitor, hotspotLifecycle, log = () =
 // window falls back to when the operator leaves full screen. `fullscreen` is a
 // window property, not tied to the loaded page, so a renderer reload (or the
 // single-page step switches) never drops out of full screen.
+//
+// Small-display floor (Batch 4 / P4): minWidth/minHeight pin 1024×640 so the
+// operator cannot drag the window below the size the setup flow + HUD were laid
+// out for — the target 13"/laptop viewports (1280×800, 1366×768) sit above it,
+// and the fluid CSS reflows down to this floor without overlap or clipped edges.
 function createWindowOptions({ preloadPath, iconPath = null, fullscreen = false }) {
     return {
         width: 1280,
         height: 720,
+        minWidth: 1024,
+        minHeight: 640,
         backgroundColor: '#000000',
         autoHideMenuBar: true,
         fullscreen: !!fullscreen,
