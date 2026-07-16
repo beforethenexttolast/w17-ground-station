@@ -147,8 +147,15 @@ body{background:#000;color:var(--silver);
 .ersfill.low{background:linear-gradient(90deg,#7a0f0f,var(--red))}
 @keyframes ersglow{to{filter:brightness(1.5)}}
 
-.gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.1em;
-  background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,.86),rgba(2,4,4,.96));text-align:center;padding:2em;}
+/* The setup overlay fills the window and, when its content is taller than the
+   viewport (small laptops / the taller SEAT FIT), SCROLLS instead of clipping:
+   `safe center` centres when it fits and falls back to top-alignment when it
+   overflows, so START/BACK/NEXT are always reachable (task §1). The generous
+   block padding keeps content clear of the pinned footnote/radio overlays. */
+.gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;
+  justify-content:safe center;gap:clamp(.9em,2vh,1.4em);overflow-y:auto;overflow-x:hidden;
+  background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,.9),rgba(2,4,4,.97));text-align:center;
+  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(4em,8vh,5.5em);}
 .gate.hidden{display:none}
 /* compact header: title + subtitle share one baseline row instead of stacking */
 .gatehead{display:flex;align-items:baseline;justify-content:center;gap:1em;flex-wrap:wrap}
@@ -175,18 +182,26 @@ body{background:#000;color:var(--silver);
 .gate.fade{opacity:0}
 .booterror{display:flex;flex-direction:column;align-items:center;gap:.8em}
 .booterror.hidden{display:none}
-.setup-screen{display:none;flex-direction:column;align-items:center;gap:1em;max-width:min(72ch,86vw)}
+/* Fluid width: single-column steps stay prose-readable (ch cap); wide steps fill
+   most of the window with a sensible readable maximum (task §1) instead of the
+   old narrow 120ch column that left large empty margins on desktops. */
+.setup-screen{display:none;flex-direction:column;align-items:center;gap:clamp(.9em,1.6vh,1.3em);
+  width:100%;max-width:min(82ch,92vw)}
 .setup-screen.active{display:flex}
-.setup-screen.wide{max-width:min(120ch,94vw)}
-/* side-by-side step layout: uses the horizontal room instead of one tall column */
-.cols{display:flex;gap:clamp(1.5em,4vw,3.5em);align-items:flex-start;justify-content:center;flex-wrap:wrap;text-align:left}
-.col{display:flex;flex-direction:column;gap:.7em;align-items:flex-start;min-width:30ch;max-width:48ch}
+.setup-screen.wide{max-width:min(1340px,94vw)}
+/* Two-column when there is room, collapsing to one column (then vertical scroll)
+   on narrow/short screens — no hard pixel breakpoint: the track floor decides. */
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,34ch),1fr));
+  gap:clamp(1.2em,3vw,3em);align-items:start;text-align:left;width:100%}
+.col{display:flex;flex-direction:column;gap:.7em;align-items:flex-start;min-width:0;width:100%}
 .cols .netpane{align-items:flex-start}
-.colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(9px,1vw,11px);text-transform:uppercase}
+.colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(10px,1vw,13px);text-transform:uppercase}
 .colhead small{color:var(--muted);letter-spacing:.08em;font-weight:400;text-transform:none;margin-left:.6em}
 .colhead .simtag{color:var(--amber);letter-spacing:.2em;font-weight:700;text-transform:uppercase}
 .colhead .simtag.hidden{display:none}
-.hint{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.05em;line-height:1.55;max-width:46ch}
+/* Help text uses the wider card before wrapping (task §1) and stays comfortably
+   readable at 1366×768 — the old ceiling capped it near 11px on any screen. */
+.hint{color:var(--muted);font-size:clamp(11px,1vw,14px);letter-spacing:.05em;line-height:1.6;max-width:64ch}
 .hint[title]{cursor:help}
 /* Amber caution/rejection hint (audit B3: OPEN NETWORK warning, WPA3-only /
    enterprise rejection in the join pane). */
@@ -196,7 +211,7 @@ body{background:#000;color:var(--silver);
    native <select> (keyboard + screen-reader intact); degraded states carry the
    amber status + RESCAN. Left accent: teal = a choice exists (interactive),
    amber = warning/missing, neutral = readonly single adapter. */
-.adaptercard{display:flex;flex-direction:column;gap:.5em;width:min(46ch,80vw);max-width:100%;text-align:left;
+.adaptercard{display:flex;flex-direction:column;gap:.5em;width:100%;max-width:min(52ch,100%);text-align:left;
   background:var(--panel);border:1px solid var(--panel-edge);border-left:3px solid var(--panel-edge);
   padding:.6em .9em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .adaptercard.hidden{display:none}
@@ -236,7 +251,7 @@ body{background:#000;color:var(--silver);
 .adaptercard .minibtn.hidden{display:none}
 .hint.hidden{display:none}
 .stepname{color:var(--teal);letter-spacing:.4em;font-weight:800;text-transform:uppercase;
-  font-size:clamp(11px,1.4vw,15px)}
+  font-size:clamp(12px,1.5vw,17px)}
 /* team radio: out of the main vertical flow — pinned to the bottom-left corner */
 .radioLog{position:absolute;left:1.2em;bottom:3.6em;display:flex;flex-direction:column-reverse;
   gap:.35em;align-items:flex-start;max-width:44ch;pointer-events:none;text-align:left}
@@ -245,21 +260,22 @@ body{background:#000;color:var(--silver);
   padding:.4em 1.1em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .radio-msg::before{content:"📻 ";filter:grayscale(1)}
 .radioLog .radio-msg:not(:first-child){opacity:.45}
-.modecards{display:flex;gap:1em;flex-wrap:wrap;justify-content:center}
+.modecards{display:flex;gap:clamp(1em,2vw,1.8em);flex-wrap:wrap;justify-content:center;width:100%}
 .modecard{font-family:inherit;cursor:pointer;background:var(--panel);border:1px solid var(--panel-edge);
-  color:var(--silver);padding:1.1em 1.8em;text-align:left;min-width:15em;
+  color:var(--silver);padding:clamp(1.1em,2vw,1.6em) clamp(1.6em,2.4vw,2.4em);text-align:left;
+  flex:1 1 20em;min-width:min(20em,100%);max-width:32em;
   clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px);
   transition:border-color .12s,transform .12s;}
 .modecard:hover{border-color:var(--teal);transform:translateY(-2px)}
-.modecard b{display:block;font-style:italic;font-weight:800;letter-spacing:.14em;font-size:clamp(14px,1.8vw,20px)}
-.modecard span{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.12em;text-transform:uppercase}
-.modecard .needs{display:block;margin-top:.5em;color:var(--teal);font-size:clamp(8px,1vw,11px);letter-spacing:.18em}
+.modecard b{display:block;font-style:italic;font-weight:800;letter-spacing:.14em;font-size:clamp(15px,1.9vw,22px)}
+.modecard span{color:var(--muted);font-size:clamp(10px,1.1vw,13px);letter-spacing:.12em;text-transform:uppercase}
+.modecard .needs{display:block;margin-top:.5em;color:var(--teal);font-size:clamp(9px,1vw,12px);letter-spacing:.18em}
 .nettabs{display:flex;gap:.5em}
 .nettabs .pill,.presetrow .pill{cursor:pointer;font-family:inherit;pointer-events:auto}
 .pill.on{color:var(--carbon);background:var(--teal);border-color:var(--teal)}
 .netpane{display:flex;flex-direction:column;gap:.6em;align-items:center;width:100%}
 .netpane.hidden,.nettabs.hidden{display:none}
-.netlist{display:flex;flex-direction:column;gap:.3em;max-height:26vh;overflow-y:auto;width:min(46ch,80vw)}
+.netlist{display:flex;flex-direction:column;gap:.3em;max-height:26vh;overflow-y:auto;width:100%;max-width:min(52ch,100%)}
 .netrow{font-family:inherit;cursor:pointer;display:flex;gap:.8em;align-items:baseline;justify-content:space-between;
   background:var(--panel);border:1px solid #233033;color:var(--silver);padding:.45em .9em;text-align:left;
   letter-spacing:.08em;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
@@ -268,6 +284,10 @@ body{background:#000;color:var(--silver);
 .netrow b{font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:24ch}
 .netrow .sig{color:var(--teal);font-weight:700}
 .netrow .known{color:var(--muted);font-size:.85em;text-transform:uppercase;letter-spacing:.14em}
+/* SEAT FIT device rows only: the OS slot number, so two IDENTICAL controllers
+   (same id) are told apart on screen and independently selectable (task §3). */
+.padlist .netrow .padslot{color:var(--muted);opacity:.8;font-size:.8em;text-transform:uppercase;
+  letter-spacing:.14em;white-space:nowrap;font-weight:700}
 .netjoinrow,.addrrow,.hsrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap;justify-content:center}
 .netjoinrow.hidden{display:none}
 /* Open networks hide the password field but keep the JOIN button (audit B3).
@@ -298,24 +318,24 @@ body{background:#000;color:var(--silver);
    scroll height + wrapping, so however long/rambling a localized Windows error
    is, it can never cover buttons, rows, or the status line. Collapsed by
    default; secrets are already redacted main-side before they reach here. */
-.errdetail{width:min(46ch,80vw);max-width:100%;margin-top:.35em}
+.errdetail{width:100%;max-width:min(52ch,100%);margin-top:.35em}
 .errdetail.hidden{display:none}
 .errdetail>summary{cursor:pointer;color:var(--muted);font-size:clamp(8px,.95vw,10px);letter-spacing:.14em;
   text-transform:uppercase;font-weight:700}
 .errdetail>pre{margin:.35em 0 0;max-height:22vh;overflow-y:auto;overflow-x:hidden;white-space:pre-wrap;
   overflow-wrap:anywhere;color:var(--muted);font-size:clamp(9px,1vw,11px);line-height:1.5;font-family:inherit;
   background:#0c1214;border:1px solid var(--panel-edge);padding:.5em .6em}
-.padlist{display:flex;flex-direction:column;gap:.3em;width:min(46ch,80vw)}
-.presetrow{display:flex;gap:.5em}
-.teststrip{display:flex;flex-direction:column;gap:.4em;padding:.6em .9em;width:min(40ch,70vw);pointer-events:auto}
+.padlist{display:flex;flex-direction:column;gap:.3em;width:100%}
+.presetrow{display:flex;gap:.5em;flex-wrap:wrap}
+.teststrip{display:flex;flex-direction:column;gap:.5em;padding:.7em 1em;width:100%;max-width:min(560px,90vw);pointer-events:auto}
 .teststrip .steerbar{position:relative;flex:1;height:clamp(6px,.8vw,10px);background:#10181a;
   clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
-.checklist{display:flex;flex-direction:column;gap:.35em;width:min(42ch,78vw)}
+.checklist{display:flex;flex-direction:column;gap:.35em;width:100%;max-width:min(56ch,92vw)}
 .setupsummary{color:var(--muted);letter-spacing:.14em;text-transform:uppercase;
-  font-size:clamp(9px,1vw,11px);width:min(42ch,78vw);line-height:1.5}
+  font-size:clamp(10px,1vw,13px);width:100%;max-width:min(64ch,92vw);line-height:1.55}
 .checkrow{display:flex;align-items:center;gap:.8em;justify-content:space-between;flex-wrap:wrap;background:var(--panel);
-  border:1px solid #233033;padding:.5em 1em;letter-spacing:.16em;text-transform:uppercase;
-  font-size:clamp(10px,1.2vw,13px);clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
+  border:1px solid #233033;padding:.55em 1.1em;letter-spacing:.16em;text-transform:uppercase;
+  font-size:clamp(11px,1.2vw,14px);clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
 .checkhint{flex-basis:100%;color:var(--muted);font-weight:400;text-transform:none;
   font-size:clamp(9px,1vw,11px);letter-spacing:.05em;line-height:1.4}
 .checkrow b{font-weight:800}
@@ -324,11 +344,13 @@ body{background:#000;color:var(--silver);
 .checkrow.ok span{color:var(--green)}
 .checkrow.fail span{color:var(--red)}
 .checkrow.skipped span{color:var(--muted)}
-.gridbtns{display:flex;gap:.8em;flex-wrap:wrap;justify-content:center}
+/* Keep clear space between the primary actions so START / START ANYWAY /
+   CHANGE SETUP / NEXT / BACK never crowd each other (task §1). */
+.gridbtns{display:flex;gap:clamp(.9em,1.8vw,1.6em);flex-wrap:wrap;justify-content:center;margin-top:.2em}
 .startbtn:disabled{filter:grayscale(.8) brightness(.5);cursor:not-allowed;transform:none}
 .startbtn.override{background:var(--amber)}
 .startbtn.override.hidden{display:none}
-.setup-nav{display:flex;gap:1em}
+.setup-nav{display:flex;gap:clamp(1em,2.5vw,2.2em);margin-top:.2em}
 .setup-nav.hidden{display:none}
 .keys.hidden{display:none}
 /* one-line disclaimer pinned above the demo toggle, out of the step flow */
@@ -336,8 +358,8 @@ body{background:#000;color:var(--silver);
   max-width:90ch;line-height:1.4;white-space:nowrap}
 @media (max-width:900px){.keys.footnote{white-space:normal;max-width:60ch}}
 
-/* SEAT FIT layout preview (renderer/padPreview.js — informational only) */
-.padpreview{width:min(44ch,76vw)}
+/* SEAT FIT layout + live-input preview (renderer/padPreview.js — display only) */
+.padpreview{width:100%;max-width:min(560px,90vw)}
 .padpreview svg{width:100%;height:auto;display:block}
 .pp-body{fill:#0d1416;stroke:var(--panel-edge)}
 .pp-pill{fill:#10181a;stroke:#233033}
@@ -346,8 +368,57 @@ body{background:#000;color:var(--silver);
 /* live press highlight (SEAT FIT): same teal as the test strip */
 .pp-pill.on,.pp-ctl.on{fill:rgba(0,210,190,.3);stroke:var(--teal)}
 .pp-dot{fill:var(--teal)}
-.pp-name{fill:var(--teal);font-weight:700;font-size:10px;font-family:var(--mono);letter-spacing:.05em}
-.pp-role{fill:var(--muted);font-size:9px;letter-spacing:.15em;font-weight:700}
+.pp-name{fill:var(--teal);font-weight:700;font-size:11px;font-family:var(--mono);letter-spacing:.05em}
+.pp-role{fill:var(--muted);font-size:10px;letter-spacing:.15em;font-weight:700}
+.pp-sub{fill:var(--muted);font-size:8px;letter-spacing:.14em;font-weight:700;text-transform:uppercase}
+/* both sticks: outer well, crosshair, a clear NEUTRAL centre marker, and a live
+   dot moved by seatfitTick. Camera pan/tilt is drawn as STICK INPUT (violet, so
+   it never reads as the teal "commanded/telemetry" values) — see padPreview.js
+   and docs/camera_aim_display_semantics.md §2.1. */
+.pp-stick{fill:#0b1113;stroke:#233033;stroke-width:1.5}
+.pp-cross{stroke:#1c2629;stroke-width:1}
+.pp-neutral{fill:none;stroke:#3a4b4f;stroke-width:1}
+.pp-stickdot{fill:var(--teal);transition:cx .06s linear,cy .06s linear}
+.pp-stickdot[data-stick="right"]{fill:var(--violet)}
+.pp-dir{fill:#3a4b4f;font-size:9px;font-weight:700}
+/* no controller: the wells read plainly neutral (no live colour) so the screen
+   never implies live input while it says NO CONTROLLER (task §5). */
+.padpreview.nopad .pp-stickdot{fill:#2a3639;transition:none}
+
+.ctlstatus{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4em .9em;width:100%}
+.ctlsource{letter-spacing:.16em;text-transform:uppercase;font-weight:800;font-size:clamp(10px,1.1vw,13px);color:var(--muted)}
+.ctlsource.live{color:var(--green)}
+.ctlsource.none{color:var(--amber)}
+.ctlmeta{letter-spacing:.14em;text-transform:uppercase;font-weight:700;font-size:clamp(9px,1vw,12px);color:var(--muted)}
+
+/* PAN/TILT test-strip dots: bipolar like STR (centre-origin), coloured to match
+   the right-stick well. */
+.steerdot.pan,.steerdot.tilt{background:var(--violet);box-shadow:0 0 10px var(--violet)}
+
+/* CAMERA MODE cards (task §4): REQUESTED mode selection, display-only. Manual is
+   selectable; head tracking is visible but LOCKED (dimmed, no hover response,
+   no click handler). */
+.cammodes{display:flex;flex-direction:column;gap:.5em;width:100%}
+.cammode{font-family:inherit;text-align:left;display:flex;flex-direction:column;gap:.3em;width:100%;
+  background:var(--panel);border:1px solid #233033;border-left:3px solid #233033;color:var(--silver);
+  padding:.6em .9em;clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%);transition:border-color .12s;}
+button.cammode{cursor:pointer}
+button.cammode:hover{border-color:var(--teal)}
+.cammode.on{border-left-color:var(--teal);border-color:var(--teal);box-shadow:0 0 10px rgba(0,210,190,.25)}
+.cammode.locked{opacity:.6;cursor:not-allowed}
+.cammode.locked:hover{border-color:#233033}
+.cammode b{font-weight:800;letter-spacing:.14em;font-size:clamp(11px,1.2vw,15px)}
+.cammode.on b{color:var(--teal)}
+.camlock{color:var(--amber);letter-spacing:.16em;font-weight:800;text-transform:uppercase;font-size:clamp(8px,.9vw,11px)}
+.camhelp{color:var(--muted);letter-spacing:.03em;line-height:1.5;font-size:clamp(10px,1vw,13px);text-transform:none}
+.camauthority{display:flex;flex-direction:column;gap:.3em;width:100%}
+.camauthrow{display:flex;align-items:baseline;gap:.8em;justify-content:space-between}
+.camauthlabel{color:var(--muted);letter-spacing:.22em;text-transform:uppercase;font-weight:700;font-size:clamp(8px,.95vw,11px)}
+.camauthlabel small{color:var(--muted);opacity:.7;letter-spacing:.08em;font-weight:400;text-transform:none;margin-left:.4em;font-size:.9em}
+.camauthrow b{color:var(--teal);letter-spacing:.1em;font-weight:800;font-size:clamp(10px,1.1vw,14px)}
+/* ACTIVE AUTHORITY when the mapper does not report it (task §1A): muted, never
+   the teal "confirmed value" colour — it must not read as a verified live fact. */
+.camauthrow b.unreported{color:var(--muted);font-weight:700;letter-spacing:.14em}
 
 /* start-lights gantry: 5 columns, lit left to right, all out together */
 .lights{display:flex;gap:clamp(10px,2vw,26px)}

@@ -62,8 +62,8 @@
           <b>STR</b>
           <div class="steerbar"><div class="steerdot" id="steer"></div></div>
         </div>
-        <div class="campanel panel">
-          <b>CAM</b>
+        <div class="campanel panel" title="Right-stick position (input mirror) — not a measurement of camera aim">
+          <b>R-STK</b>
           <div class="camgrid"><div class="camdot" id="camdot"></div></div>
         </div>
       </div>
@@ -218,20 +218,46 @@
 
     <section class="setup-screen wide" data-step="seatfit">
       <div class="stepname">SEAT FIT · CONTROLLER</div>
-      <div class="cols">
+      <div class="cols seatcols">
         <div class="col">
           <div class="colhead">DEVICE <small>auto-detected · tap to override</small></div>
           <div class="padlist" id="padList"></div>
+          <!-- Input-source + transport line (task §3/§5): says at a glance whether
+               input is a live controller / simulated / keyboard fallback, the
+               controller name, the chosen profile, and the transport (always
+               TRANSPORT UNKNOWN — the Gamepad API can't tell USB from Bluetooth). -->
+          <div class="ctlstatus" id="ctlStatus">
+            <span class="ctlsource" id="ctlSource">NO CONTROLLER · KEYBOARD FALLBACK</span>
+            <span class="ctlmeta" id="ctlMeta"></span>
+          </div>
           <div class="colhead">LAYOUT</div>
           <div class="presetrow" id="presetRow"></div>
-          <div class="hint">No controller? Keyboard works: arrows steer/throttle/brake · E/Q gear · D DRS · B boost · O overtake</div>
+          <div class="hint">No controller? Keyboard works: arrows steer/throttle/brake · E/Q gear · D DRS · B boost · O overtake. Pair the controller in the operating system; if Chromium recognizes it, it appears here without a restart. Windows Bluetooth validation is still required.</div>
+
+          <!-- CAMERA MODE (task §4 / §1A): AVAILABLE/REQUESTED mode vs ACTIVE
+               AUTHORITY, kept strictly apart. Manual selectable; Head Tracking
+               visible but LOCKED (no safe control path yet). Rendered from
+               shared/cameraMode.mjs; the locked card issues no command — there is
+               no mode-request RPC. The AVAILABLE/REQUESTED line is this setup's
+               DEFAULT; ACTIVE AUTHORITY is NOT REPORTED BY MAPPER because this
+               viewer does not observe which source the mapper selected. -->
+          <div class="colhead">CAMERA MODE <small>setup default vs. who actually aims</small></div>
+          <div class="cammodes" id="camModes"></div>
+          <div class="camauthority" id="camAuthority">
+            <div class="camauthrow"><span class="camauthlabel">AVAILABLE / REQUESTED <small>setup default</small></span><b id="camRequested">MANUAL · RIGHT STICK</b></div>
+            <div class="camauthrow"><span class="camauthlabel">ACTIVE AUTHORITY <small>from mapper</small></span><b id="camActive" class="unreported">NOT REPORTED BY MAPPER</b></div>
+          </div>
+          <div class="hint" id="camModeNote">AVAILABLE / REQUESTED is this setup's default, not verified live authority. The mapper is the camera-control authority; the ground station only mirrors input and does not observe which source the mapper selected — so ACTIVE AUTHORITY is not reported here. Head-tracking traffic (W3) is diagnostic log-only and never moves the camera.</div>
         </div>
         <div class="col">
+          <div class="colhead">LIVE MIRROR <small>observed controller input · not proof of car/camera motion</small></div>
           <div class="padpreview" id="padPreview"></div>
           <div class="teststrip panel" id="testStrip">
             <div class="bar"><b>STR</b><div class="steerbar"><div class="steerdot" id="tsSteer"></div></div></div>
             <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="tsThr"></div></div></div>
             <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="tsBrk"></div></div></div>
+            <div class="bar"><b>PAN</b><div class="steerbar"><div class="steerdot pan" id="tsPan"></div></div></div>
+            <div class="bar"><b>TILT</b><div class="steerbar"><div class="steerdot tilt" id="tsTilt"></div></div></div>
           </div>
         </div>
       </div>

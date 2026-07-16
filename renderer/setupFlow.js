@@ -13,7 +13,12 @@ import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs'
 import { adapterRowState, scanStatusText, hotspotPaneState, joinPlan, networkBadge, classifyJoinError } from '../shared/wifiView.mjs';
 import { probeStatusLine, PATH_ONLY_NOTE } from '../shared/reachability.mjs';
 import { summaryLine } from '../shared/setupSummary.mjs';
-import { PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId, pressedRoles } from '../shared/inputPresets.mjs';
+import {
+  PRESETS, DEFAULT_PRESET, getPreset, detectPresetFromId, pressedRoles,
+  dedupeGamepads, transportLabel, axisValues, inputSourceView,
+  gamepadKey, resolveSelectedPad,
+} from '../shared/inputPresets.mjs';
+import { cameraModeView } from '../shared/cameraMode.mjs';
 import { makeEnterToAdvance, makeEnterToSubmit } from '../shared/keyboardFocus.mjs';
 import { envLockState } from '../shared/envLocks.mjs';
 import { padPreviewSvg } from './padPreview.js';
@@ -723,13 +728,23 @@ el('addrCheck').addEventListener('click', async () => {
 
 // ---------- SEAT FIT ----------
 const padList = el('padList'), presetRow = el('presetRow'), padPreview = el('padPreview');
+const ctlSource = el('ctlSource'), ctlMeta = el('ctlMeta');
+const camModes = el('camModes'), camRequested = el('camRequested'), camActive = el('camActive');
 let padTimer = null;
-let chosenPadId = '';
+// Session-stable device selection (task §3). `chosenPadKey` is gamepadKey (slot
+// index + id) and lives only for this session — '' means "auto: first slot". We
+// do NOT restore it from settings: across a restart the OS may reassign the slot,
+// and identical devices share an id, so a persisted key cannot honestly pin the
+// same unit. `persistedPadId` is the model id kept only for layout auto-detect
+// and for the live-HUD's best-effort model-id matching / persistence.
+let chosenPadKey = '';
+let persistedPadId = '';
 let chosenPreset = DEFAULT_PRESET;
 let presetManual = false; // a pill click this visit beats auto-detection
 
 function enterSeatfit() {
-  chosenPadId = settings?.controller?.id || '';
+  persistedPadId = settings?.controller?.id || '';
+  chosenPadKey = '';
   chosenPreset = settings?.controller?.preset || DEFAULT_PRESET;
   presetManual = false;
   presetRow.replaceChildren(...Object.entries(PRESETS).map(([key, p]) => {
@@ -740,8 +755,56 @@ function enterSeatfit() {
     b.addEventListener('click', () => { chosenPreset = key; presetManual = true; applyChoice(); sounds.uiTick(); });
     return b;
   }));
-  padTimer = setInterval(seatfitTick, 250);
+  renderCameraMode();
   applyChoice();
+  seatfitTick();                              // paint device list + mirror at once
+  padTimer = setInterval(seatfitTick, 250);   // then keep it live (hot-plug/disconnect)
+}
+
+// CAMERA MODE section (task §4). Rendered from the pure model: Manual is the only
+// selectable/requested mode; Head Tracking is VISIBLE but LOCKED. The cards are
+// DISPLAY-ONLY — a locked card carries no handler at all, and the selectable one
+// only re-renders the local view. Neither can emit a control request: there is
+// no mode-request preload method (pinned by test/ipcSurface.test.js), so `gs` is
+// never touched here. AVAILABLE/REQUESTED and ACTIVE AUTHORITY are shown as
+// separate lines and never conflated: the requested line is this setup's default,
+// while active authority is NOT REPORTED BY MAPPER — this viewer does not observe
+// which source the mapper selected, so it never fabricates one (task §1A). No
+// activeAuthority is passed in, so the model reports it unknown.
+let requestedCameraMode = 'manual';
+function renderCameraMode() {
+  const view = cameraModeView({ requested: requestedCameraMode });
+  requestedCameraMode = view.requested;
+  camRequested.textContent = view.requestedLabel;
+  camActive.textContent = view.activeAuthorityLabel;
+  // Style the active-authority value as unknown (muted) unless a real source
+  // reports it, so "NOT REPORTED BY MAPPER" never reads as a confirmed value.
+  camActive.classList.toggle('unreported', !view.activeAuthorityReported);
+  camModes.replaceChildren(...view.modes.map((m) => {
+    const card = document.createElement(m.locked ? 'div' : 'button');
+    card.className = `cammode${m.selected ? ' on' : ''}${m.locked ? ' locked' : ''}`;
+    card.dataset.mode = m.key;
+    const head = document.createElement('b');
+    head.textContent = m.label;
+    card.appendChild(head);
+    if (m.lock) {
+      const lock = document.createElement('span');
+      lock.className = 'camlock';
+      lock.textContent = m.lock;
+      card.appendChild(lock);
+    }
+    const help = document.createElement('span');
+    help.className = 'camhelp';
+    help.textContent = m.help;
+    card.appendChild(help);
+    // Only the selectable card gets a handler, and it does not touch `gs`: it just
+    // sets the requested mode locally and re-renders. Coerced back to a selectable
+    // mode by the model, so it can never land on a locked mode.
+    if (!m.locked) {
+      card.addEventListener('click', () => { requestedCameraMode = m.key; renderCameraMode(); sounds.uiTick(); });
+    }
+    return card;
+  }));
 }
 
 // Auto-suggest the layout from the pad type. Loses to: a manual pill click
@@ -749,61 +812,119 @@ function enterSeatfit() {
 // pads keep the current layout.
 function maybeAutoPreset(padId) {
   if (presetManual || !padId) return;
-  if (settings?.controller?.id === padId) return;
+  if (persistedPadId === padId) return;
   const detected = detectPresetFromId(padId);
   if (detected) chosenPreset = detected;
+}
+
+// Model id (NOT the session key) of the pad SEAT FIT currently follows — for the
+// live-HUD selection (setControllerChoice → selectGamepad matches by model id)
+// and for persistence. Falls back to the persisted id when the chosen device is
+// absent: the live HUD keeps its own best-effort model-id matching, a documented
+// limitation for identical devices (docs/camera_aim_display_semantics.md §5).
+function selectedModelId() {
+  const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  const p = resolveSelectedPad(pads, { chosenKey: chosenPadKey });
+  return p ? p.id : persistedPadId;
 }
 
 function leaveSeatfit() {
   clearInterval(padTimer);
   padTimer = null;
-  save({ controller: { id: chosenPadId, preset: chosenPreset } });
+  // Persist the MODEL id only (never the session key): identical devices are not
+  // distinguishable across restarts without a stable hardware identifier (§3).
+  save({ controller: { id: selectedModelId(), preset: chosenPreset } });
 }
 
 function applyChoice() {
-  setControllerChoice({ id: chosenPadId, preset: chosenPreset });
+  setControllerChoice({ id: selectedModelId(), preset: chosenPreset });
   for (const b of presetRow.children) b.classList.toggle('on', b.dataset.preset === chosenPreset);
   padPreview.innerHTML = padPreviewSvg(chosenPreset);
 }
 
+// Position a stick's live dot inside its SVG well from a -1..1 (x, y). Neutral
+// (0, 0) sits exactly on the drawn centre marker; a padless read passes 0/0 so a
+// disconnect returns the dot to neutral (never a stale deflection).
+function placeStickDot(side, x, y) {
+  const dot = padPreview.querySelector(`[data-stick="${side}"]`);
+  if (!dot) return;
+  const cx0 = Number(dot.dataset.cx), cy0 = Number(dot.dataset.cy);
+  const spread = 18; // well radius minus the dot radius, in SVG units
+  dot.setAttribute('cx', String(cx0 + x * spread));
+  dot.setAttribute('cy', String(cy0 + y * spread));
+}
+
 function seatfitTick() {
-  const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean);
-  // Rebuild only when the set changes (avoid killing :hover constantly).
-  const sig = pads.map((p) => p.id).join('|');
+  // Deduplicate the raw slots for display so one device is one row (a doubled
+  // slot reference collapses; two distinct pads — even two identical models in
+  // different slots — are both kept).
+  const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  // Signature keys on the session identity (slot + id), so a device that moves
+  // slots (a reconnect the OS placed elsewhere) rebuilds the list honestly
+  // instead of reusing stale rows. Rebuild only when the set changes (avoid
+  // killing :hover constantly).
+  const sig = pads.map((p) => gamepadKey(p)).join('|');
   if (padList.dataset.sig !== sig) {
     padList.dataset.sig = sig;
     padList.replaceChildren(...(pads.length ? pads.map((p) => {
+      const key = gamepadKey(p);
       const b = document.createElement('button');
       b.className = 'netrow';
-      b.dataset.padId = p.id;
+      b.dataset.padKey = key;                 // session-stable identity (index + id)
       const name = document.createElement('b');
       name.textContent = p.id;
+      // The slot makes two IDENTICAL controllers distinguishable on screen — they
+      // share an id, so the row text would otherwise be ambiguous (task §3).
+      const slot = document.createElement('small');
+      slot.className = 'padslot';
+      slot.textContent = `SLOT ${typeof p.index === 'number' ? p.index : '?'}`;
       const tag = document.createElement('span');
       tag.className = 'known';
       tag.textContent = 'auto';
-      b.append(name, tag);
-      b.addEventListener('click', () => { chosenPadId = p.id; maybeAutoPreset(p.id); applyChoice(); sounds.uiTick(); });
+      b.append(name, slot, tag);
+      // A click selects EXACTLY this session device (index + id) — never its
+      // identical peer. seatfitTick() runs immediately for a responsive highlight.
+      b.addEventListener('click', () => { chosenPadKey = key; maybeAutoPreset(p.id); applyChoice(); seatfitTick(); sounds.uiTick(); });
       return b;
     }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: 'NO CONTROLLER DETECTED — keyboard fallback stays available' })]));
-    // No manual pick yet: the first pad is the auto choice — suggest its layout.
-    if (!chosenPadId && pads[0]) { maybeAutoPreset(pads[0].id); applyChoice(); }
+    // No manual pick yet: the first slot is the auto choice — suggest its layout.
+    if (!chosenPadKey && pads[0]) { maybeAutoPreset(pads[0].id); applyChoice(); }
   }
-  const activeId = chosenPadId || pads[0]?.id;
+  // Resolve the followed pad from the session key. Auto (no key) → first slot; an
+  // explicit choice that has disappeared → null (MISSING), never a silent switch
+  // to an identical peer (task §3). Its presence is the single source of the
+  // input-source badge AND the live visualization, so the two can never disagree
+  // (task §5: no NO CONTROLLER beside a live axis).
+  const p = resolveSelectedPad(pads, { chosenKey: chosenPadKey });
+  const activeKey = p ? gamepadKey(p) : chosenPadKey;
   for (const b of padList.children) {
     if (b.tagName !== 'BUTTON') continue;
-    b.classList.toggle('on', b.dataset.padId === activeId);
+    b.classList.toggle('on', b.dataset.padKey === activeKey);
     const tag = b.querySelector('.known');
-    if (tag) tag.style.visibility = !chosenPadId && b.dataset.padId === pads[0]?.id ? 'visible' : 'hidden';
+    if (tag) tag.style.visibility = !chosenPadKey && pads[0] && b.dataset.padKey === gamepadKey(pads[0]) ? 'visible' : 'hidden';
   }
-  // Live test strip through the chosen preset — proves the mapping instantly.
-  const p = pads.find((x) => x.id === chosenPadId) || pads[0];
+  const src = inputSourceView({ pad: p });
+  ctlSource.textContent = src.label;
+  ctlSource.className = `ctlsource ${src.source}`;
+  ctlMeta.textContent = p
+    ? `${getPreset(chosenPreset).label} PROFILE · TRANSPORT ${transportLabel(p)}`
+    : `${getPreset(chosenPreset).label} PROFILE`;
+
+  // Live test strip + stick wells through the chosen preset — proves the mapping
+  // instantly. axisValues returns neutral 0s with no pad, so everything centres.
   const m = getPreset(chosenPreset).map;
-  const steer = p ? (p.axes[m.steerAxis] || 0) : 0;
+  const { steer, camPan, camTilt } = axisValues(p, chosenPreset);
   const thr = p && p.buttons[m.throttleBtn] ? p.buttons[m.throttleBtn].value : 0;
   const brk = p && p.buttons[m.brakeBtn] ? p.buttons[m.brakeBtn].value : 0;
   el('tsSteer').style.left = `${50 + steer * 42}%`;
   el('tsThr').style.width = `${(thr * 100).toFixed(0)}%`;
   el('tsBrk').style.width = `${(brk * 100).toFixed(0)}%`;
+  el('tsPan').style.left = `${50 + camPan * 42}%`;
+  el('tsTilt').style.left = `${50 + camTilt * 42}%`;
+  // Stick wells: left = steering (X only), right = camera pan/tilt (X/Y).
+  placeStickDot('left', steer, 0);
+  placeStickDot('right', camPan, camTilt);
+  padPreview.classList.toggle('nopad', !p);
   // Light up pressed buttons in the mapping preview (class toggles only —
   // applyChoice() re-renders the SVG, so no stale highlights survive it).
   // No pad -> empty set -> everything clears, including on disconnect.

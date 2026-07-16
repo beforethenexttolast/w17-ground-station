@@ -1349,3 +1349,130 @@ describe('live adapter monitor mirror (2B, Windows observation #2/#3)', () => {
     expect(el('adapterStatus').textContent).not.toBe('NO WLAN ADAPTER DETECTED');
   });
 });
+
+// SEAT FIT — camera mode + controller mirror against the REAL renderer (tasks
+// §1A / §3 / §4 / §5). The pure models (shared/cameraMode.mjs, inputPresets.mjs)
+// are unit-tested separately; here we prove the renderer wires them honestly:
+// the camera cards issue no command, the locked card cannot change mode, active
+// authority is never fabricated, the right stick mirrors input only, and two
+// identical controllers stay independently selectable.
+describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => {
+  // A fake Gamepad. buttons is padded so preset indices (throttle=7…) exist.
+  const makePad = (id, index, { axes = [0, 0, 0, 0], buttons = [] } = {}) => ({
+    id, index, connected: true, mapping: 'standard',
+    axes: axes.slice(),
+    buttons: Array.from({ length: 16 }, (_, i) => buttons[i] || { pressed: false, value: 0 }),
+  });
+  // Stub navigator.getGamepads BEFORE entering SEAT FIT (enterSeatfit paints once
+  // immediately). getGamepads may be undefined in jsdom, so defineProperty it.
+  const setPads = (pads) => {
+    Object.defineProperty(window.navigator, 'getGamepads', { configurable: true, value: () => pads });
+  };
+  // gs-method call counts, so a test can assert a click added no ground-station call.
+  const gsCalls = (gs) => Object.fromEntries(
+    Object.entries(gs)
+      .filter(([, v]) => typeof v === 'function' && v.mock)
+      .map(([k, v]) => [k, v.mock.calls.length]),
+  );
+  async function enterSeatfit(gs, pads = []) {
+    await loadRenderer(gs);
+    setPads(pads);
+    document.querySelector('.modecard[data-mode="solo"]').click(); // GARAGE -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+  }
+  const camCard = (mode) => el('camModes').querySelector(`[data-mode="${mode}"]`);
+  const rows = () => [...el('padList').querySelectorAll('.netrow')];
+
+  it('Manual is a selectable button; Head Tracking is a locked, non-button card', async () => {
+    await enterSeatfit(mockGs(), []);
+    const cards = [...el('camModes').children];
+    expect(cards.map((c) => c.dataset.mode)).toEqual(['manual', 'headtrack']);
+    expect(camCard('manual').tagName).toBe('BUTTON');
+    expect(camCard('manual').classList.contains('on')).toBe(true); // default selected
+    // A <div>, not a <button>: no native activation semantics for the locked card.
+    expect(camCard('headtrack').tagName).toBe('DIV');
+    expect(camCard('headtrack').classList.contains('locked')).toBe(true);
+    expect(camCard('headtrack').querySelector('.camlock').textContent).toContain('LOCKED');
+  });
+
+  it('AVAILABLE/REQUESTED and ACTIVE AUTHORITY are distinct; active reads NOT REPORTED BY MAPPER', async () => {
+    await enterSeatfit(mockGs(), []);
+    expect(el('camRequested').textContent).toBe('MANUAL · RIGHT STICK'); // setup default
+    expect(el('camActive').textContent).toBe('NOT REPORTED BY MAPPER');
+    expect(el('camActive').classList.contains('unreported')).toBe(true);
+    // Active authority is never fabricated from W3, head-tracking, or the browser
+    // stick, and never echoes the requested mode as if it were live.
+    expect(el('camActive').textContent.toLowerCase()).not.toMatch(/w3|head|track|manual|right stick/);
+  });
+
+  it('clicking the LOCKED Head Tracking card changes nothing and calls NO ground-station method', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, []);
+    const before = gsCalls(gs);
+    camCard('headtrack').click();
+    await tick();
+    expect(el('camRequested').textContent).toBe('MANUAL · RIGHT STICK'); // unchanged
+    expect(el('camActive').textContent).toBe('NOT REPORTED BY MAPPER'); // unchanged
+    expect(camCard('headtrack').classList.contains('on')).toBe(false); // never selected
+    expect(gsCalls(gs)).toEqual(before); // no mode/control RPC — the card cannot emit
+  });
+
+  it('clicking the selectable Manual card is display-only — no ground-station method is called', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, []);
+    const before = gsCalls(gs);
+    camCard('manual').click();
+    await tick();
+    expect(gsCalls(gs)).toEqual(before);
+    expect(el('camRequested').textContent).toBe('MANUAL · RIGHT STICK');
+  });
+
+  it('a live controller reads LIVE CONTROLLER with transport shown UNKNOWN (never guessed as Bluetooth)', async () => {
+    await enterSeatfit(mockGs(), [makePad('DualShock 4 Wireless Controller', 0)]);
+    expect(el('ctlSource').textContent).toBe('LIVE CONTROLLER');
+    expect(el('ctlSource').classList.contains('live')).toBe(true);
+    expect(el('ctlMeta').textContent).toContain('TRANSPORT UNKNOWN');
+    // "Wireless Controller" in the id must NOT be inferred as Bluetooth.
+    expect(el('ctlMeta').textContent.toLowerCase()).not.toContain('bluetooth');
+  });
+
+  it('no controller: source reads NO CONTROLLER and the preview is neutral (nopad, sticks centred)', async () => {
+    await enterSeatfit(mockGs(), []);
+    expect(el('ctlSource').textContent).toContain('NO CONTROLLER');
+    expect(el('padPreview').classList.contains('nopad')).toBe(true);
+    const right = el('padPreview').querySelector('[data-stick="right"]');
+    expect(right.getAttribute('cx')).toBe(right.dataset.cx); // centred = neutral
+    expect(right.getAttribute('cy')).toBe(right.dataset.cy);
+  });
+
+  it('left stick steers and right stick pans/tilts the LIVE MIRROR (visualization only)', async () => {
+    const pad = makePad('DualShock 4', 0, { axes: [-0.5, 0, 0.4, -0.8] }); // steer,-,pan,tilt
+    await enterSeatfit(mockGs(), [pad]);
+    // Test strip (same math as the renderer: 50 + value*42).
+    expect(el('tsSteer').style.left).toBe(`${50 + -0.5 * 42}%`);
+    expect(el('tsPan').style.left).toBe(`${50 + 0.4 * 42}%`);
+    expect(el('tsTilt').style.left).toBe(`${50 + -0.8 * 42}%`);
+    // Stick wells: right dot moves in X (pan) AND Y (tilt); left dot in X only.
+    const right = el('padPreview').querySelector('[data-stick="right"]');
+    expect(Number(right.getAttribute('cx'))).toBeCloseTo(Number(right.dataset.cx) + 0.4 * 18);
+    expect(Number(right.getAttribute('cy'))).toBeCloseTo(Number(right.dataset.cy) + -0.8 * 18);
+    const left = el('padPreview').querySelector('[data-stick="left"]');
+    expect(Number(left.getAttribute('cx'))).toBeCloseTo(Number(left.dataset.cx) + -0.5 * 18);
+    expect(Number(left.getAttribute('cy'))).toBe(Number(left.dataset.cy)); // steering is X-only
+  });
+
+  it('two IDENTICAL controllers are two independently selectable rows; selecting the SECOND moves selection to it', async () => {
+    await enterSeatfit(mockGs(), [makePad('DualShock 4', 0), makePad('DualShock 4', 1)]);
+    expect(rows().length).toBe(2);
+    // Same id, so the SLOT label is what tells them apart on screen.
+    expect(rows().map((r) => r.querySelector('.padslot').textContent)).toEqual(['SLOT 0', 'SLOT 1']);
+    expect(rows()[0].classList.contains('on')).toBe(true);  // auto = first slot
+    expect(rows()[1].classList.contains('on')).toBe(false);
+    // Click the SECOND identical controller — selection moves to it, not its peer.
+    rows()[1].click();
+    await tick();
+    expect(rows()[1].classList.contains('on')).toBe(true);
+    expect(rows()[0].classList.contains('on')).toBe(false);
+  });
+});
