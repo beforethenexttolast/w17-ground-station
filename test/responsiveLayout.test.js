@@ -35,9 +35,18 @@ describe('responsive layout — setup overlay scrolls, never clips (Phase 3)', (
     const gate = rule('.gate');
     expect(gate).toMatch(/overflow-y:\s*auto/);          // 1280×720 etc.: scroll, not clip
     expect(gate).toMatch(/justify-content:\s*safe center/); // centre when it fits, top when not
-    // Generous bottom padding reserves space so the pinned footnote / radio
-    // overlays never cover START/BACK/NEXT.
-    expect(gate).toMatch(/padding:[^;]*clamp\(4/);
+    // Bottom padding reserves a band deep enough to clear a full 3-toast radio
+    // stack + the footnote so neither can cover START/BACK/NEXT (Batch 2 §3):
+    // the floor grew from clamp(4em,…) to clamp(5.5em,…).
+    expect(gate).toMatch(/padding:[^;]*clamp\(5\.5/);
+  });
+
+  it('the radio + footnote overlays are position:fixed viewport overlays, not scroll-flow children (Batch 2 §3)', () => {
+    // As position:absolute children of the scrollable .gate, a tall SEAT FIT that
+    // scrolled would carry these toasts up into the content band. position:fixed
+    // pins them to the viewport so they stay clear of the scrolling content.
+    expect(rule('.radioLog')).toMatch(/position:\s*fixed/);
+    expect(rule('.keys.footnote')).toMatch(/position:\s*fixed/);
   });
 });
 

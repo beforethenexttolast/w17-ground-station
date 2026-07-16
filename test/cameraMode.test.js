@@ -117,6 +117,31 @@ describe('camera mode model — never fabricates active authority (task §1A)', 
   });
 });
 
+describe('camera mode model — per-card help trimmed to unique content (Batch 2 §2)', () => {
+  it('no card help repeats the canonical mapper-authority / W3-log-only wording (it lives once in #camModeNote)', () => {
+    const helps = cameraModeView({ requested: 'manual' }).modes.map((m) => m.help.toLowerCase());
+    for (const help of helps) {
+      // The shared facts are stated once, in the UI note — not per card.
+      expect(help).not.toContain('log-only');
+      expect(help).not.toContain('control authority');
+      expect(help).not.toContain('not reported');
+      // The Manual card no longer restates that the mapper is the authority.
+      expect(help).not.toContain('the mapper is');
+    }
+  });
+
+  it('each card keeps non-empty, distinct help', () => {
+    const helps = cameraModeView({ requested: 'manual' }).modes.map((m) => m.help);
+    expect(helps.every((h) => typeof h === 'string' && h.trim().length > 0)).toBe(true);
+    expect(new Set(helps).size).toBe(helps.length); // distinct per card
+  });
+
+  it('leaves the head-tracking lock string untouched', () => {
+    const ht = CAMERA_MODES.find((m) => m.key === 'headtrack');
+    expect(ht.lock).toBe('LOCKED · SAFETY GATE NOT COMPLETE');
+  });
+});
+
 describe('camera mode model — no control emission (task §4)', () => {
   it('never authorizes control emission, and exposes NO head-track armed flag', () => {
     for (const req of ['manual', 'headtrack', 'nonsense', undefined]) {

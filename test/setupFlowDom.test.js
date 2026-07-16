@@ -1487,6 +1487,39 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
     expect(Number(left.getAttribute('cy'))).toBe(Number(left.dataset.cy)); // steering is X-only
   });
 
+  it('keyboard fallback + log-only are each stated once — no duplicated copies (Batch 2 §1/§2)', async () => {
+    // No controller: the maximal-text state — #ctlSource shows KEYBOARD FALLBACK
+    // and the keyboard legend is applicable.
+    await enterSeatfit(mockGs(), []);
+    const seat = document.querySelector('.setup-screen[data-step="seatfit"]');
+    const text = seat.textContent;
+    const count = (re) => (text.match(re) || []).length;
+    // Exactly ONE "keyboard fallback" statement (the #ctlSource line). The key
+    // legend line adds the word once more, but a legend is not a second copy of
+    // the fallback fact — so total "keyboard" mentions never exceed 2 (was 3:
+    // #ctlSource + the LAYOUT hint + the empty-pad row).
+    expect(count(/keyboard fallback/gi)).toBe(1);
+    expect(count(/keyboard/gi)).toBeLessThanOrEqual(2);
+    // The mapper-authority / W3-log-only wording lives once, in #camModeNote
+    // (was twice: the head-tracking card help repeated it).
+    expect(count(/log-only/gi)).toBe(1);
+    // The empty-pad row no longer restates the fallback.
+    expect(el('padList').textContent).toBe('NO CONTROLLER DETECTED');
+    // The key legend is present (shown only with no controller) and the pairing
+    // guidance moved behind PAIRING NOTES.
+    expect(el('keyboardHint').textContent).toMatch(/steer/);
+    expect(el('pairingNotes').querySelector('summary').textContent).toBe('PAIRING NOTES');
+    // Safety semantics remain intact (kept from the existing SEAT FIT tests).
+    expect(camCard('headtrack').querySelector('.camlock').textContent).toContain('LOCKED');
+    expect(el('camActive').textContent).toBe('NOT REPORTED BY MAPPER');
+  });
+
+  it('the keyboard legend hides once a live controller is present (Batch 2 §1)', async () => {
+    await enterSeatfit(mockGs(), [makePad('DualShock 4', 0)]);
+    expect(el('ctlSource').textContent).toBe('LIVE CONTROLLER');
+    expect(el('keyboardHint').classList.contains('hidden')).toBe(true);
+  });
+
   it('two IDENTICAL controllers are two independently selectable rows; selecting the SECOND moves selection to it', async () => {
     await enterSeatfit(mockGs(), [makePad('DualShock 4', 0), makePad('DualShock 4', 1)]);
     expect(rows().length).toBe(2);

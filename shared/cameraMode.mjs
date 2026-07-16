@@ -45,18 +45,21 @@ export const CAMERA_MODES = Object.freeze([
         key: 'manual',
         label: 'MANUAL · RIGHT STICK',
         selectable: true,
-        help: 'Right stick pans and tilts the camera gimbal through the mapper. '
-            + 'The ground station only mirrors the stick for you; the mapper is the '
-            + 'control authority. Manual is the reviewed setup default.',
+        // Per-card help is trimmed to what is UNIQUE to this card; the shared
+        // mapper-authority / W3-log-only wording lives once in #camModeNote
+        // (task Batch 2 §2).
+        help: 'Right stick pans and tilts the camera through the mapper — the '
+            + 'reviewed setup default.',
     }),
     Object.freeze({
         key: 'headtrack',
         label: 'HEAD TRACKING · IPHONE',
         selectable: false,
         lock: 'LOCKED · SAFETY GATE NOT COMPLETE',
-        help: 'iPhone head tracking is not enabled — active head-driven pan/tilt has '
-            + 'not passed its safety milestone. Current head-tracking traffic (W3) is '
-            + 'diagnostic log-only and never moves the camera.',
+        // Unique to this card: WHY it is locked. The W3-log-only fact is stated
+        // once in #camModeNote, not repeated here (task Batch 2 §2).
+        help: 'iPhone head tracking is not enabled — active head-driven pan/tilt '
+            + 'has not passed its safety milestone.',
     }),
 ]);
 

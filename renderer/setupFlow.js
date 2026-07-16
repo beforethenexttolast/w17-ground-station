@@ -728,7 +728,7 @@ el('addrCheck').addEventListener('click', async () => {
 
 // ---------- SEAT FIT ----------
 const padList = el('padList'), presetRow = el('presetRow'), padPreview = el('padPreview');
-const ctlSource = el('ctlSource'), ctlMeta = el('ctlMeta');
+const ctlSource = el('ctlSource'), ctlMeta = el('ctlMeta'), keyboardHint = el('keyboardHint');
 const camModes = el('camModes'), camRequested = el('camRequested'), camActive = el('camActive');
 let padTimer = null;
 // Session-stable device selection (task §3). `chosenPadKey` is gamepadKey (slot
@@ -886,7 +886,7 @@ function seatfitTick() {
       // identical peer. seatfitTick() runs immediately for a responsive highlight.
       b.addEventListener('click', () => { chosenPadKey = key; maybeAutoPreset(p.id); applyChoice(); seatfitTick(); sounds.uiTick(); });
       return b;
-    }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: 'NO CONTROLLER DETECTED — keyboard fallback stays available' })]));
+    }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: 'NO CONTROLLER DETECTED' })]));
     // No manual pick yet: the first slot is the auto choice — suggest its layout.
     if (!chosenPadKey && pads[0]) { maybeAutoPreset(pads[0].id); applyChoice(); }
   }
@@ -909,6 +909,10 @@ function seatfitTick() {
   ctlMeta.textContent = p
     ? `${getPreset(chosenPreset).label} PROFILE · TRANSPORT ${transportLabel(p)}`
     : `${getPreset(chosenPreset).label} PROFILE`;
+  // The keyboard legend surfaces ONLY with no live controller — the same state
+  // that makes #ctlSource read NO CONTROLLER · KEYBOARD FALLBACK, so the legend
+  // never sits beside a live controller (task Batch 2 §1).
+  if (keyboardHint) keyboardHint.classList.toggle('hidden', !!p);
 
   // Live test strip + stick wells through the chosen preset — proves the mapping
   // instantly. axisValues returns neutral 0s with no pad, so everything centres.

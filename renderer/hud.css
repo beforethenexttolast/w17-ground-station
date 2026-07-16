@@ -151,11 +151,13 @@ body{background:#000;color:var(--silver);
    viewport (small laptops / the taller SEAT FIT), SCROLLS instead of clipping:
    `safe center` centres when it fits and falls back to top-alignment when it
    overflows, so START/BACK/NEXT are always reachable (task §1). The generous
-   block padding keeps content clear of the pinned footnote/radio overlays. */
+   block padding keeps content clear of the pinned footnote/radio overlays. The
+   bottom band is sized to clear a full 3-toast radio stack + the footnote (task
+   Batch 2 §3). */
 .gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;
   justify-content:safe center;gap:clamp(.9em,2vh,1.4em);overflow-y:auto;overflow-x:hidden;
   background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,.9),rgba(2,4,4,.97));text-align:center;
-  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(4em,8vh,5.5em);}
+  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(5.5em,10vh,7em);}
 .gate.hidden{display:none}
 /* compact header: title + subtitle share one baseline row instead of stacking */
 .gatehead{display:flex;align-items:baseline;justify-content:center;gap:1em;flex-wrap:wrap}
@@ -256,8 +258,11 @@ body{background:#000;color:var(--silver);
 .hint.hidden{display:none}
 .stepname{color:var(--teal);letter-spacing:.4em;font-weight:800;text-transform:uppercase;
   font-size:clamp(12px,1.5vw,17px)}
-/* team radio: out of the main vertical flow — pinned to the bottom-left corner */
-.radioLog{position:absolute;left:1.2em;bottom:3.6em;display:flex;flex-direction:column-reverse;
+/* team radio: a VIEWPORT overlay (position:fixed), not a child of the scrollable
+   gate flow — so a tall SEAT FIT that scrolls can never carry a toast up into
+   the content band, and the toasts stay pinned bottom-left regardless of scroll
+   (task Batch 2 §3). */
+.radioLog{position:fixed;left:1.2em;bottom:3.6em;display:flex;flex-direction:column-reverse;
   gap:.35em;align-items:flex-start;max-width:44ch;pointer-events:none;text-align:left}
 .radio-msg{background:var(--panel);border:1px solid var(--panel-edge);color:var(--silver);
   letter-spacing:.16em;text-transform:uppercase;font-weight:700;font-size:clamp(9px,1.1vw,12px);
@@ -363,8 +368,10 @@ body{background:#000;color:var(--silver);
 .setup-nav{display:flex;gap:clamp(1em,2.5vw,2.2em);margin-top:.2em}
 .setup-nav.hidden{display:none}
 .keys.hidden{display:none}
-/* one-line disclaimer pinned above the demo toggle, out of the step flow */
-.keys.footnote{position:absolute;left:50%;bottom:2.6em;transform:translateX(-50%);
+/* one-line disclaimer pinned above the demo toggle, out of the step flow — a
+   VIEWPORT overlay (position:fixed), so a scrolling gate never drags it into the
+   content band (task Batch 2 §3). */
+.keys.footnote{position:fixed;left:50%;bottom:2.6em;transform:translateX(-50%);
   max-width:90ch;line-height:1.4;white-space:nowrap}
 @media (max-width:900px){.keys.footnote{white-space:normal;max-width:60ch}}
 
