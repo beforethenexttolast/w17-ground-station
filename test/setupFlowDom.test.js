@@ -263,7 +263,12 @@ describe('operational IPC rejections (audit N1)', () => {
       applySession: vi.fn(async () => { throw new Error('runtime apply died'); }),
     });
     await loadRenderer(gs);
-    expect(activeStep()).toBe('grid'); // setupCompleted -> straight to GRID
+    // Batch 8a: a returning user lands on GARAGE with the fast-path card; the
+    // card's button runs the existing resume path to GRID.
+    expect(activeStep()).toBe('garage');
+    el('fastPathBtn').click();
+    await tick();
+    expect(activeStep()).toBe('grid');
     expect(el('setupSummary').textContent).toContain('SESSION APPLY FAILED');
     expect(el('checkList').children.length).toBeGreaterThan(0); // checklist still renders
   });
@@ -1142,6 +1147,8 @@ describe('W2-on-GRID note (audit C5)', () => {
     const settings = { ...defaultSettings(), fpvMode: 'iphone-hud', iphoneAddr: '192.168.1.9', setupCompleted: true };
     const gs = mockGs({ getSettings: vi.fn(async () => ({ settings, envOverridden: {} })) });
     await loadRenderer(gs);
+    el('fastPathBtn').click(); // Batch 8a: resume from the GARAGE fast-path card
+    await tick();
     expect(activeStep()).toBe('grid');
     expect(el('gridNote').classList.contains('hidden')).toBe(false);
     expect(el('gridNote').textContent).toMatch(/begins receiving telemetry on GRID/);
@@ -1153,6 +1160,8 @@ describe('W2-on-GRID note (audit C5)', () => {
     const settings = { ...defaultSettings(), fpvMode: 'solo', setupCompleted: true };
     const gs = mockGs({ getSettings: vi.fn(async () => ({ settings, envOverridden: {} })) });
     await loadRenderer(gs);
+    el('fastPathBtn').click(); // Batch 8a: resume from the GARAGE fast-path card
+    await tick();
     expect(activeStep()).toBe('grid');
     expect(el('gridNote').classList.contains('hidden')).toBe(true);
     expect(el('gridNote').textContent).toBe('');
@@ -1225,7 +1234,8 @@ describe('renderer boot/config integration (audit D2)', () => {
       getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
       applySession: vi.fn(async () => { await gate; return { telemetry: 'none', w3: false }; }),
     });
-    await loadRenderer(gs); // setupCompleted -> straight to GRID; apply still pending
+    await loadRenderer(gs); // Batch 8a: setupCompleted -> GARAGE fast-path card
+    el('fastPathBtn').click(); // resume to GRID; apply still pending
     expect(activeStep()).toBe('grid');
     vi.useFakeTimers();
     try {
@@ -1668,5 +1678,91 @@ describe('SEAT FIT — wheel input + persistence (Batch 6 / P5b)', () => {
     expect(on.length).toBe(1);
     // gamepad DEVICE auto-selects slot 0, so the wheel defaults to slot 1.
     expect(on[0].querySelector('.padslot').textContent).toBe('SLOT 1');
+  });
+});
+
+// Step rail (Batch 8a / flow chrome). The rail is rendered from the live per-mode
+// step list (shared/setupSteps.mjs) in the FIXED design order/labels
+// (01 GARAGE · 02 SEAT FIT · 03 PIT WALL · 04 GRID). States are honest: done for
+// steps already passed in the ACTUAL path, current for the active step, todo for
+// steps still ahead, skipped for a canonical step absent from the mode's path
+// (desktop mode omits PIT WALL). Display only — no navigation change.
+describe('step rail states (Batch 8a / flow chrome)', () => {
+  const railStep = (key) => el('stepRail').querySelector(`[data-step="${key}"]`);
+  const railState = (key) => {
+    const s = railStep(key);
+    return ['done', 'current', 'todo', 'skipped'].find((c) => s.classList.contains(c)) || null;
+  };
+
+  it('renders all four canonical steps in the fixed design order/labels on every screen', async () => {
+    await loadRenderer(mockGs()); // fresh solo user -> GARAGE
+    const steps = [...el('stepRail').querySelectorAll('.railstep')];
+    expect(steps.map((s) => s.dataset.step)).toEqual(['garage', 'seatfit', 'pitwall', 'grid']);
+    expect(steps.map((s) => s.querySelector('b').textContent)).toEqual(['01', '02', '03', '04']);
+    expect(steps.map((s) => s.textContent.replace(/^\d+/, '').replace(/DESKTOP$/, '').trim()))
+      .toEqual(['GARAGE', 'SEAT FIT', 'PIT WALL', 'GRID']);
+  });
+
+  it('desktop/solo mode marks PIT WALL skipped with a DESKTOP reason chip; the rest track the path', async () => {
+    await loadRenderer(mockGs()); // solo, on GARAGE
+    expect(railState('garage')).toBe('current');
+    expect(railState('seatfit')).toBe('todo');
+    expect(railState('pitwall')).toBe('skipped');
+    expect(railStep('pitwall').querySelector('.whychip').textContent).toBe('DESKTOP');
+    expect(railState('grid')).toBe('todo');
+    // Advance to SEAT FIT (solo skips PIT WALL in the real path): GARAGE done now.
+    document.querySelector('.modecard[data-mode="solo"]').click();
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+    expect(railState('garage')).toBe('done');
+    expect(railState('seatfit')).toBe('current');
+    expect(railState('pitwall')).toBe('skipped'); // still skipped in desktop mode
+    expect(railState('grid')).toBe('todo');
+    expect(railStep('garage').querySelector('.whychip')).toBeNull(); // no chip on non-skipped
+  });
+
+  it('iPhone mode has no skipped step: PIT WALL is a real todo, then current', async () => {
+    const gs = mockGs();
+    await loadPitwall(gs); // clicks the iphone-hud card -> PIT WALL
+    expect(railState('garage')).toBe('done');
+    expect(railState('pitwall')).toBe('current');
+    expect(railStep('pitwall').querySelector('.whychip')).toBeNull(); // never skipped in iPhone mode
+    expect(railState('grid')).toBe('todo');
+  });
+});
+
+// Returning-user fast path (Batch 8a / flow chrome, design bundle §3 + user
+// decision 2026-07-16): a completed prior session lands on GARAGE with a
+// green-accent actionable card (mode · controller · telemetry source), focused
+// so a single Enter resumes; its button runs the existing path to GRID. A fresh
+// user sees GARAGE without the card.
+describe('GARAGE fast-path card (Batch 8a / flow chrome)', () => {
+  it('a returning user lands on GARAGE with the fast-path card visible, focused, and summarizing the reused config', async () => {
+    const settings = { ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', telemetry: { source: 'replay', port: '' } };
+    const gs = mockGs({ getSettings: vi.fn(async () => ({ settings, envOverridden: {} })) });
+    await loadRenderer(gs);
+    expect(activeStep()).toBe('garage');
+    expect(el('fastPath').classList.contains('hidden')).toBe(false);
+    expect(document.activeElement).toBe(el('fastPathBtn')); // single-Enter resume
+    const summary = el('fastPathSummary').textContent;
+    expect(summary).toMatch(/DESKTOP FPV/);
+    expect(summary).toMatch(/TELEMETRY REPLAY/);
+    expect(summary).toMatch(/checks re-run on the GRID/);
+  });
+
+  it("the card's button runs the existing resume path to GRID (no new session logic)", async () => {
+    const settings = { ...defaultSettings(), setupCompleted: true, fpvMode: 'solo' };
+    const gs = mockGs({ getSettings: vi.fn(async () => ({ settings, envOverridden: {} })) });
+    await loadRenderer(gs);
+    el('fastPathBtn').click();
+    await tick();
+    expect(activeStep()).toBe('grid');
+    expect(gs.applySession).toHaveBeenCalled(); // the standard GRID entry, not a new path
+  });
+
+  it('a fresh user (no completed session) sees GARAGE with the fast-path card hidden', async () => {
+    await loadRenderer(mockGs()); // setupCompleted:false
+    expect(activeStep()).toBe('garage');
+    expect(el('fastPath').classList.contains('hidden')).toBe(true);
   });
 });

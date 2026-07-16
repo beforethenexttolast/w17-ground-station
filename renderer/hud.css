@@ -52,10 +52,16 @@ body{background:#000;color:var(--silver);
 .rev i.v{background:var(--violet);box-shadow:0 0 12px var(--violet)}
 .rev.redline i{animation:flash .12s steps(1) infinite}
 @keyframes flash{50%{background:#11191b;box-shadow:none}}
+/* Top-right stack (Batch 8a): the clock panel with ONE consolidated status
+   stack under it (design bundle §11). Right-aligned as a column so it sits
+   clear of the fixed ⚙ (the .top rule already reserves the right 3em). */
+.sessionwrap{display:flex;flex-direction:column;align-items:flex-end;gap:.45em;min-width:9em}
+.statusstack{display:flex;flex-direction:column;align-items:flex-end;gap:.3em}
+.statusstack>*{margin-top:0}
 .session{text-align:right;padding:.5em .9em;min-width:9em}
 .session .clock{font-style:italic;font-weight:800;font-size:clamp(16px,2vw,26px);letter-spacing:.04em}
 .session .live{color:var(--teal);letter-spacing:.34em;font-size:clamp(8px,1vw,11px);text-transform:uppercase;
-  font-weight:700;display:flex;gap:.5em;justify-content:flex-end;align-items:center}
+  font-weight:700;display:flex;gap:.5em;justify-content:flex-end;align-items:center;margin-top:.2em}
 .dot{width:.6em;height:.6em;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
 .gp,.link{font-size:clamp(8px,1vw,11px);letter-spacing:.18em;color:var(--muted);margin-top:.3em;text-transform:uppercase}
@@ -116,8 +122,18 @@ body{background:#000;color:var(--silver);
 .camgrid::before,.camgrid::after{content:"";position:absolute;background:#2a3639}
 .camgrid::before{left:50%;top:2px;bottom:2px;width:1px}
 .camgrid::after{top:50%;left:2px;right:2px;height:1px}
+/* Violet reticle (Batch 8a): the right-stick dot speaks the observed STICK
+   INPUT vocabulary (violet), matching the SEAT FIT right-stick well — never the
+   teal "commanded/telemetry" colour, never implying measured camera aim. */
 .camdot{position:absolute;left:50%;top:50%;width:clamp(7px,.9vw,10px);height:clamp(7px,.9vw,10px);border-radius:50%;
-  background:var(--teal);box-shadow:0 0 8px var(--teal);transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}
+  background:var(--violet);box-shadow:0 0 8px var(--violet);transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}
+/* source tag (Batch 8a): marks which device/input feeds a bar or panel. muted
+   default · teal = wheel input · violet = stick input (design bundle §6/§10). */
+.srctag{display:inline-block;padding:.05em .45em;border:1px solid #233033;color:var(--muted);letter-spacing:.14em;
+  text-transform:uppercase;font-weight:700;font-size:clamp(7px,.9vw,10px);clip-path:polygon(3px 0,100% 0,calc(100% - 3px) 100%,0 100%)}
+.srctag.wheel{border-color:var(--teal);color:var(--teal)}
+.srctag.pad{border-color:var(--violet);color:var(--violet)}
+.barsrc{display:flex;justify-content:flex-start;margin-bottom:.15em}
 .gearbox{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:.2em}
 .gearlabel{color:var(--muted);letter-spacing:.5em;font-size:clamp(8px,1vw,12px);text-transform:uppercase;margin-bottom:.1em}
 .gear{font-style:italic;font-weight:800;line-height:.8;font-size:clamp(96px,17vw,210px);color:var(--silver);transform:skewX(-6deg);
@@ -159,7 +175,10 @@ body{background:#000;color:var(--silver);
    that the last line clears the band at max scroll (measured: 0px overlap). */
 .gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;
   justify-content:safe center;gap:clamp(.9em,2vh,1.4em);overflow-y:auto;overflow-x:hidden;
-  background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,.9),rgba(2,4,4,.97));text-align:center;
+  /* SOLID setup backdrop (Batch 8a / flow chrome, design bundle §1): fully
+     opaque so the live HUD no longer bleeds through the setup overlay. Was a
+     translucent gradient (…,.9 / …,.97). */
+  background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,1),rgba(2,4,4,1));text-align:center;
   padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(7em,10vh,7.5em);}
 .gate.hidden{display:none}
 /* compact header: title + subtitle share one baseline row instead of stacking */
@@ -167,6 +186,20 @@ body{background:#000;color:var(--silver);
 .gate h1{font-style:italic;font-weight:800;font-size:clamp(24px,4vw,44px);transform:skewX(-6deg)}
 .gate h1 em{color:var(--teal);font-style:italic}
 .gate .sub{color:var(--muted);letter-spacing:.28em;text-transform:uppercase;font-size:clamp(9px,1.1vw,12px)}
+/* Step rail (Batch 8a / flow chrome, design bundle §1): a persistent progress
+   rail rendered from the per-mode step state. States: done (silver + green tick)
+   · current (teal + underbar) · todo (muted) · skipped (muted, struck, reason
+   chip). Wraps so all four steps stay on-screen at 1280×800 / 1366×768. */
+.steprail{display:flex;gap:clamp(1em,3vw,2.4em);justify-content:center;align-items:baseline;flex-wrap:wrap}
+.steprail.hidden{display:none}
+.railstep{position:relative;color:var(--muted);letter-spacing:.24em;text-transform:uppercase;font-weight:700;font-size:clamp(9px,1vw,12px);padding:.3em 0}
+.railstep b{font-style:italic;margin-right:.45em;font-weight:800}
+.railstep.done{color:var(--silver)}
+.railstep.done::before{content:"✓ ";color:var(--green)}
+.railstep.current{color:var(--teal)}
+.railstep.current::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:2px;background:var(--teal);box-shadow:0 0 8px var(--teal)}
+.railstep.skipped{opacity:.45;text-decoration:line-through}
+.railstep .whychip{margin-left:.5em;text-decoration:none;display:inline-block;color:var(--muted);border:1px solid #233033;padding:.05em .45em;font-size:.8em;letter-spacing:.14em;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .gate .status{font-weight:800;letter-spacing:.18em;text-transform:uppercase;font-size:clamp(12px,1.6vw,18px)}
 .gate .status.ok{color:var(--green)}
 .gate .status.no{color:var(--amber)}
@@ -275,6 +308,17 @@ body{background:#000;color:var(--silver);
   padding:.4em 1.1em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .radio-msg::before{content:"📻 ";filter:grayscale(1)}
 .radioLog .radio-msg:not(:first-child){opacity:.45}
+/* GARAGE returning-user fast path (Batch 8a / flow chrome, design bundle §3):
+   a green-accent actionable row (mode · controller · telemetry source) that
+   resumes the last session. Hidden for a fresh user. */
+.fastpath{display:flex;align-items:center;gap:1em;flex-wrap:wrap;justify-content:space-between;width:100%;max-width:min(1100px,94vw);
+  background:var(--panel);border:1px solid #233033;border-left:3px solid var(--green);text-align:left;
+  padding:.7em 1.2em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
+.fastpath.hidden{display:none}
+.fastpath .what{display:flex;flex-direction:column;gap:.2em;min-width:0}
+.fastpath b{letter-spacing:.18em;font-size:clamp(11px,1.2vw,13px);text-transform:uppercase;font-weight:800}
+.fastpath span{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.1em;text-transform:uppercase}
+.fastpath .minibtn{color:var(--green);border-color:rgba(0,230,118,.5)}
 .modecards{display:flex;gap:clamp(1em,2vw,1.8em);flex-wrap:wrap;justify-content:center;width:100%}
 .modecard{font-family:inherit;cursor:pointer;background:var(--panel);border:1px solid var(--panel-edge);
   color:var(--silver);padding:clamp(1.1em,2vw,1.6em) clamp(1.6em,2.4vw,2.4em);text-align:left;

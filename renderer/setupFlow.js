@@ -37,6 +37,25 @@ const screens = [...document.querySelectorAll('.setup-screen')];
 const radioLog = el('radioLog');
 const navBack = el('navBack'), navNext = el('navNext'), setupNav = el('setupNav');
 const lightsEl = el('lights');
+const stepRail = el('stepRail');
+const fastPath = el('fastPath'), fastPathBtn = el('fastPathBtn'), fastPathSummary = el('fastPathSummary');
+
+// Step rail (Batch 8a / flow chrome): the FIXED canonical display order + labels
+// (design bundle §1). Numbers/labels never change; only each step's STATE is
+// derived from the live per-mode step list (stepsFor). skipReason names why a
+// canonical step is absent from a mode's path — PIT WALL is desktop-skipped
+// (shared/setupSteps.mjs only includes it in iphone-hud mode). Pure display.
+const RAIL_STEPS = [
+  { key: 'garage', num: '01', label: 'GARAGE' },
+  { key: 'seatfit', num: '02', label: 'SEAT FIT' },
+  { key: 'pitwall', num: '03', label: 'PIT WALL' },
+  { key: 'grid', num: '04', label: 'GRID' },
+];
+function skipReason(key) {
+  // Only PIT WALL is skippable today, and only because desktop/solo mode omits
+  // the network step (stepsFor). 8b surfaces/exercises this; 8a just renders it.
+  return key === 'pitwall' ? 'DESKTOP' : 'SKIPPED';
+}
 
 let settings = null;
 let envOverridden = {};
@@ -99,6 +118,62 @@ async function save(patch) {
 const enterHooks = { pitwall: enterPitwall, seatfit: enterSeatfit, grid: enterGrid };
 const leaveHooks = { pitwall: leavePitwall, seatfit: leaveSeatfit, grid: leaveGrid };
 
+// Render the step rail from the live per-mode step list. done/current/todo come
+// from the step's position in the ACTUAL path (never a lie about "done"); a
+// canonical step absent from the path is `skipped` with a reason chip. The rail
+// shows the FIXED design order/labels regardless of the current nav order (8a
+// keeps the nav order; 8b aligns it) — display only, no navigation change.
+function renderStepRail() {
+  if (!stepRail) return;
+  const path = stepsFor(mode);
+  const currentIdx = path.indexOf(step);
+  stepRail.classList.remove('hidden');
+  stepRail.replaceChildren(...RAIL_STEPS.map(({ key, num, label }) => {
+    const span = document.createElement('span');
+    const idx = path.indexOf(key);
+    let state;
+    if (idx === -1) state = 'skipped';
+    else if (key === step) state = 'current';
+    else if (currentIdx !== -1 && idx < currentIdx) state = 'done';
+    else state = 'todo';
+    span.className = `railstep ${state}`;
+    span.dataset.step = key;
+    const b = document.createElement('b');
+    b.textContent = num;
+    span.append(b, document.createTextNode(label));
+    if (state === 'skipped') {
+      const chip = document.createElement('span');
+      chip.className = 'whychip';
+      chip.textContent = skipReason(key);
+      span.appendChild(chip);
+    }
+    return span;
+  }));
+}
+
+// Returning-user fast-path card (Batch 8a): shown only on GARAGE when a prior
+// session completed. Populates the reused-config summary and focuses the button
+// so a returning operator resumes with a single Enter (user decision, 2026-07-16).
+function updateFastPath() {
+  if (!fastPath) return;
+  const show = step === 'garage' && !!settings?.setupCompleted;
+  fastPath.classList.toggle('hidden', !show);
+  if (show) {
+    fastPathSummary.textContent = fastPathSummaryText(settings);
+    fastPathBtn.focus();
+  }
+}
+
+const FASTPATH_MODE = { solo: 'DESKTOP FPV', 'iphone-hud': 'IPHONE COCKPIT' };
+function fastPathSummaryText(s) {
+  const modeLabel = FASTPATH_MODE[s?.fpvMode] || FASTPATH_MODE.solo;
+  const pad = getPreset(s?.controller?.preset).label;
+  const src = s?.telemetry?.source || 'none';
+  const port = s?.telemetry?.port;
+  const tel = src === 'crsf-serial' && port ? port : src.toUpperCase();
+  return `${modeLabel} · PAD ${pad} · TELEMETRY ${tel} — checks re-run on the GRID`;
+}
+
 function showStep(next) {
   if (leaveHooks[step]) leaveHooks[step]();
   step = next;
@@ -106,8 +181,12 @@ function showStep(next) {
   navBack.classList.toggle('hidden', step === 'garage');
   navNext.classList.toggle('hidden', step === 'garage' || step === 'grid');
   setupNav.classList.toggle('hidden', step === 'garage');
+  renderStepRail();
+  updateFastPath();
   if (enterHooks[step]) enterHooks[step]();
 }
+
+fastPathBtn.addEventListener('click', () => { sounds.uiTick(); showStep('grid'); });
 
 navNext.addEventListener('click', () => {
   sounds.uiTick();
@@ -1438,6 +1517,7 @@ function runLights() {
   lightsRunning = true;
   for (const s of screens) s.classList.remove('active');
   setupNav.classList.add('hidden');
+  if (stepRail) stepRail.classList.add('hidden'); // rail belongs to the setup steps, not the lights hand-off
   el('gateFootnote').classList.add('hidden');
   // Start-lights countdown is a ⚙ setting (on by default); off = straight in.
   if (settings && settings.startLightsEnabled === false) {
@@ -1591,11 +1671,11 @@ async function boot() {
   credential = res.credential || null;
   mode = settings.fpvMode;
   setSoundEnabled(settings.soundEnabled);
-  if (settings.setupCompleted) {
-    radio('WELCOME BACK — STRAIGHT TO THE GRID');
-    showStep('grid');
-  } else {
-    showStep('garage');
-  }
+  // A completed prior session lands on GARAGE with the fast-path card (Batch 8a /
+  // flow chrome, design bundle §3), instead of the old auto-jump + welcome-back
+  // toast. showStep('garage') reveals + focuses the card via updateFastPath when
+  // setupCompleted is set; the card's button runs the existing resume path
+  // (showStep('grid')). A fresh user sees GARAGE with no card.
+  showStep('garage');
 }
 boot();

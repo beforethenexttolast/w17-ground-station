@@ -148,6 +148,29 @@ describe('responsive layout — wheel panel + viz fit their column (Batch 6 / P5
   });
 });
 
+describe('flow chrome — step rail + solid backdrop (Batch 8a)', () => {
+  it('the step rail wraps and centers so all four steps stay on-screen at the target sizes', () => {
+    const rail = rule('.steprail');
+    expect(rail).toMatch(/flex-wrap:\s*wrap/);
+    expect(rail).toMatch(/justify-content:\s*center/);
+  });
+
+  it('the rail step label keeps a readable clamp floor', () => {
+    expect(clampMin(rule('.railstep'))).toBeGreaterThanOrEqual(9);
+  });
+
+  it('the setup backdrop is fully opaque so the live HUD no longer bleeds through (design §1)', () => {
+    // The first .gate rule carries the background (the second is only the fade
+    // transition). Both radial stops must be opaque — no sub-1 alpha that would
+    // let the HUD show through the setup overlay.
+    const gate = rule('.gate');
+    expect(gate).toMatch(/radial-gradient/);
+    expect(gate).toMatch(/rgba\(7,\s*12,\s*13,\s*1\)/);
+    expect(gate).toMatch(/rgba\(2,\s*4,\s*4,\s*1\)/);
+    expect(gate).not.toMatch(/rgba\([^)]*,\s*\.\d+\)/); // no translucent stop remains
+  });
+});
+
 describe('responsive layout — readable at the smallest target (Phase 3)', () => {
   it('body/help/status/step text keep a readable clamp floor', () => {
     expect(clampMin(rule('.hint'))).toBeGreaterThanOrEqual(11);

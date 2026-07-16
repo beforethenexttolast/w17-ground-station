@@ -24,6 +24,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
   w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'), headIntentChipEl = el('headIntentChip'),
+  inputSrcTagEl = el('inputSrcTag'),
   gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote'), feedNoteText = el('feedNoteText');
 
@@ -109,7 +110,18 @@ export function setInputSource({ type = 'gamepad', profile = null, wheelKey = ''
   inputType = (type === 'wheel' || type === 'both') ? type : 'gamepad';
   wheelProfile = profile;
   wheelPadKey = wheelKey || '';
+  renderInputSrc();
 }
+// INPUT source tag above the THR/BRK/STR bars (Batch 8a): a truthful label for
+// which device feeds those bars this session. WHEEL/BOTH read the wheel for
+// STR/THR/BRK (teal wheel tag); GAMEPAD reads the pad (muted). Display only.
+function renderInputSrc() {
+  if (!inputSrcTagEl) return;
+  const wheel = inputType === 'wheel' || inputType === 'both';
+  inputSrcTagEl.textContent = `INPUT · ${wheel ? 'WHEEL' : 'GAMEPAD'}`;
+  inputSrcTagEl.className = `srctag${wheel ? ' wheel' : ''}`;
+}
+renderInputSrc();
 // The pad the wheel mirror reads. START happens in the same session (no restart),
 // so the session key from SEAT FIT still resolves the same slot; a wheel that
 // disconnects after START resolves to null → wheelValues reads neutral, never a

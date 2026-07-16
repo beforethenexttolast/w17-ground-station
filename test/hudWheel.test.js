@@ -154,3 +154,51 @@ describe('HUD wheel mirroring (Batch 7 / P5c)', () => {
     expect(el('camdot').style.left).toBe(`${50 + 0.7 * 40}%`); // gamepad (slot 0) camPan
   });
 });
+
+// HUD status stack + INPUT source tag (Batch 8a / flow chrome). The scattered
+// chips consolidate into one right-aligned .statusstack under the session clock
+// (ids/logic unchanged, only placement); an INPUT · GAMEPAD/WHEEL tag above the
+// THR/BRK/STR bars labels the session source (fed by Batch 7's setInputSource);
+// the right-stick reticle carries a violet STICK INPUT · PAD tag. Display only.
+describe('HUD status stack + input source tag (Batch 8a / flow chrome)', () => {
+  it('the INPUT tag defaults to GAMEPAD (muted) and never says GAMEPAD/WHEEL wrong', async () => {
+    await loadHud();
+    expect(el('inputSrcTag').textContent).toBe('INPUT · GAMEPAD');
+    expect(el('inputSrcTag').className).toBe('srctag'); // muted default, no wheel accent
+  });
+
+  it('a WHEEL session tags INPUT · WHEEL with the teal wheel accent', async () => {
+    const hud = await loadHud();
+    hud.setInputSource({ type: 'wheel', profile: WHEEL_PROFILE, wheelKey: '' });
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL');
+    expect(el('inputSrcTag').className).toContain('wheel');
+  });
+
+  it('a BOTH session tags INPUT · WHEEL (STR/THR/BRK are wheel-fed); GAMEPAD reverts to muted GAMEPAD', async () => {
+    const hud = await loadHud();
+    hud.setInputSource({ type: 'both', profile: WHEEL_PROFILE, wheelKey: '' });
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL');
+    expect(el('inputSrcTag').className).toContain('wheel');
+    hud.setInputSource({ type: 'gamepad' });
+    expect(el('inputSrcTag').textContent).toBe('INPUT · GAMEPAD');
+    expect(el('inputSrcTag').className).toBe('srctag');
+  });
+
+  it('the link/gamepad/W3/replay/head-intent chips all live in the one .statusstack', async () => {
+    await loadHud();
+    const stack = document.querySelector('.statusstack');
+    expect(stack).toBeTruthy();
+    for (const id of ['linkStatus', 'gpStatus', 'w3Chip', 'replayChip', 'headIntentChip']) {
+      expect(el(id).closest('.statusstack')).toBe(stack);
+    }
+    // The clock panel keeps only the clock + live indicator (no chips).
+    expect(el('clock').closest('.statusstack')).toBeNull();
+  });
+
+  it('the right-stick reticle carries the violet STICK INPUT · PAD tag (observed-input vocabulary)', async () => {
+    await loadHud();
+    const tag = el('camdot').closest('.campanel').querySelector('.srctag.pad');
+    expect(tag).toBeTruthy();
+    expect(tag.textContent).toBe('STICK INPUT · PAD');
+  });
+});

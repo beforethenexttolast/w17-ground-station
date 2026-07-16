@@ -29,23 +29,32 @@
         </div>
       </div>
       <div class="revwrap">
-        <div class="revlabel">Revs</div>
+        <div class="revlabel">REVS · SHIFT</div>
         <div class="rev panel" id="rev"></div>
       </div>
-      <div class="session panel">
-        <div class="live"><span class="dot"></span>Live</div>
-        <div class="clock num" id="clock">00:00.0</div>
-        <div class="gp" id="gpStatus">No controller</div>
-        <div class="link" id="linkStatus">Telemetry: sim</div>
-        <!-- Replay/synthetic telemetry marker (audit C2): persistent while the
-             effective telemetry source is replay, so screenshots self-identify.
-             Separate from the PIT WALL SIMULATED WIFI tag and the W3 chip. -->
-        <div class="replaychip hidden" id="replayChip">TELEMETRY · REPLAY</div>
-        <div class="w3chip hidden" id="w3Chip">HEAD-TRACK LOG · NO CONTROL</div>
-        <!-- Mapper head-intent diagnostics (CB8 slice 3B): display-only mirror
-             of the mapper's read-only gRPC stream. Hidden until the consumer is
-             enabled (W17_MAPPER_HEADINTENT=1); always reads NO CONTROL. -->
-        <div class="hichip hidden" id="headIntentChip" title=""></div>
+      <!-- Session clock + one consolidated status stack under it (Batch 8a /
+           flow chrome): the scattered link/gamepad/W3/replay/head-intent chips
+           now live in a single right-aligned .statusstack below the clock panel
+           (design bundle §11), clear of the fixed ⚙ column. The element ids and
+           the hud.js update logic are unchanged — only their placement moved. -->
+      <div class="sessionwrap">
+        <div class="session panel">
+          <div class="clock num" id="clock">00:00.0</div>
+          <div class="live"><span class="dot"></span>Live</div>
+        </div>
+        <div class="statusstack">
+          <div class="link" id="linkStatus">Telemetry: sim</div>
+          <div class="gp" id="gpStatus">No controller</div>
+          <!-- Replay/synthetic telemetry marker (audit C2): persistent while the
+               effective telemetry source is replay, so screenshots self-identify.
+               Separate from the PIT WALL SIMULATED WIFI tag and the W3 chip. -->
+          <div class="replaychip hidden" id="replayChip">TELEMETRY · REPLAY</div>
+          <div class="w3chip hidden" id="w3Chip">HEAD-TRACK LOG · NO CONTROL</div>
+          <!-- Mapper head-intent diagnostics (CB8 slice 3B): display-only mirror
+               of the mapper's read-only gRPC stream. Hidden until the consumer is
+               enabled (W17_MAPPER_HEADINTENT=1); always reads NO CONTROL. -->
+          <div class="hichip hidden" id="headIntentChip" title=""></div>
+        </div>
       </div>
     </div>
 
@@ -55,6 +64,11 @@
           <div class="speed num"><span id="speed">0</span><small id="speedUnit">km/h · sim</small></div>
         </div>
         <div class="bars panel">
+          <!-- INPUT source tag (Batch 8a): which device feeds STR/THR/BRK this
+               session, fed by Batch 7's session input type via hud.js
+               setInputSource(). GAMEPAD by default; WHEEL/BOTH read the wheel
+               (STR/THR/BRK only). Display label only — no control path. -->
+          <div class="barsrc"><span class="srctag" id="inputSrcTag">INPUT · GAMEPAD</span></div>
           <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="thr"></div></div></div>
           <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="brk"></div></div></div>
         </div>
@@ -62,9 +76,14 @@
           <b>STR</b>
           <div class="steerbar"><div class="steerdot" id="steer"></div></div>
         </div>
+        <!-- Right-stick reticle: violet = observed STICK INPUT (the same
+             observed-input vocabulary as SEAT FIT), never a measurement of camera
+             aim (docs/camera_aim_display_semantics.md). The PAD source tag names
+             where the stick input comes from. -->
         <div class="campanel panel" title="Right-stick position (input mirror) — not a measurement of camera aim">
           <b>R-STK</b>
           <div class="camgrid"><div class="camdot" id="camdot"></div></div>
+          <span class="srctag pad">STICK INPUT · PAD</span>
         </div>
       </div>
 
@@ -99,6 +118,14 @@
       <div class="sub" id="gateSub">Mercedes-AMG Petronas · No.63 · pre-race setup</div>
     </div>
 
+    <!-- Step rail (Batch 8a / flow chrome): a persistent 01 GARAGE · 02 SEAT FIT
+         · 03 PIT WALL · 04 GRID progress rail, replacing the old ghost numerals
+         / HUD bleed and giving orientation on every setup screen. Rendered by
+         setupFlow.js renderStepRail() from the existing per-mode step state
+         (shared/setupSteps.mjs) — pure display, no navigation change. Hidden
+         during the start-lights hand-off. -->
+    <div class="steprail" id="stepRail"></div>
+
     <div class="radioLog" id="radioLog"></div>
 
     <!-- Boot failure state (audit N1): shown when the initial settings load
@@ -111,6 +138,19 @@
 
     <section class="setup-screen" data-step="garage">
       <div class="stepname">GARAGE · SELECT SESSION</div>
+      <!-- Returning-user fast path (Batch 8a / flow chrome, design bundle §3):
+           a completed prior session lands here on GARAGE with this green-accent
+           actionable row (what will be reused: mode · controller · telemetry
+           source) instead of a transient toast. The button runs the EXISTING
+           resume path (showStep('grid')) — no new session logic. Hidden for a
+           fresh user; setupFlow.js reveals + focuses it on a returning boot. -->
+      <div class="fastpath hidden" id="fastPath">
+        <div class="what">
+          <b>WELCOME BACK — LAST SESSION READY</b>
+          <span id="fastPathSummary"></span>
+        </div>
+        <button class="minibtn" id="fastPathBtn">STRAIGHT TO THE GRID &#9654;</button>
+      </div>
       <div class="modecards">
         <button class="modecard" data-mode="solo"><b>DESKTOP FPV</b><span>full HUD on this screen · laptop only</span><span class="needs">NEEDS · controller or keyboard</span></button>
         <button class="modecard" data-mode="iphone-hud"><b>IPHONE COCKPIT</b><span>live HUD on the iPhone · FPV/VR view later</span><span class="needs">NEEDS · iPhone HUD app · shared Wi-Fi or hotspot</span></button>
