@@ -200,13 +200,19 @@
         </div>
         <div class="col">
           <div class="colhead">IPHONE LINK</div>
+          <!-- Row 1 is JUST the label + input + CHECK. The suggest pill and the
+               status line live on their OWN lines below (ids unchanged; no
+               setupFlow.js logic change) so neither a growing status string nor
+               the 2s suggest-pill toggle can horizontally shift this row —
+               #addrStatus is a block .netstatus whose min-height reserves the
+               line (task Batch 1 / P3). -->
           <div class="addrrow">
             <label>IPHONE IP</label>
             <input id="iphoneAddr" placeholder="192.168.x.x" spellcheck="false" />
-            <button class="minibtn hidden" id="addrSuggest"></button>
             <button class="minibtn" id="addrCheck">CHECK</button>
-            <span class="netstatus" id="addrStatus"></span>
           </div>
+          <button class="minibtn hidden" id="addrSuggest"></button>
+          <div class="netstatus" id="addrStatus"></div>
           <div class="hint" title="Guest/office Wi-Fi often isolates clients, so the PC can never reach the phone even though both are online. The GRID reachability check is the real test.">&#9432; needs device-to-device traffic — a hotspot or home Wi-Fi works best</div>
           <!-- Path-only caveat (audit B4/C4): a successful reachability check
                proves the network PATH only, never that the iPhone HUD is

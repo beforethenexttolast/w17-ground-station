@@ -55,6 +55,16 @@ describe('responsive layout — fluid widths, no fixed columns (Phase 3)', () =>
     expect(css).not.toMatch(/@media[^{]*max-width:\s*\d+px[^{]*\{[^}]*\.cols\b/);
   });
 
+  it('.cols caps columns at a readable width (not 1fr edge-to-edge) and centers the track pair (Batch 1 / P3)', () => {
+    const cols = rule('.cols');
+    // 34ch floor keeps the auto-fit collapse; a 56ch (not 1fr) ceiling caps the
+    // readable width so PIT WALL / SEAT FIT columns follow the centered rhythm
+    // of the single-column GARAGE/GRID steps.
+    expect(cols).toMatch(/grid-template-columns:\s*repeat\(\s*auto-fit\s*,\s*minmax\(\s*min\(\s*100%\s*,\s*34ch\s*\)\s*,\s*56ch\s*\)\s*\)/);
+    expect(cols).not.toMatch(/minmax\([^)]*1fr\s*\)/); // no edge-to-edge track
+    expect(cols).toMatch(/justify-content:\s*center/); // track pair centered as a unit
+  });
+
   it('the camera section, preview and device list are fluid (fit their column)', () => {
     expect(rule('.cammodes')).toMatch(/width:\s*100%/);
     expect(rule('.padpreview')).toMatch(/max-width:\s*min\([^)]*(?:vw|px)/);
@@ -76,6 +86,17 @@ describe('responsive layout — action rows wrap, never overlap (Phase 3)', () =
   it('the GARAGE mode cards and the LAYOUT preset pills wrap', () => {
     expect(rule('.modecards')).toMatch(/flex-wrap:\s*wrap/);
     expect(rule('.presetrow')).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('the IPHONE LINK row is full-width + left-anchored so a CHECK result never re-centers it (Batch 1 / P3)', () => {
+    // .addrrow spans the full column, so its start edge is fixed regardless of
+    // line-1 content width; the shared input-row rule aligns items to the start
+    // (never center, which shifts the row when a status/summary line grows).
+    expect(rule('.addrrow')).toMatch(/width:\s*100%/);
+    const rowRule = css.match(/\.netjoinrow,\.addrrow,\.hsrow\s*\{([^}]*)\}/);
+    expect(rowRule, 'shared input-row rule (.netjoinrow,.addrrow,.hsrow)').toBeTruthy();
+    expect(rowRule[1]).toMatch(/justify-content:\s*flex-start/);
+    expect(rowRule[1]).not.toMatch(/justify-content:\s*center/);
   });
 });
 

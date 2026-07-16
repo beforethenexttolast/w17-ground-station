@@ -551,6 +551,31 @@ describe('reachability wording (audit B4)', () => {
   });
 });
 
+// IPHONE LINK row stability (Batch 1 / P3): the row holds ONLY label + input +
+// CHECK. #addrStatus (a block .netstatus whose min-height reserves the line) and
+// the #addrSuggest pill live on their OWN lines below the row, so a growing
+// status string or the 2s suggest toggle can never re-center / horizontally
+// shift the row. This pins the STRUCTURE; the CSS width/alignment contract lives
+// in test/responsiveLayout.test.js.
+describe('IPHONE LINK row structure (Batch 1 / P3)', () => {
+  it('#addrStatus and #addrSuggest sit OUTSIDE .addrrow; the row holds only label/input/CHECK', async () => {
+    await loadPitwall(mockGs());
+    const addrrow = document.querySelector('.setup-screen[data-step="pitwall"] .addrrow');
+    expect(addrrow).toBeTruthy();
+    // The volatile bits moved out of the row (onto their own lines below it).
+    expect(el('addrStatus').closest('.addrrow')).toBeNull();
+    expect(el('addrSuggest').closest('.addrrow')).toBeNull();
+    // The row still owns exactly the label, the IP input, and the CHECK button.
+    expect(el('iphoneAddr').closest('.addrrow')).toBe(addrrow);
+    expect(el('addrCheck').closest('.addrrow')).toBe(addrrow);
+    expect(addrrow.querySelector('label')).toBeTruthy();
+    expect(addrrow.contains(el('addrStatus'))).toBe(false);
+    expect(addrrow.contains(el('addrSuggest'))).toBe(false);
+    // #addrStatus reserves its own line as a block .netstatus.
+    expect(el('addrStatus').classList.contains('netstatus')).toBe(true);
+  });
+});
+
 // The HOTSPOT pane against the REAL lifecycle authority (audit B1/N3): the
 // same HotspotLifecycle main.js runs, over the real HotspotManager with a
 // routed fake runner, wired into the mocked preload surface — so a click in

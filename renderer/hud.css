@@ -190,9 +190,13 @@ body{background:#000;color:var(--silver);
 .setup-screen.active{display:flex}
 .setup-screen.wide{max-width:min(1340px,94vw)}
 /* Two-column when there is room, collapsing to one column (then vertical scroll)
-   on narrow/short screens — no hard pixel breakpoint: the track floor decides. */
-.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,34ch),1fr));
-  gap:clamp(1.2em,3vw,3em);align-items:start;text-align:left;width:100%}
+   on narrow/short screens — no hard pixel breakpoint: the track floor decides.
+   Columns are CAPPED at a readable 56ch (not 1fr edge-to-edge) and the track
+   pair is CENTERED as a unit, so PIT WALL follows the same centered rhythm as
+   the single-column GARAGE/GRID steps (task Batch 1 / P3). auto-fit still
+   collapses to one column when only ~34ch fits. */
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,34ch),56ch));
+  gap:clamp(1.2em,3vw,3em);align-items:start;justify-content:center;text-align:left;width:100%}
 .col{display:flex;flex-direction:column;gap:.7em;align-items:flex-start;min-width:0;width:100%}
 .cols .netpane{align-items:flex-start}
 .colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(10px,1vw,13px);text-transform:uppercase}
@@ -288,7 +292,13 @@ body{background:#000;color:var(--silver);
    (same id) are told apart on screen and independently selectable (task §3). */
 .padlist .netrow .padslot{color:var(--muted);opacity:.8;font-size:.8em;text-transform:uppercase;
   letter-spacing:.14em;white-space:nowrap;font-weight:700}
-.netjoinrow,.addrrow,.hsrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap;justify-content:center}
+/* Input rows are LEFT-anchored, not centered: a status/summary line that grows
+   (or a suggest pill appearing) must never re-center and horizontally shift the
+   label/input/button (task Batch 1 / P3). The IPHONE LINK row additionally
+   spans the full column width, so its start edge is fixed regardless of the
+   line-1 content width — the CHECK-jump defect this batch fixes. */
+.netjoinrow,.addrrow,.hsrow{display:flex;gap:.5em;align-items:center;flex-wrap:wrap;justify-content:flex-start}
+.addrrow{width:100%}
 .netjoinrow.hidden{display:none}
 /* Open networks hide the password field but keep the JOIN button (audit B3).
    This stylesheet has no global `.hidden` rule, so the input needs its own. */
