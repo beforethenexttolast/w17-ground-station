@@ -46,8 +46,12 @@ export const PRESETS = Object.freeze({
         label: 'Generic',
         map: STANDARD_MAP,
         buttonNames: Object.freeze({
-            throttle: 'BTN 7', brake: 'BTN 6', gearUp: 'BTN 5', gearDown: 'BTN 4',
-            drs: 'BTN 3', boost: 'BTN 1', overtake: 'BTN 2',
+            // Display-only labels (maps untouched): the digit still names the
+            // Chromium standard-mapping button index (throttle=7 … overtake=2),
+            // shortened to `B<n>` so a name fits the redesigned pad-preview
+            // pills/captions without colliding with the right-stick well.
+            throttle: 'B7', brake: 'B6', gearUp: 'B5', gearDown: 'B4',
+            drs: 'B3', boost: 'B1', overtake: 'B2',
         }),
     }),
 });

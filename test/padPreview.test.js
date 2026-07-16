@@ -21,11 +21,37 @@ describe('padPreviewSvg', () => {
         expect(svg, `${key} shows ${name}`).toContain(`>${name}<`);
       }
       // Role labels present (STEERING satisfies the STEER check; the camera stick
-      // adds PAN / TILT). OVERTAKE is abbreviated OT in the tight face cluster.
-      for (const role of ['THROTTLE', 'BRAKE', 'STEER', 'DRS', 'BOOST', 'OT', 'GEAR', 'PAN', 'TILT']) {
+      // adds PAN / TILT). OVERTAKE is abbreviated OT in the tight face cluster and
+      // THROTTLE is THR inside its 88px shoulder pill (Batch 3 redesign).
+      for (const role of ['THR', 'BRAKE', 'STEER', 'DRS', 'BOOST', 'OT', 'GEAR', 'PAN', 'TILT']) {
         expect(svg, `${key} labels ${role}`).toContain(role);
       }
     }
+  });
+
+  it('uses the redesigned 440×200 viewBox (compact, aligned to the ≈420px block cap)', () => {
+    for (const key of Object.keys(PRESETS)) {
+      expect(padPreviewSvg(key), key).toContain('viewBox="0 0 440 200"');
+    }
+  });
+
+  it('drops the unused 4th (dim) face circle — no orphan marker in the cluster', () => {
+    for (const key of Object.keys(PRESETS)) {
+      const svg = padPreviewSvg(key);
+      expect(svg, `${key} has no dim placeholder circle`).not.toContain('dim');
+      // Exactly the three real face controls remain (drs, overtake, boost); the
+      // shoulder controls are pills, so pp-ctl circles count only the face cluster.
+      expect((svg.match(/class="pp-ctl"/g) || []).length, `${key} face circles`).toBe(3);
+    }
+  });
+
+  it('the shoulder pills carry the mapped name AND role inside the pill (no floating caption)', () => {
+    const svg = padPreviewSvg('dualshock');
+    // e.g. "R2 · THR" / "L2 · BRAKE": the name tspan then the role tspan, both
+    // inside a 88px pill (wide enough for the paired label).
+    expect(svg).toContain('width="88"');
+    expect(svg).toMatch(/<tspan class="pp-name">R2<\/tspan><tspan class="pp-role"> · THR<\/tspan>/);
+    expect(svg).toMatch(/<tspan class="pp-name">L2<\/tspan><tspan class="pp-role"> · BRAKE<\/tspan>/);
   });
 
   it('carries a data-role hook for each mirrored BUTTON (live highlight) — exactly the seven, nothing more', () => {

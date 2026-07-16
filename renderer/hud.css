@@ -342,7 +342,7 @@ body{background:#000;color:var(--silver);
   background:#0c1214;border:1px solid var(--panel-edge);padding:.5em .6em}
 .padlist{display:flex;flex-direction:column;gap:.3em;width:100%}
 .presetrow{display:flex;gap:.5em;flex-wrap:wrap}
-.teststrip{display:flex;flex-direction:column;gap:.5em;padding:.7em 1em;width:100%;max-width:min(560px,90vw);pointer-events:auto}
+.teststrip{display:flex;flex-direction:column;gap:.5em;padding:.7em 1em;width:100%;max-width:min(420px,100%);pointer-events:auto}
 .teststrip .steerbar{position:relative;flex:1;height:clamp(6px,.8vw,10px);background:#10181a;
   clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .checklist{display:flex;flex-direction:column;gap:.35em;width:100%;max-width:min(56ch,92vw)}
@@ -376,12 +376,11 @@ body{background:#000;color:var(--silver);
 @media (max-width:900px){.keys.footnote{white-space:normal;max-width:60ch}}
 
 /* SEAT FIT layout + live-input preview (renderer/padPreview.js — display only) */
-.padpreview{width:100%;max-width:min(560px,90vw)}
+.padpreview{width:100%;max-width:min(420px,100%)}
 .padpreview svg{width:100%;height:auto;display:block}
 .pp-body{fill:#0d1416;stroke:var(--panel-edge)}
 .pp-pill{fill:#10181a;stroke:#233033}
 .pp-ctl{fill:#10181a;stroke:var(--teal);stroke-width:1.5}
-.pp-ctl.dim{stroke:#233033}
 /* live press highlight (SEAT FIT): same teal as the test strip */
 .pp-pill.on,.pp-ctl.on{fill:rgba(0,210,190,.3);stroke:var(--teal)}
 .pp-dot{fill:var(--teal)}

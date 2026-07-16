@@ -79,6 +79,14 @@ describe('responsive layout — fluid widths, no fixed columns (Phase 3)', () =>
     expect(rule('.padpreview')).toMatch(/max-width:\s*min\([^)]*(?:vw|px)/);
     expect(rule('.padlist')).toMatch(/width:\s*100%/);
   });
+
+  it('the pad preview and test strip share the aligned ≈420px block cap (Batch 3 / P2)', () => {
+    // The redesigned, compact pad viz and the test strip beneath it cap at the
+    // same width so they render as one aligned block (≈420×191) instead of the
+    // old oversized min(560px,90vw). Pinned so the pair can't drift apart.
+    expect(rule('.padpreview')).toMatch(/max-width:\s*min\(\s*420px\s*,\s*100%\s*\)/);
+    expect(rule('.teststrip')).toMatch(/max-width:\s*min\(\s*420px\s*,\s*100%\s*\)/);
+  });
 });
 
 describe('responsive layout — action rows wrap, never overlap (Phase 3)', () => {

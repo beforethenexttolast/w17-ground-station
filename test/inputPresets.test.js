@@ -28,6 +28,25 @@ describe('input presets', () => {
     }
   });
 
+  it('the generic preset uses short B<n> labels (display-only rename; index-preserving)', () => {
+    // Decision #5: "BTN 7" → "B7" etc. The digit still names the Chromium
+    // standard-mapping button index, so the labels stay index-preserving while
+    // the MAP is untouched (verified above against LEGACY_MAP).
+    expect(PRESETS.generic.buttonNames).toEqual({
+      throttle: 'B7', brake: 'B6', gearUp: 'B5', gearDown: 'B4',
+      drs: 'B3', boost: 'B1', overtake: 'B2',
+    });
+  });
+
+  it('generic labels stay short (≤3 chars) — geometry guard for the pad-preview pills/captions', () => {
+    // The redesigned padPreview crams name + role into 88px pills and centres
+    // the BOOST caption at x256 so it clears the right-stick well; a long generic
+    // label would break that. Pin the length so a future rename cannot regress it.
+    for (const [role, name] of Object.entries(PRESETS.generic.buttonNames)) {
+      expect(name.length, `generic ${role} label "${name}"`).toBeLessThanOrEqual(3);
+    }
+  });
+
   it('getPreset falls back to dualshock on unknown names', () => {
     expect(getPreset('warp')).toBe(PRESETS.dualshock);
     expect(getPreset('xbox')).toBe(PRESETS.xbox);

@@ -29,39 +29,51 @@ const stick = (cx, cy, r, sideKey) =>
 
 export function padPreviewSvg(presetKey) {
   const n = getPreset(presetKey).buttonNames;
-  const pill = (x, y, name, dataRole) =>
-    `<rect class="pp-pill" data-role="${dataRole}" x="${x}" y="${y}" width="56" height="18" rx="5"/>` +
-    `<text class="pp-name" x="${x + 28}" y="${y + 13}" text-anchor="middle">${esc(name)}</text>`;
+  // A shoulder pill carries its live-highlight hook (data-role) with the mapped
+  // button name AND its role BOTH inside the pill (e.g. "R2 · THR"), so no
+  // floating caption is needed — the pills attach to the body's top corners.
+  // The name is its own tspan so a per-preset label stays greppable as `>NAME<`.
+  // role must be a trusted literal — may contain intentional HTML entities (&#9650;/&#9660;);
+  // never pass dynamic/user input, it is interpolated unescaped (name is escaped).
+  const pill = (x, y, name, dataRole, role) =>
+    `<rect class="pp-pill" data-role="${dataRole}" x="${x}" y="${y}" width="88" height="18" rx="5"/>` +
+    `<text x="${x + 44}" y="${y + 13}" text-anchor="middle">` +
+    `<tspan class="pp-name">${esc(name)}</tspan><tspan class="pp-role"> · ${role}</tspan></text>`;
   const caption = (x, y, anchor, role, name) =>
     `<text x="${x}" y="${y}" text-anchor="${anchor}">` +
     `<tspan class="pp-role">${esc(role)} </tspan><tspan class="pp-name">${esc(name)}</tspan></text>`;
-  return `<svg viewBox="0 0 440 224" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="controller layout and live input preview">
-    ${pill(50, 8, n.brake, 'brake')}<text class="pp-role" x="114" y="21">BRAKE</text>
-    ${pill(50, 32, n.gearDown, 'gearDown')}<text class="pp-role" x="114" y="45">GEAR &#9660;</text>
-    ${pill(334, 8, n.throttle, 'throttle')}<text class="pp-role" x="326" y="21" text-anchor="end">THROTTLE</text>
-    ${pill(334, 32, n.gearUp, 'gearUp')}<text class="pp-role" x="326" y="45" text-anchor="end">GEAR &#9650;</text>
-    <rect class="pp-body" x="40" y="64" width="360" height="120" rx="36"/>
+  return `<svg viewBox="0 0 440 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="controller layout and live input preview">
+    <rect class="pp-body" x="40" y="40" width="360" height="132" rx="32"/>
 
-    <!-- face-button cluster (centre) -->
-    <circle class="pp-ctl" data-role="drs" cx="220" cy="86" r="12"/>
+    <!-- shoulder pills: mapped name + role INSIDE each pill, attached to the body's top corners -->
+    ${pill(48, 50, n.brake, 'brake', 'BRAKE')}
+    ${pill(48, 72, n.gearDown, 'gearDown', 'GEAR &#9660;')}
+    ${pill(304, 50, n.throttle, 'throttle', 'THR')}
+    ${pill(304, 72, n.gearUp, 'gearUp', 'GEAR &#9650;')}
+
+    <!-- face-button cluster (centre): DRS above, OT + BOOST below with captions
+         middle-anchored under each button. The lower pair is spread to cx186/256
+         so the two captions never collide with each other, sit clear below their
+         buttons, and the worst-case "BOOST B1" (centred at 256) still clears the
+         right-stick well (x304+). -->
+    <circle class="pp-ctl" data-role="drs" cx="220" cy="90" r="12"/>
     ${caption(220, 74, 'middle', 'DRS', n.drs)}
-    <circle class="pp-ctl" data-role="overtake" cx="198" cy="108" r="12"/>
-    ${caption(180, 112, 'end', 'OT', n.overtake)}
-    <circle class="pp-ctl" data-role="boost" cx="242" cy="108" r="12"/>
-    ${caption(260, 112, 'start', 'BOOST', n.boost)}
-    <circle class="pp-ctl dim" cx="220" cy="130" r="12"/>
+    <circle class="pp-ctl" data-role="overtake" cx="186" cy="116" r="12"/>
+    ${caption(186, 142, 'middle', 'OT', n.overtake)}
+    <circle class="pp-ctl" data-role="boost" cx="256" cy="116" r="12"/>
+    ${caption(256, 142, 'middle', 'BOOST', n.boost)}
 
     <!-- LEFT stick = steering -->
-    ${stick(112, 138, 24, 'left')}
-    ${caption(112, 200, 'middle', 'LEFT STICK ·', 'STEERING')}
+    ${stick(112, 130, 24, 'left')}
+    ${caption(112, 184, 'middle', 'LEFT STICK ·', 'STEERING')}
 
     <!-- RIGHT stick = camera pan/tilt · stick-input mirror only -->
-    ${stick(328, 138, 24, 'right')}
-    <text class="pp-dir" x="328" y="110" text-anchor="middle">&#9650;</text>
-    <text class="pp-dir" x="328" y="170" text-anchor="middle">&#9660;</text>
-    <text class="pp-dir" x="298" y="142" text-anchor="middle">&#9664;</text>
-    <text class="pp-dir" x="358" y="142" text-anchor="middle">&#9654;</text>
-    ${caption(328, 200, 'middle', 'RIGHT STICK ·', 'PAN / TILT')}
-    <text class="pp-sub" x="328" y="214" text-anchor="middle">CAMERA · STICK INPUT</text>
+    ${stick(328, 130, 24, 'right')}
+    <text class="pp-dir" x="328" y="104" text-anchor="middle">&#9650;</text>
+    <text class="pp-dir" x="328" y="162" text-anchor="middle">&#9660;</text>
+    <text class="pp-dir" x="298" y="134" text-anchor="middle">&#9664;</text>
+    <text class="pp-dir" x="358" y="134" text-anchor="middle">&#9654;</text>
+    ${caption(328, 184, 'middle', 'RIGHT STICK ·', 'PAN / TILT')}
+    <text class="pp-sub" x="328" y="196" text-anchor="middle">CAMERA · STICK INPUT</text>
   </svg>`;
 }
