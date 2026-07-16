@@ -22,6 +22,11 @@ import { cameraModeView } from '../shared/cameraMode.mjs';
 import { makeEnterToAdvance, makeEnterToSubmit } from '../shared/keyboardFocus.mjs';
 import { envLockState } from '../shared/envLocks.mjs';
 import { padPreviewSvg } from './padPreview.js';
+import { wheelPreviewSvg } from './wheelPreview.js';
+import {
+  normalizeWheelSettings, wheelValues, pressedWheelRoles, detectInputChange,
+  WHEEL_BUTTON_ROLES,
+} from '../shared/wheelProfile.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 
 const el = (id) => document.getElementById(id);
@@ -742,11 +747,309 @@ let persistedPadId = '';
 let chosenPreset = DEFAULT_PRESET;
 let presetManual = false; // a pill click this visit beats auto-detection
 
+// ---------- SEAT FIT · wheel (Batch 6 / P5b) ----------
+// INPUT TYPE is a per-session choice that ALWAYS boots GAMEPAD (decision #2):
+// this module-level default is never seeded from settings, so a fresh app load
+// starts on GAMEPAD even when a calibrated wheel profile is saved. Only the
+// calibrated `wheelProfile` persists (through the existing save() path); the
+// active input type never does. Everything here is a DISPLAY MIRROR + a local
+// profile editor — no control path, no new IPC.
+const inputTypeRow = el('inputTypeRow');
+const gamepadPanel = el('gamepadPanel'), gamepadMirror = el('gamepadMirror');
+const wheelPanel = el('wheelPanel'), wheelMirror = el('wheelMirror'), wheelPreview = el('wheelPreview');
+let inputType = 'gamepad';   // 'gamepad' | 'wheel' | 'both' — session only, never persisted
+let wheelProfile = null;     // normalized profile, edited in place by the panel
+let wheelPadKey = '';        // BOTH-mode wheel device (session key); '' = auto
+let listening = null;        // { role, kind } while an ASSIGN listen is armed
+let listenPrev = null;       // pad snapshot captured when the listen started
+let listenTimer = null;      // auto-cancel timer for a stuck listen
+
+const WHEEL_AXIS_ROLES = new Set(['steer', 'throttle', 'brake', 'combined']);
+// Button roles come from the model (shared/wheelProfile.mjs) — single source of
+// truth shared with pressedWheelRoles/normalizeWheelSettings, so a new/renamed
+// role can never drift out of this panel. Labels stay local (display only).
+const WHEEL_BUTTON_LABELS = { gearUp: 'GEAR ▲', gearDown: 'GEAR ▼', drs: 'DRS', boost: 'BOOST', overtake: 'OT' };
+const LISTEN_TIMEOUT_MS = 6000;
+const fmtCal = (n) => Number(n).toFixed(2);
+
+// A frozen copy of a pad's axis/button state so a listen comparison — and a
+// mid-listen disconnect — reads stable values instead of a live-updating handle.
+function snapPad(p) {
+  if (!p) return null;
+  return {
+    axes: (p.axes || []).map((a) => Number(a)),
+    buttons: (p.buttons || []).map((b) => ({ pressed: !!(b && b.pressed), value: Number(b && b.value) || 0 })),
+  };
+}
+
+// The pad the wheel mirrors. GAMEPAD/WHEEL: auto (first slot) unless a wheel
+// device was chosen. BOTH (decision #3): its OWN selection, defaulting to the
+// first pad NOT selected in the gamepad DEVICE list, so two devices never fight
+// over one viz.
+function resolveWheelPad(pads) {
+  if (inputType === 'both' && !wheelPadKey) {
+    const gp = resolveSelectedPad(pads, { chosenKey: chosenPadKey });
+    const gpKey = gp ? gamepadKey(gp) : chosenPadKey;
+    return pads.find((p) => gamepadKey(p) !== gpKey) || null;
+  }
+  return resolveSelectedPad(pads, { chosenKey: wheelPadKey });
+}
+
+// Persist ONLY the calibrated profile, through the existing settings path. The
+// patch shape is exactly { wheel: { profile } } — the active input type is
+// deliberately never written (decision #2).
+function saveWheel() { save({ wheel: { profile: wheelProfile } }); }
+
+// Show/hide the two panels + the two right-column mirrors for the chosen input
+// type, and light the matching pill. Switching abandons any in-flight listen so
+// no stale LISTENING/highlight survives the change (acceptance).
+function applyInputType(type) {
+  inputType = type;
+  const showGamepad = type === 'gamepad' || type === 'both';
+  const showWheel = type === 'wheel' || type === 'both';
+  gamepadPanel.classList.toggle('hidden', !showGamepad);
+  gamepadMirror.classList.toggle('hidden', !showGamepad);
+  wheelPanel.classList.toggle('hidden', !showWheel);
+  wheelMirror.classList.toggle('hidden', !showWheel);
+  for (const b of inputTypeRow.children) b.classList.toggle('on', b.dataset.input === type);
+  cancelListen();
+  if (showWheel) {
+    wheelPreview.innerHTML = wheelPreviewSvg();
+    renderWheelPanel();
+  } else {
+    wheelPreview.innerHTML = '';
+    wheelPanel.replaceChildren();
+  }
+  seatfitTick();
+}
+
+if (inputTypeRow) {
+  inputTypeRow.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-input]');
+    if (!b) return;
+    sounds.uiTick();
+    applyInputType(b.dataset.input);
+  });
+}
+
+// The current display value for a role's readout span.
+function wheelValText(role) {
+  const p = wheelProfile;
+  if (role === 'steer') return `AXIS ${p.steer.axis}`;
+  if (role === 'throttle' || role === 'brake') return `AXIS ${p[role].axis} · REST ${fmtCal(p[role].rest)} · FULL ${fmtCal(p[role].full)}`;
+  if (role === 'combined') return `AXIS ${p.combined.axis} · C ${fmtCal(p.combined.rest)} · THR ${fmtCal(p.combined.throttleEnd)} · BRK ${fmtCal(p.combined.brakeEnd)}`;
+  if (role === 'deadzone') return fmtCal(p.deadzone);
+  const idx = p.buttons[role];
+  return idx === null || idx === undefined ? 'UNASSIGNED' : `BTN ${idx}`;
+}
+
+function wheelRow(label, role) {
+  return `<div class="wheelrow"><span class="wlabel">${label}</span>`
+    + `<button class="minibtn" data-wassign="${role}">ASSIGN</button>`
+    + `<span class="wval" data-wval="${role}"></span></div>`;
+}
+function pedalRow(label, role) {
+  return `<div class="wheelrow"><span class="wlabel">${label}</span>`
+    + `<button class="minibtn" data-wassign="${role}">ASSIGN</button>`
+    + `<button class="minibtn" data-wcap="${role}.rest">SET REST</button>`
+    + `<button class="minibtn" data-wcap="${role}.full">SET FULL</button>`
+    + `<span class="wval" data-wval="${role}"></span></div>`;
+}
+function combinedRow() {
+  return `<div class="wheelrow"><span class="wlabel">PEDAL</span>`
+    + `<button class="minibtn" data-wassign="combined">ASSIGN</button>`
+    + `<button class="minibtn" data-wcap="combined.rest">SET CENTRE</button>`
+    + `<button class="minibtn" data-wcap="combined.throttleEnd">SET THR</button>`
+    + `<button class="minibtn" data-wcap="combined.brakeEnd">SET BRK</button>`
+    + `<span class="wval" data-wval="combined"></span></div>`;
+}
+
+// Build the assign/calibrate panel from the current profile. Rebuilt only on
+// entry / input-type switch / pedal-mode toggle / assignment (NOT per tick), so
+// a LISTENING row and :hover survive the 250 ms loop.
+function renderWheelPanel() {
+  if (!wheelProfile) return;
+  const p = wheelProfile;
+  const sep = p.pedalMode !== 'combined';
+  const deviceBlock = inputType === 'both'
+    ? '<div id="wheelDeviceRow"><div class="colhead">WHEEL DEVICE <small>separate from the gamepad</small></div>'
+      + '<div class="wheelpadlist" id="wheelPadList"></div></div>'
+    : '';
+  wheelPanel.innerHTML = deviceBlock
+    + '<div class="colhead">STEERING</div>'
+    + wheelRow('STEER', 'steer')
+    + '<div class="colhead">PEDALS</div>'
+    + '<div class="presetrow" id="wheelPedalMode">'
+    + `<button class="pill${sep ? ' on' : ''}" data-pmode="separate">SEPARATE</button>`
+    + `<button class="pill${sep ? '' : ' on'}" data-pmode="combined">COMBINED</button></div>`
+    + (sep ? pedalRow('THR', 'throttle') + pedalRow('BRK', 'brake') : combinedRow())
+    + '<div class="wheeldz"><span class="wlabel">DEADZONE</span>'
+    + `<input type="range" id="wheelDeadzone" min="0" max="0.5" step="0.01" value="${p.deadzone}">`
+    + '<span class="wval" data-wval="deadzone"></span></div>'
+    + '<div class="colhead">BUTTONS</div>'
+    + WHEEL_BUTTON_ROLES.map((role) => wheelRow(WHEEL_BUTTON_LABELS[role], role)).join('');
+  updateWheelLabels();
+  if (inputType === 'both') renderWheelDeviceList();
+}
+
+// Refresh every readout span; the listening row shows an amber prompt instead.
+function updateWheelLabels() {
+  for (const span of wheelPanel.querySelectorAll('[data-wval]')) {
+    const role = span.dataset.wval;
+    if (listening && listening.role === role) {
+      span.textContent = listening.kind === 'axis' ? 'LISTENING — move axis…' : 'LISTENING — press…';
+      span.classList.add('listening');
+    } else {
+      span.textContent = wheelValText(role);
+      span.classList.remove('listening');
+    }
+  }
+}
+
+// Arm a listen: snapshot the wheel pad now, then each 250 ms tick diffs the live
+// pad against that snapshot via detectInputChange and assigns the first matching
+// input (axis for a pedal/steer role, button otherwise).
+function startListen(role) {
+  const kind = WHEEL_AXIS_ROLES.has(role) ? 'axis' : 'button';
+  const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  listening = { role, kind };
+  listenPrev = snapPad(resolveWheelPad(pads));
+  if (listenTimer) clearTimeout(listenTimer);
+  listenTimer = setTimeout(cancelListen, LISTEN_TIMEOUT_MS);
+  updateWheelLabels();
+}
+function cancelListen() {
+  if (listenTimer) { clearTimeout(listenTimer); listenTimer = null; }
+  const was = listening;
+  listening = null;
+  listenPrev = null;
+  if (was && wheelPanel.querySelector('[data-wval]')) updateWheelLabels();
+}
+function applyAssignment(role, index) {
+  const p = wheelProfile;
+  if (WHEEL_AXIS_ROLES.has(role)) p[role].axis = index; // steer/throttle/brake/combined
+  else p.buttons[role] = index;
+  cancelListen();
+  saveWheel();
+  updateWheelLabels();
+  sounds.uiTick();
+}
+// Capture the CURRENT axis reading of a pedal's assigned axis into a calibration
+// endpoint (rest/full/centre/ends). Inversion stays implicit in rest-vs-full
+// ordering — the model handles the direction (shared/wheelProfile.mjs).
+function captureCal(field) {
+  const [group, key] = field.split('.');
+  const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  const wp = resolveWheelPad(pads);
+  const axisIdx = wheelProfile[group].axis;
+  const raw = wp && wp.axes ? Number(wp.axes[axisIdx]) : 0;
+  const v = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0;
+  wheelProfile[group][key] = v;
+  saveWheel();
+  updateWheelLabels();
+  sounds.uiTick();
+}
+function setPedalMode(mode) {
+  const next = mode === 'combined' ? 'combined' : 'separate';
+  if (wheelProfile.pedalMode === next) return;
+  wheelProfile.pedalMode = next;
+  cancelListen();
+  saveWheel();
+  renderWheelPanel();
+  sounds.uiTick();
+}
+
+if (wheelPanel) {
+  wheelPanel.addEventListener('click', (e) => {
+    const assign = e.target.closest('[data-wassign]');
+    if (assign) { sounds.uiTick(); startListen(assign.dataset.wassign); return; }
+    const cap = e.target.closest('[data-wcap]');
+    if (cap) { captureCal(cap.dataset.wcap); return; }
+    const pm = e.target.closest('[data-pmode]');
+    if (pm) { setPedalMode(pm.dataset.pmode); }
+  });
+  wheelPanel.addEventListener('input', (e) => {
+    if (e.target.id !== 'wheelDeadzone') return;
+    const v = Number(e.target.value);
+    if (Number.isFinite(v)) { wheelProfile.deadzone = v; saveWheel(); updateWheelLabels(); }
+  });
+}
+
+// BOTH-mode wheel device selector — its own list, independent of the gamepad
+// DEVICE list. Rebuilds only when the pad set changes (sig), else just re-marks
+// the active row (avoids killing :hover on the 250 ms loop, like padList).
+function renderWheelDeviceList() {
+  const list = el('wheelPadList');
+  if (!list) return;
+  const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+  list.dataset.sig = pads.map((p) => gamepadKey(p)).join('|');
+  const wp = resolveWheelPad(pads);
+  const activeKey = wp ? gamepadKey(wp) : wheelPadKey;
+  list.replaceChildren(...(pads.length ? pads.map((p) => {
+    const key = gamepadKey(p);
+    const b = document.createElement('button');
+    b.className = 'netrow';
+    b.dataset.padKey = key;
+    b.classList.toggle('on', key === activeKey);
+    const name = document.createElement('b');
+    name.textContent = p.id;
+    const slot = document.createElement('small');
+    slot.className = 'padslot';
+    slot.textContent = `SLOT ${typeof p.index === 'number' ? p.index : '?'}`;
+    b.append(name, slot);
+    b.addEventListener('click', () => { wheelPadKey = key; renderWheelDeviceList(); seatfitTick(); sounds.uiTick(); });
+    return b;
+  }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: 'NO SECOND DEVICE DETECTED' })]));
+}
+function refreshWheelDeviceSelection(pads, wp) {
+  const list = el('wheelPadList');
+  if (!list) return;
+  const sig = pads.map((p) => gamepadKey(p)).join('|');
+  if (list.dataset.sig !== sig) { renderWheelDeviceList(); return; }
+  const activeKey = wp ? gamepadKey(wp) : wheelPadKey;
+  for (const b of list.children) {
+    if (b.tagName === 'BUTTON') b.classList.toggle('on', b.dataset.padKey === activeKey);
+  }
+}
+
+// Live wheel viz: rotate the needle from the observed steer axis, fill the pedal
+// bars from the calibrated 0..1 travel, and light pressed mirrored buttons. A
+// missing wheel reads neutral (nopad), never a stale deflection (task §5).
+function updateWheelViz(wp) {
+  if (!wheelPreview.firstChild) return;
+  const { steer, thr, brk } = wheelValues(wp, wheelProfile);
+  const needle = wheelPreview.querySelector('[data-wheel="steer"]');
+  if (needle) {
+    const cx = Number(needle.dataset.cx), cy = Number(needle.dataset.cy);
+    needle.setAttribute('transform', `rotate(${(steer * 120).toFixed(1)} ${cx} ${cy})`);
+  }
+  setWheelBar('thr', thr);
+  setWheelBar('brk', brk);
+  const pressed = new Set(pressedWheelRoles(wp, wheelProfile));
+  for (const part of wheelPreview.querySelectorAll('[data-role]')) {
+    part.classList.toggle('on', pressed.has(part.dataset.role));
+  }
+  wheelPreview.classList.toggle('nopad', !wp);
+}
+function setWheelBar(key, value) {
+  const fill = wheelPreview.querySelector(`[data-wheel="${key}"]`);
+  if (!fill) return;
+  const y0 = Number(fill.dataset.y0), h = Number(fill.dataset.h);
+  const v = value < 0 ? 0 : value > 1 ? 1 : value;
+  fill.setAttribute('height', (v * h).toFixed(1));
+  fill.setAttribute('y', (y0 - v * h).toFixed(1));
+}
+
 function enterSeatfit() {
   persistedPadId = settings?.controller?.id || '';
   chosenPadKey = '';
   chosenPreset = settings?.controller?.preset || DEFAULT_PRESET;
   presetManual = false;
+  // Load the calibrated wheel profile (may be absent/corrupt → repaired to the
+  // default by the model). The active INPUT TYPE is NOT restored — it stays the
+  // session value (GAMEPAD at boot), never seeded from settings (decision #2).
+  wheelProfile = normalizeWheelSettings(settings?.wheel?.profile);
+  wheelPadKey = '';
   presetRow.replaceChildren(...Object.entries(PRESETS).map(([key, p]) => {
     const b = document.createElement('button');
     b.className = 'pill';
@@ -757,7 +1060,7 @@ function enterSeatfit() {
   }));
   renderCameraMode();
   applyChoice();
-  seatfitTick();                              // paint device list + mirror at once
+  applyInputType(inputType);                  // sync panels/mirrors + paint device list + mirror
   padTimer = setInterval(seatfitTick, 250);   // then keep it live (hot-plug/disconnect)
 }
 
@@ -831,8 +1134,10 @@ function selectedModelId() {
 function leaveSeatfit() {
   clearInterval(padTimer);
   padTimer = null;
+  cancelListen(); // abandon any armed wheel-assign listen on the way out
   // Persist the MODEL id only (never the session key): identical devices are not
   // distinguishable across restarts without a stable hardware identifier (§3).
+  // The wheel profile persists on each edit, so nothing extra to save here.
   save({ controller: { id: selectedModelId(), preset: chosenPreset } });
 }
 
@@ -935,6 +1240,19 @@ function seatfitTick() {
   const active = new Set(pressedRoles(p, chosenPreset));
   for (const part of padPreview.querySelectorAll('[data-role]')) {
     part.classList.toggle('on', active.has(part.dataset.role));
+  }
+
+  // ----- wheel mirror + listen-to-assign (Batch 6) -----
+  // Only when a wheel viz is shown. detectInputChange diffs the live pad against
+  // the listen-start snapshot; a match of the expected kind assigns the role.
+  if (inputType === 'wheel' || inputType === 'both') {
+    const wp = resolveWheelPad(pads);
+    if (listening) {
+      const change = detectInputChange(listenPrev, snapPad(wp), { axisThreshold: 0.4 });
+      if (change && change.type === listening.kind) applyAssignment(listening.role, change.index);
+    }
+    updateWheelViz(wp);
+    if (inputType === 'both') refreshWheelDeviceSelection(pads, wp);
   }
 }
 

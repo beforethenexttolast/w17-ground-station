@@ -226,31 +226,58 @@
       <div class="stepname">SEAT FIT · CONTROLLER</div>
       <div class="cols seatcols">
         <div class="col">
-          <div class="colhead">DEVICE <small>auto-detected · tap to override</small></div>
-          <div class="padlist" id="padList"></div>
-          <!-- Input-source + transport line (task §3/§5): says at a glance whether
-               input is a live controller / simulated / keyboard fallback, the
-               controller name, the chosen profile, and the transport (always
-               TRANSPORT UNKNOWN — the Gamepad API can't tell USB from Bluetooth). -->
-          <div class="ctlstatus" id="ctlStatus">
-            <span class="ctlsource" id="ctlSource">NO CONTROLLER · KEYBOARD FALLBACK</span>
-            <span class="ctlmeta" id="ctlMeta"></span>
+          <!-- INPUT TYPE (Batch 6 / P5b): GAMEPAD · WHEEL · BOTH, chosen PER
+               SESSION and NEVER persisted — the app always boots GAMEPAD
+               (decision #2). GAMEPAD = today's UI unchanged; WHEEL/BOTH reveal the
+               wheel assign/calibrate panel below and swap/stack the right-column
+               viz. Activation lives only in renderer memory; only the calibrated
+               profile is saved. -->
+          <div class="colhead">INPUT TYPE <small>this session only · always boots gamepad</small></div>
+          <div class="inputtyperow" id="inputTypeRow">
+            <button class="pill on" data-input="gamepad">GAMEPAD</button>
+            <button class="pill" data-input="wheel">WHEEL</button>
+            <button class="pill" data-input="both">BOTH</button>
           </div>
-          <div class="colhead">LAYOUT</div>
-          <div class="presetrow" id="presetRow"></div>
-          <!-- Keyboard key-map legend (task Batch 2 §1): shown ONLY when no
-               controller is present (toggled in seatfitTick, same condition that
-               makes #ctlSource read NO CONTROLLER · KEYBOARD FALLBACK). That line
-               is the single "keyboard fallback" statement; this is just the key
-               legend, so the two are not duplicate copies of the same fact. -->
-          <div class="hint hidden" id="keyboardHint">Keyboard: ◄► steer · ▲▼ throttle/brake · E/Q gear · D DRS · B boost · O overtake</div>
-          <!-- Pairing guidance moves behind an expandable PAIRING NOTES (the
-               errdetail pattern, already styled) so it no longer competes with
-               the live status line for vertical space (task Batch 2 §1). -->
-          <details class="errdetail" id="pairingNotes">
-            <summary>PAIRING NOTES</summary>
-            <div class="hint">Pair the controller in the operating system; if Chromium recognizes it, it appears here without a restart. Windows Bluetooth validation is still required.</div>
-          </details>
+
+          <!-- GAMEPAD panel — the existing SEAT FIT controls, unchanged; hidden
+               only when INPUT TYPE is WHEEL. -->
+          <div id="gamepadPanel">
+            <div class="colhead">DEVICE <small>auto-detected · tap to override</small></div>
+            <div class="padlist" id="padList"></div>
+            <!-- Input-source + transport line (task §3/§5): says at a glance whether
+                 input is a live controller / simulated / keyboard fallback, the
+                 controller name, the chosen profile, and the transport (always
+                 TRANSPORT UNKNOWN — the Gamepad API can't tell USB from Bluetooth). -->
+            <div class="ctlstatus" id="ctlStatus">
+              <span class="ctlsource" id="ctlSource">NO CONTROLLER · KEYBOARD FALLBACK</span>
+              <span class="ctlmeta" id="ctlMeta"></span>
+            </div>
+            <div class="colhead">LAYOUT</div>
+            <div class="presetrow" id="presetRow"></div>
+            <!-- Keyboard key-map legend (task Batch 2 §1): shown ONLY when no
+                 controller is present (toggled in seatfitTick, same condition that
+                 makes #ctlSource read NO CONTROLLER · KEYBOARD FALLBACK). That line
+                 is the single "keyboard fallback" statement; this is just the key
+                 legend, so the two are not duplicate copies of the same fact. -->
+            <div class="hint hidden" id="keyboardHint">Keyboard: ◄► steer · ▲▼ throttle/brake · E/Q gear · D DRS · B boost · O overtake</div>
+            <!-- Pairing guidance moves behind an expandable PAIRING NOTES (the
+                 errdetail pattern, already styled) so it no longer competes with
+                 the live status line for vertical space (task Batch 2 §1). -->
+            <details class="errdetail" id="pairingNotes">
+              <summary>PAIRING NOTES</summary>
+              <div class="hint">Pair the controller in the operating system; if Chromium recognizes it, it appears here without a restart. Windows Bluetooth validation is still required.</div>
+            </details>
+          </div>
+
+          <!-- WHEEL assign/calibrate panel (Batch 6 / P5b) — built by
+               renderer/setupFlow.js from shared/wheelProfile.mjs. Per-role ASSIGN
+               listen buttons (driven by the 250 ms tick via detectInputChange),
+               pedal rows with SET REST / SET FULL capture + a deadzone range, and
+               a SEPARATE/COMBINED pedal toggle. In BOTH mode the wheel gets its
+               OWN device selector (#wheelDeviceRow). Hidden until INPUT TYPE is
+               WHEEL or BOTH. Viewer-only: it edits the local profile and persists
+               it through the existing gs.setSettings path — no new IPC. -->
+          <div class="wheelpanel hidden" id="wheelPanel"></div>
 
           <!-- CAMERA MODE (task §4 / §1A): AVAILABLE/REQUESTED mode vs ACTIVE
                AUTHORITY, kept strictly apart. Manual selectable; Head Tracking
@@ -268,14 +295,25 @@
           <div class="hint" id="camModeNote">AVAILABLE / REQUESTED is this setup's default, not live authority. The mapper is the camera authority; this viewer only mirrors input and never observes which source the mapper selected, so ACTIVE AUTHORITY is not reported. Head-tracking traffic (W3) is diagnostic log-only and never moves the camera.</div>
         </div>
         <div class="col">
-          <div class="colhead">LIVE MIRROR <small>observed controller input · not proof of car/camera motion</small></div>
-          <div class="padpreview" id="padPreview"></div>
-          <div class="teststrip panel" id="testStrip">
-            <div class="bar"><b>STR</b><div class="steerbar"><div class="steerdot" id="tsSteer"></div></div></div>
-            <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="tsThr"></div></div></div>
-            <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="tsBrk"></div></div></div>
-            <div class="bar"><b>PAN</b><div class="steerbar"><div class="steerdot pan" id="tsPan"></div></div></div>
-            <div class="bar"><b>TILT</b><div class="steerbar"><div class="steerdot tilt" id="tsTilt"></div></div></div>
+          <!-- GAMEPAD mirror — unchanged; hidden only when INPUT TYPE is WHEEL. -->
+          <div id="gamepadMirror">
+            <div class="colhead">LIVE MIRROR <small>observed controller input · not proof of car/camera motion</small></div>
+            <div class="padpreview" id="padPreview"></div>
+            <div class="teststrip panel" id="testStrip">
+              <div class="bar"><b>STR</b><div class="steerbar"><div class="steerdot" id="tsSteer"></div></div></div>
+              <div class="bar"><b>THR</b><div class="track"><div class="fill thr" id="tsThr"></div></div></div>
+              <div class="bar"><b>BRK</b><div class="track"><div class="fill brk" id="tsBrk"></div></div></div>
+              <div class="bar"><b>PAN</b><div class="steerbar"><div class="steerdot pan" id="tsPan"></div></div></div>
+              <div class="bar"><b>TILT</b><div class="steerbar"><div class="steerdot tilt" id="tsTilt"></div></div></div>
+            </div>
+          </div>
+          <!-- WHEEL mirror (Batch 6): the wheel viz (renderer/wheelPreview.js).
+               Same display-semantics vocabulary as the pad mirror — observed
+               INPUT, never camera aim. Hidden until INPUT TYPE is WHEEL or BOTH;
+               in BOTH mode it stacks under the gamepad mirror. -->
+          <div id="wheelMirror" class="hidden">
+            <div class="colhead">OBSERVED WHEEL INPUT <small>not proof of car/camera motion</small></div>
+            <div class="wheelpreview" id="wheelPreview"></div>
           </div>
         </div>
       </div>

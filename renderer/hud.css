@@ -442,6 +442,48 @@ button.cammode:hover{border-color:var(--teal)}
    the teal "confirmed value" colour — it must not read as a verified live fact. */
 .camauthrow b.unreported{color:var(--muted);font-weight:700;letter-spacing:.14em}
 
+/* INPUT TYPE row + panel/mirror visibility (Batch 6 / P5b). GAMEPAD/WHEEL/BOTH
+   is a per-session choice (never persisted); switching just shows/hides the two
+   panels and the two right-column mirrors. */
+.inputtyperow{display:flex;gap:.5em;flex-wrap:wrap}
+#gamepadPanel.hidden,#gamepadMirror.hidden,#wheelPanel.hidden,#wheelMirror.hidden{display:none}
+
+/* WHEEL assign/calibrate panel (left column). Rows wrap so the ASSIGN /
+   SET REST / SET FULL buttons never overflow the narrow SEAT FIT column. */
+.wheelpanel{display:flex;flex-direction:column;gap:.55em;width:100%}
+.wheelrow{display:flex;flex-wrap:wrap;align-items:center;gap:.4em .5em;width:100%}
+.wheelrow .wlabel{min-width:4.2em;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  font-size:clamp(9px,1vw,12px);color:var(--muted)}
+.wval{color:var(--teal);font-family:var(--mono);font-size:clamp(9px,1vw,12px);letter-spacing:.04em}
+/* a row LISTENING for an assignment (or armed for a rest/full capture) reads amber. */
+.wval.listening{color:var(--amber)}
+.wheeldz{display:flex;align-items:center;gap:.6em;width:100%}
+.wheeldz input[type=range]{flex:1;min-width:0;accent-color:var(--teal)}
+.wheelpadlist{display:flex;flex-direction:column;gap:.3em;width:100%}
+
+/* WHEEL viz (renderer/wheelPreview.js — display only): a steering wheel with a
+   rotation needle + two analog pedal bars + button pills that light on press.
+   Same conventions/colours as the pad preview (.pp-*). */
+.wheelpreview{width:100%;max-width:min(320px,100%)}
+.wheelpreview svg{width:100%;height:auto;display:block}
+.wp-rim{fill:#0b1113;stroke:var(--panel-edge);stroke-width:2}
+.wp-cross{stroke:#1c2629;stroke-width:1}
+.wp-hub{fill:#10181a;stroke:var(--teal);stroke-width:1.5}
+.wp-needle{stroke:var(--teal);stroke-width:3;stroke-linecap:round;transition:transform .06s linear}
+.wp-track{fill:#10181a;stroke:#233033}
+.wp-fill{transition:y .05s linear,height .05s linear}
+.wp-fill.thr{fill:var(--green)}
+.wp-fill.brk{fill:var(--red)}
+.wp-pill{fill:#10181a;stroke:#233033}
+.wp-pill.on{fill:rgba(0,210,190,.3);stroke:var(--teal)}
+.wp-btn{fill:var(--muted);font-size:9px;letter-spacing:.08em;font-weight:700;font-family:var(--mono)}
+.wp-sub{fill:var(--muted);font-size:9px;letter-spacing:.14em;font-weight:700;text-transform:uppercase}
+.wp-obs{fill:var(--muted);font-size:8px;letter-spacing:.13em;font-weight:700;text-transform:uppercase}
+/* no wheel: needle + bars read plainly neutral so the screen never implies live
+   input while it says NO WHEEL (mirrors .padpreview.nopad, task §5). */
+.wheelpreview.nopad .wp-needle{stroke:#2a3639;transition:none}
+.wheelpreview.nopad .wp-fill{fill:#2a3639}
+
 /* start-lights gantry: 5 columns, lit left to right, all out together */
 .lights{display:flex;gap:clamp(10px,2vw,26px)}
 .lights.hidden{display:none}

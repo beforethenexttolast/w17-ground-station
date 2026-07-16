@@ -129,6 +129,25 @@ describe('responsive layout — action rows wrap, never overlap (Phase 3)', () =
   });
 });
 
+describe('responsive layout — wheel panel + viz fit their column (Batch 6 / P5b)', () => {
+  it('the INPUT TYPE pills and the wheel assign rows wrap', () => {
+    expect(rule('.inputtyperow')).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule('.wheelrow')).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('the wheel viz is fluid with a readable cap (like the pad preview)', () => {
+    const wp = rule('.wheelpreview');
+    expect(wp).toMatch(/width:\s*100%/);
+    expect(wp).toMatch(/max-width:\s*min\([^)]*(?:px|vw)/);
+  });
+
+  it('the deadzone range fills its row and can shrink (min-width:0) so it never overflows', () => {
+    const dz = rule('.wheeldz input[type=range]');
+    expect(dz).toMatch(/flex:\s*1/);
+    expect(dz).toMatch(/min-width:\s*0/);
+  });
+});
+
 describe('responsive layout — readable at the smallest target (Phase 3)', () => {
   it('body/help/status/step text keep a readable clamp floor', () => {
     expect(clampMin(rule('.hint'))).toBeGreaterThanOrEqual(11);

@@ -97,7 +97,7 @@ export function wheelValues(pad, profile = DEFAULT_WHEEL_PROFILE) {
 // SEAT FIT live highlight: which mirrored wheel BUTTON roles are pressed right
 // now. Buttons only (mirrors inputPresets.pressedRoles) — pedals are axes, read
 // via wheelValues, and an UNASSIGNED role (index null) is simply skipped.
-const WHEEL_BUTTON_ROLES = ['gearUp', 'gearDown', 'drs', 'boost', 'overtake'];
+export const WHEEL_BUTTON_ROLES = ['gearUp', 'gearDown', 'drs', 'boost', 'overtake'];
 const PRESS_THRESHOLD = 0.05; // analog buttons count as pressed past this
 
 export function pressedWheelRoles(pad, profile = DEFAULT_WHEEL_PROFILE) {

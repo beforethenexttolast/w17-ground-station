@@ -1534,3 +1534,138 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
     expect(rows()[0].classList.contains('on')).toBe(false);
   });
 });
+
+// SEAT FIT — wheel input against the REAL renderer (Batch 6 / P5b). The pure
+// wheel model (shared/wheelProfile.mjs) is unit-tested separately; here we prove
+// the renderer wires it honestly: the app ALWAYS boots GAMEPAD (activation never
+// persists), WHEEL/BOTH reveal the assign/calibrate panel + viz, a listen
+// captures a real device change into the profile, the bars mirror the calibrated
+// travel, and every wheel save is exactly { wheel: { profile } } — no new IPC.
+describe('SEAT FIT — wheel input + persistence (Batch 6 / P5b)', () => {
+  const makePad = (id, index, { axes = [0, 0, 0, 0], buttons = [] } = {}) => ({
+    id, index, connected: true, mapping: 'standard',
+    axes: axes.slice(),
+    buttons: Array.from({ length: 16 }, (_, i) => buttons[i] || { pressed: false, value: 0 }),
+  });
+  const pressAt = (i) => { const b = []; b[i] = { pressed: true, value: 1 }; return b; };
+  const setPads = (pads) => {
+    Object.defineProperty(window.navigator, 'getGamepads', { configurable: true, value: () => pads });
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const A_PROFILE = {
+    steer: { axis: 0 }, pedalMode: 'separate',
+    throttle: { axis: 1, rest: 1, full: -1 }, brake: { axis: 2, rest: 1, full: -1 },
+    combined: { axis: 1, rest: 0, throttleEnd: 1, brakeEnd: -1 },
+    deadzone: 0, buttons: { gearUp: 5, gearDown: 4, drs: 3, boost: 1, overtake: 2 },
+  };
+  function wheelGs(profile, overrides = {}) {
+    const settings = { ...defaultSettings(), wheel: { profile } };
+    return mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async () => settings),
+      ...overrides,
+    });
+  }
+  async function enterSeatfit(gs, pads = []) {
+    await loadRenderer(gs);
+    setPads(pads);
+    document.querySelector('.modecard[data-mode="solo"]').click(); // GARAGE -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+  }
+  const pill = (type) => el('inputTypeRow').querySelector(`[data-input="${type}"]`);
+  const wassign = (role) => el('wheelPanel').querySelector(`[data-wassign="${role}"]`);
+  const wheelPatches = (gs) => gs.setSettings.mock.calls.map((c) => c[0]).filter((p) => p && p.wheel);
+
+  it('boots GAMEPAD even when a wheel profile is saved — no active wheel DOM', async () => {
+    const gs = wheelGs(A_PROFILE);
+    await enterSeatfit(gs, [makePad('Fanatec Wheel', 0)]);
+    expect(pill('gamepad').classList.contains('on')).toBe(true);
+    expect(pill('wheel').classList.contains('on')).toBe(false);
+    expect(el('wheelPanel').classList.contains('hidden')).toBe(true);
+    expect(el('wheelMirror').classList.contains('hidden')).toBe(true);
+    expect(el('gamepadMirror').classList.contains('hidden')).toBe(false);
+    expect(el('wheelPanel').children.length).toBe(0);  // panel not built while off
+    expect(el('wheelPreview').innerHTML).toBe('');      // viz not built while off
+  });
+
+  it('switching GAMEPAD -> WHEEL -> GAMEPAD reveals then tears down the wheel viz (no stale highlights)', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, [makePad('Wheel', 0)]);
+    pill('wheel').click();
+    await tick();
+    expect(el('wheelMirror').classList.contains('hidden')).toBe(false);
+    expect(el('gamepadMirror').classList.contains('hidden')).toBe(true);
+    expect(el('wheelPreview').querySelector('[data-wheel="steer"]')).toBeTruthy();
+    expect(el('wheelPanel').querySelector('[data-wassign="steer"]')).toBeTruthy();
+    pill('gamepad').click();
+    await tick();
+    expect(el('wheelMirror').classList.contains('hidden')).toBe(true);
+    expect(el('gamepadMirror').classList.contains('hidden')).toBe(false);
+    expect(el('wheelPreview').innerHTML).toBe('');       // no stale viz/highlight
+    expect(el('wheelPanel').children.length).toBe(0);
+  });
+
+  it('WHEEL: an ASSIGN listen captures a fake-gamepad button press into the profile; the save is { wheel: { profile } } only', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, [makePad('Wheel', 0)]); // no button pressed at listen start
+    pill('wheel').click();
+    await tick();
+    wassign('drs').click();                         // arm the listen for DRS
+    await tick();
+    expect(el('wheelPanel').querySelector('[data-wval="drs"]').classList.contains('listening')).toBe(true);
+    setPads([makePad('Wheel', 0, { buttons: pressAt(7) })]); // now press button 7
+    await sleep(320);                               // let one 250ms detect tick run
+    const patches = wheelPatches(gs);
+    expect(patches.length).toBeGreaterThan(0);
+    const patch = patches[patches.length - 1];
+    // Exact shape: nothing but the profile rides the wheel save.
+    expect(Object.keys(patch)).toEqual(['wheel']);
+    expect(Object.keys(patch.wheel)).toEqual(['profile']);
+    expect(patch.wheel.profile.buttons.drs).toBe(7);
+    // The listen cleared once captured.
+    expect(el('wheelPanel').querySelector('[data-wval="drs"]').classList.contains('listening')).toBe(false);
+    expect(el('wheelPanel').querySelector('[data-wval="drs"]').textContent).toBe('BTN 7');
+  });
+
+  it('WHEEL: the pedal bars fill from the calibrated rest/full travel', async () => {
+    const gs = wheelGs(A_PROFILE);
+    // axis1 floored (-1) -> throttle travel 1.0 (rest 1 -> full -1); axis2 at rest (+1) -> brake 0.
+    await enterSeatfit(gs, [makePad('Wheel', 0, { axes: [0, -1, 1, 0] })]);
+    pill('wheel').click();
+    await tick();
+    const thr = el('wheelPreview').querySelector('[data-wheel="thr"]');
+    const brk = el('wheelPreview').querySelector('[data-wheel="brk"]');
+    const h = Number(thr.dataset.h), y0 = Number(thr.dataset.y0);
+    expect(Number(thr.getAttribute('height'))).toBeCloseTo(h);       // fully filled
+    expect(Number(thr.getAttribute('y'))).toBeCloseTo(y0 - h);       // grows upward from the base
+    expect(Number(brk.getAttribute('height'))).toBeCloseTo(0);       // released
+    expect(el('wheelPreview').classList.contains('nopad')).toBe(false); // a wheel is present
+  });
+
+  it('WHEEL: SET FULL captures the current axis reading into the profile calibration', async () => {
+    const gs = wheelGs(A_PROFILE);
+    await enterSeatfit(gs, [makePad('Wheel', 0, { axes: [0, -0.5, 1, 0] })]); // throttle axis at -0.5
+    pill('wheel').click();
+    await tick();
+    el('wheelPanel').querySelector('[data-wcap="throttle.full"]').click();
+    await tick();
+    const patches = wheelPatches(gs);
+    expect(patches[patches.length - 1].wheel.profile.throttle.full).toBeCloseTo(-0.5);
+  });
+
+  it('BOTH stacks both mirrors and gives the wheel its OWN device selector defaulting to the pad not selected in DEVICE', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, [makePad('DualShock 4', 0), makePad('G29 Wheel', 1)]);
+    pill('both').click();
+    await tick();
+    expect(el('gamepadMirror').classList.contains('hidden')).toBe(false);
+    expect(el('wheelMirror').classList.contains('hidden')).toBe(false);
+    const wl = el('wheelPadList');
+    expect(wl, 'BOTH mode builds a separate wheel device list').toBeTruthy();
+    const on = [...wl.querySelectorAll('.netrow.on')];
+    expect(on.length).toBe(1);
+    // gamepad DEVICE auto-selects slot 0, so the wheel defaults to slot 1.
+    expect(on[0].querySelector('.padslot').textContent).toBe('SLOT 1');
+  });
+});
