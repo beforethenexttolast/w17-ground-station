@@ -5,6 +5,17 @@
   --violet:#B98BFF; --amber:#FFB200;
   --gap:clamp(8px,1.4vw,18px);
   --mono:"SF Mono",ui-monospace,"Consolas","Roboto Mono",monospace;
+  /* Toast-band geometry — the .gate bottom padding is DERIVED from these (see
+     .gate below) so it provably clears the pinned team-radio stack at max scroll,
+     and the two move together if either changes (Batch 8a.1 rider b, replacing the
+     old magic 7em). Measured at the 1024×640 floor: a .radio-msg renders 26px tall
+     with a .35em (5.6px) stack gap, so the two toasts the height cap leaves
+     (rider a) span 3.6em, and the stack floats --radio-bottom above the viewport
+     floor. Reserve = that offset + the capped 2-toast stack + a small clearance;
+     at the floor this seats the camera-mode note ~6px clear of the band. */
+  --radio-bottom:3.6em;   /* .radioLog bottom offset from the viewport floor */
+  --radio-2stack:3.6em;   /* two .radio-msg toasts + one .35em gap — the <700px cap */
+  --gate-toast-reserve:calc(var(--radio-bottom) + var(--radio-2stack) + .4em);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -168,18 +179,19 @@ body{background:#000;color:var(--silver);
    `safe center` centres when it fits and falls back to top-alignment when it
    overflows, so START/BACK/NEXT are always reachable (task §1). The generous
    block padding keeps content clear of the pinned footnote/radio overlays. The
-   bottom band is sized to clear a full 3-toast radio stack + the footnote (task
-   Batch 2 §3). Batch 4 (P4) raised the floor 5.5em -> 7em: a tall SEAT FIT with
-   a full 3-toast stack scrolled the tail of the camera-note paragraph ~17px
-   under the radio band at 1280x800 / 1366x768; 7em reserves enough scroll room
-   that the last line clears the band at max scroll (measured: 0px overlap). */
+   bottom band DERIVES its depth from --gate-toast-reserve (the pinned radio band
+   it must clear at max scroll) instead of a magic number: Batch 4 hard-coded 7em,
+   which still let the camera-note tail sit ~26px under a full 3-toast stack at the
+   1024×640 floor; Batch 8a.1 caps that stack to 2 toasts below 700px (rider a) and
+   reserves exactly the capped band + clearance here (rider b). The clamp lets the
+   reserve grow a touch on very tall viewports but never below the derived floor. */
 .gate{position:fixed;inset:0;z-index:10;pointer-events:auto;display:flex;flex-direction:column;align-items:center;
   justify-content:safe center;gap:clamp(.9em,2vh,1.4em);overflow-y:auto;overflow-x:hidden;
   /* SOLID setup backdrop (Batch 8a / flow chrome, design bundle §1): fully
      opaque so the live HUD no longer bleeds through the setup overlay. Was a
      translucent gradient (…,.9 / …,.97). */
   background:radial-gradient(120% 90% at 50% 45%,rgba(7,12,13,1),rgba(2,4,4,1));text-align:center;
-  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(7em,10vh,7.5em);}
+  padding:clamp(1.2em,3.5vh,2.6em) clamp(1em,3vw,2.6em) clamp(var(--gate-toast-reserve),10vh,calc(var(--gate-toast-reserve) + .4em));}
 .gate.hidden{display:none}
 /* compact header: title + subtitle share one baseline row instead of stacking */
 .gatehead{display:flex;align-items:baseline;justify-content:center;gap:1em;flex-wrap:wrap}
@@ -308,6 +320,18 @@ body{background:#000;color:var(--silver);
   padding:.4em 1.1em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);}
 .radio-msg::before{content:"📻 ";filter:grayscale(1)}
 .radioLog .radio-msg:not(:first-child){opacity:.45}
+/* Radio-stack height cap (Batch 8a.1 rider a): below ~700px viewport height the
+   camera-mode safety note scrolls tight against the pinned radio band, so cap the
+   VISIBLE stack to its newest 2 toasts. The stack is column-reverse (newest =
+   first child, at the bottom), so :nth-child(n+3) is the OLDEST toast(s) at the
+   top of the band — hiding them frees the ~26px a third toast added and closes
+   the 1024×640-floor overlap. Height-GATED, not always-on: the two design targets
+   (1280×800 / 1366×768) stay above 700px and keep the full 3-toast stack. radio()
+   still keeps 3 in the DOM; this only hides the third. The 2-toast band this
+   leaves is exactly what --gate-toast-reserve is derived against (rider b). */
+@media (max-height:700px){
+  .radioLog .radio-msg:nth-child(n+3){display:none}
+}
 /* GARAGE returning-user fast path (Batch 8a / flow chrome, design bundle §3):
    a green-accent actionable row (mode · controller · telemetry source) that
    resumes the last session. Hidden for a fresh user. */

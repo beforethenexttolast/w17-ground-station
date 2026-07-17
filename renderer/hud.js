@@ -12,7 +12,7 @@
 import { startWhep } from './whep.js';
 import { linkState } from '../shared/linkState.mjs';
 import { getPreset, selectGamepad, DEFAULT_PRESET, dedupeGamepads, resolveSelectedPad } from '../shared/inputPresets.mjs';
-import { wheelValues } from '../shared/wheelProfile.mjs';
+import { wheelValues, pressedWheelRoles } from '../shared/wheelProfile.mjs';
 import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
 import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
 import { headIntentView } from '../shared/headIntentView.mjs';
@@ -98,9 +98,10 @@ function pad() { const ps = navigator.getGamepads ? navigator.getGamepads() : []
 // choice that ALWAYS boots GAMEPAD (never persisted, decision #2), so these
 // default to the gamepad path and setupFlow.js sets them once at START via
 // setInputSource(). When the type is wheel/both, the HUD mirrors the calibrated
-// wheel for STR/THR/BRK ONLY — pan/tilt (a wheel has no aim stick) and every
-// mirrored button stay gamepad-sourced, so camera-aim semantics are untouched and
-// a GAMEPAD session is bit-identical to before (the override block is skipped).
+// wheel for STR/THR/BRK and the gear/DRS/boost/overtake pills (Batch 8a.1 rider c)
+// from the wheel's own assigned buttons — but pan/tilt stays gamepad-sourced (a
+// wheel has no aim stick), so camera-aim semantics are untouched and a GAMEPAD
+// session is bit-identical to before (the override block is skipped entirely).
 // DISPLAY MIRROR ONLY: wheelValues just reads navigator.getGamepads(); nothing
 // here reaches a control output (driving stays with elrs-joystick-control).
 let inputType = 'gamepad';   // 'gamepad' | 'wheel' | 'both'
@@ -203,6 +204,23 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 function shift(dir) { S.gear = clamp(S.gear + dir, 1, FEEL.gears); }
 
+// Single source of the pill button semantics (Batch 8a.1): edge-triggered
+// gear shift + DRS toggle, level boost/overtake. Fed five pre-resolved booleans
+// so the gamepad, keyboard, and wheel paths differ ONLY in how they READ a press
+// (preset map / keys / pressedWheelRoles), not in what a press MEANS — a change
+// to the semantics (e.g. DRS toggle→momentary) now lives in one place instead of
+// three. Exactly one source calls this per tick (the gamepad/keyboard button
+// blocks are gated off in a wheel session), so `prev` is written once per tick.
+function applyButtons({ up, down, drs, boost, overtake }) {
+  if (up && !prev.up) shift(1);
+  if (down && !prev.down) shift(-1);
+  prev.up = up; prev.down = down;
+  if (drs && !prev.drs) S.drs = !S.drs;
+  prev.drs = drs;
+  S.boost = boost;
+  S.overtake = overtake;
+}
+
 const demoState = { t: 0 };
 function readDemo() {
   demoState.t += 1 / 60;
@@ -221,6 +239,12 @@ function readDemo() {
 
 function readInputs() {
   if (demo) { readDemo(); return; }
+  // In a wheel/both session the wheel owns STR/THR/BRK and the gear/DRS/boost/
+  // overtake pills (the override block below); the gamepad/keyboard BUTTON blocks
+  // are skipped this session so the two sources can't double-count a press. A
+  // GAMEPAD session leaves wheelSession false, so every branch here runs exactly
+  // as before — bit-identical.
+  const wheelSession = inputType === 'wheel' || inputType === 'both';
   const p = pad();
   if (p) {
     const ax = p.axes, b = p.buttons;
@@ -228,15 +252,15 @@ function readInputs() {
     S.steer = clamp(ax[m.steerAxis] || 0, -1, 1);
     S.throttle = b[m.throttleBtn] ? b[m.throttleBtn].value : 0;
     S.brake = b[m.brakeBtn] ? b[m.brakeBtn].value : 0;
-    const up = !!(b[m.gearUpBtn] && b[m.gearUpBtn].pressed), down = !!(b[m.gearDownBtn] && b[m.gearDownBtn].pressed);
-    if (up && !prev.up) shift(1);
-    if (down && !prev.down) shift(-1);
-    prev.up = up; prev.down = down;
-    const drsBtn = !!(b[m.drsBtn] && b[m.drsBtn].pressed);
-    if (drsBtn && !prev.drs) S.drs = !S.drs;
-    prev.drs = drsBtn;
-    S.boost = !!(b[m.boostBtn] && b[m.boostBtn].pressed);
-    S.overtake = !!(b[m.overtakeBtn] && b[m.overtakeBtn].pressed);
+    if (!wheelSession) {
+      applyButtons({
+        up: !!(b[m.gearUpBtn] && b[m.gearUpBtn].pressed),
+        down: !!(b[m.gearDownBtn] && b[m.gearDownBtn].pressed),
+        drs: !!(b[m.drsBtn] && b[m.drsBtn].pressed),
+        boost: !!(b[m.boostBtn] && b[m.boostBtn].pressed),
+        overtake: !!(b[m.overtakeBtn] && b[m.overtakeBtn].pressed),
+      });
+    }
     // Right stick -> camera gimbal (mirror; the car aims it via ch9/ch10).
     S.camPan = clamp(ax[m.camPanAxis] || 0, -1, 1);
     S.camTilt = clamp(ax[m.camTiltAxis] || 0, -1, 1);
@@ -244,26 +268,36 @@ function readInputs() {
     S.steer = clamp((keys.arrowright ? 1 : 0) - (keys.arrowleft ? 1 : 0), -1, 1);
     S.throttle = keys.arrowup ? 1 : 0;
     S.brake = keys.arrowdown ? 1 : 0;
-    const up = !!keys.e, down = !!keys.q;
-    if (up && !prev.up) shift(1);
-    if (down && !prev.down) shift(-1);
-    prev.up = up; prev.down = down;
-    if (keys.d && !prev.drs) S.drs = !S.drs;
-    prev.drs = !!keys.d;
-    S.boost = !!keys.b;
-    S.overtake = !!keys.o;
+    if (!wheelSession) {
+      applyButtons({
+        up: !!keys.e, down: !!keys.q, drs: !!keys.d, boost: !!keys.b, overtake: !!keys.o,
+      });
+    }
   }
-  // Wheel override (Batch 7): in a wheel/both session the calibrated wheel
-  // supplies STR/THR/BRK ONLY, replacing whatever the gamepad/keyboard path set
-  // above. GAMEPAD sessions skip this entirely (bit-identical). Camera pan/tilt
-  // and every mirrored button are deliberately left as set above — a wheel has no
-  // aim stick, and this batch scopes the wheel to the three driving axes. A
-  // missing wheel pad reads neutral via wheelValues (never a stale deflection).
-  if (inputType === 'wheel' || inputType === 'both') {
-    const { steer, thr, brk } = wheelValues(wheelPad(), wheelProfile);
+  // Wheel override (Batch 7 + Batch 8a.1): in a wheel/both session the calibrated
+  // wheel supplies STR/THR/BRK (Batch 7) AND lights the gear/DRS/boost/overtake
+  // pills from its OWN assigned buttons (Batch 8a.1 rider c), so a pure-wheel
+  // session drives the HUD pills the same way it drives the SEAT FIT mirror. The
+  // gamepad/keyboard button block above was skipped this session, so the wheel is
+  // the sole button source — same edge-triggered gear/DRS and level boost/overtake
+  // logic, just fed from pressedWheelRoles instead of the preset map. Camera pan/
+  // tilt stays gamepad-sourced (a wheel has no aim stick — camera-aim semantics
+  // untouched). GAMEPAD sessions skip this whole block (bit-identical). A missing
+  // wheel pad reads neutral / released, never a stale deflection.
+  if (wheelSession) {
+    const wp = wheelPad();
+    const { steer, thr, brk } = wheelValues(wp, wheelProfile);
     S.steer = steer;
     S.throttle = thr;
     S.brake = brk;
+    const roles = pressedWheelRoles(wp, wheelProfile);
+    applyButtons({
+      up: roles.includes('gearUp'),
+      down: roles.includes('gearDown'),
+      drs: roles.includes('drs'),
+      boost: roles.includes('boost'),
+      overtake: roles.includes('overtake'),
+    });
   }
 }
 

@@ -155,6 +155,83 @@ describe('HUD wheel mirroring (Batch 7 / P5c)', () => {
   });
 });
 
+// Wheel button pills (Batch 8a.1 rider c). In a wheel/both session the gear/DRS/
+// boost/overtake HUD pills light from the wheel's OWN assigned buttons (via
+// pressedWheelRoles), matching what the SEAT FIT mirror already showed — and the
+// gamepad/keyboard button path is SKIPPED that session so the two can't double-
+// count a press. A GAMEPAD session still lights the pills from the preset, exactly
+// as before. Display-only (test/noControlPath.test.js proves no control path).
+describe('HUD wheel button pills (Batch 8a.1 rider c)', () => {
+  const pillState = () => ({
+    gear: el('gear').textContent,
+    drs: el('drs').classList.contains('on'),
+    boost: el('boost').classList.contains('on'),
+    ot: el('ot').classList.contains('on'),
+  });
+  // Button indices are DISTINCT from the DualShock preset's (drs3/boost1/ot2/
+  // gearUp5/gearDown4), so a lit pill can only have come from the WHEEL profile,
+  // never the gamepad button path reading the same pad through preset indices.
+  const BTN_PROFILE = {
+    ...WHEEL_PROFILE,
+    buttons: { gearUp: 8, gearDown: 9, drs: 10, boost: 11, overtake: 12 },
+  };
+  const press = (...idx) => { const b = []; for (const i of idx) b[i] = { pressed: true, value: 1 }; return b; };
+
+  it('WHEEL session: wheel-assigned gear/DRS/boost/overtake buttons light the pills', async () => {
+    const hud = await loadHud();
+    // Press the wheel's gearUp(8), drs(10), boost(11), overtake(12).
+    setPads([makePad('G29 Racing Wheel', 0, { axes: [0, 0, 0, 0, 0, 0], buttons: press(8, 10, 11, 12) })]);
+    hud.setInputSource({ type: 'wheel', profile: BTN_PROFILE, wheelKey: '' });
+    hud.startRide();
+    stepFrame(1000);
+    expect(pillState()).toEqual({ gear: '2', drs: true, boost: true, ot: true });
+  });
+
+  it('WHEEL session: the gamepad button path is skipped — preset buttons alone light nothing', async () => {
+    const hud = await loadHud();
+    // Press ONLY the DualShock preset buttons (drs3/boost1/ot2/gearUp5) and NONE of
+    // the wheel's (8–12). If the gamepad button block still ran, these would light
+    // the pills; because a wheel session skips it and the wheel buttons are idle,
+    // every pill stays off and the gear never leaves 1 (shown as 'N' at rest).
+    setPads([makePad('G29 Racing Wheel', 0, { axes: [0, 0, 0, 0, 0, 0], buttons: press(1, 2, 3, 5) })]);
+    hud.setInputSource({ type: 'wheel', profile: BTN_PROFILE, wheelKey: '' });
+    hud.startRide();
+    stepFrame(1000);
+    const s = pillState();
+    // gear never left 1 (no wheel gearUp; the gamepad gearUp5 is skipped). At rest
+    // gear 1 renders 'N', or '1' once the sim rolls past 1 km/h — both mean "unshifted".
+    expect(['N', '1']).toContain(s.gear);
+    expect(s.drs).toBe(false);
+    expect(s.boost).toBe(false);
+    expect(s.ot).toBe(false);
+  });
+
+  it('BOTH session: the slot-selected wheel lights the pills', async () => {
+    const hud = await loadHud();
+    const gp = makePad('DualShock 4', 0, { axes: [0, 0, 0, 0] });
+    const wheel = makePad('G29 Racing Wheel', 1, { axes: [0, 0, 0, 0, 0, 0], buttons: press(8, 10, 11) });
+    setPads([gp, wheel]);
+    hud.setInputSource({ type: 'both', profile: BTN_PROFILE, wheelKey: `#1␟${wheel.id}` });
+    hud.startRide();
+    stepFrame(1000);
+    const s = pillState();
+    expect(s.gear).toBe('2'); // wheel gearUp(8)
+    expect(s.drs).toBe(true); // wheel drs(10)
+    expect(s.boost).toBe(true); // wheel boost(11)
+    expect(s.ot).toBe(false); // wheel overtake(12) not pressed
+  });
+
+  it('GAMEPAD session (default): the preset buttons still light the pills — bit-identical', async () => {
+    const hud = await loadHud();
+    // DualShock with drs(3), boost(1), overtake(2), gearUp(5) pressed — the preset
+    // path lights them exactly as before; no setInputSource (default GAMEPAD).
+    setPads([makePad('DualShock 4', 0, { axes: [0, 0, 0, 0], buttons: press(1, 2, 3, 5) })]);
+    hud.startRide();
+    stepFrame(1000);
+    expect(pillState()).toEqual({ gear: '2', drs: true, boost: true, ot: true });
+  });
+});
+
 // HUD status stack + INPUT source tag (Batch 8a / flow chrome). The scattered
 // chips consolidate into one right-aligned .statusstack under the session clock
 // (ids/logic unchanged, only placement); an INPUT · GAMEPAD/WHEEL tag above the

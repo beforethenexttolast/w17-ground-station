@@ -35,12 +35,12 @@ describe('responsive layout — setup overlay scrolls, never clips (Phase 3)', (
     const gate = rule('.gate');
     expect(gate).toMatch(/overflow-y:\s*auto/);          // 1280×720 etc.: scroll, not clip
     expect(gate).toMatch(/justify-content:\s*safe center/); // centre when it fits, top when not
-    // Bottom padding reserves a band deep enough to clear a full 3-toast radio
-    // stack + the footnote so neither can cover START/BACK/NEXT (Batch 2 §3).
-    // Batch 4 (P4) raised the floor 5.5em → 7em: the measured worst case (a tall
-    // SEAT FIT with a full 3-toast stack) scrolled the camera-note tail ~17px
-    // under the radio band at 5.5em; 7em brings that to 0px at both target sizes.
-    expect(gate).toMatch(/padding:[^;]*clamp\(7em/);
+    // Bottom padding is DERIVED from the pinned radio band it must clear at max
+    // scroll (Batch 8a.1 rider b) — it reserves --gate-toast-reserve (radio offset
+    // + the height-capped 2-toast stack + clearance) instead of the old magic 7em,
+    // which still let the camera-note tail sit ~26px under a full 3-toast stack at
+    // the 1024×640 floor. The reserve + the cap are pinned in the Batch 8a.1 block.
+    expect(gate).toMatch(/padding:[^;]*clamp\(\s*var\(--gate-toast-reserve\)/);
   });
 
   it('the radio + footnote overlays are position:fixed viewport overlays, not scroll-flow children (Batch 2 §3)', () => {
@@ -168,6 +168,29 @@ describe('flow chrome — step rail + solid backdrop (Batch 8a)', () => {
     expect(gate).toMatch(/rgba\(7,\s*12,\s*13,\s*1\)/);
     expect(gate).toMatch(/rgba\(2,\s*4,\s*4,\s*1\)/);
     expect(gate).not.toMatch(/rgba\([^)]*,\s*\.\d+\)/); // no translucent stop remains
+  });
+});
+
+describe('flow chrome — radio-stack height cap + derived gate reserve (Batch 8a.1)', () => {
+  it('caps the visible radio stack to 2 toasts below ~700px viewport height (rider a)', () => {
+    // Height-GATED, not always-on: only below 700px is the oldest toast hidden, so
+    // the two design targets (1280×800 / 1366×768) keep the full 3-toast stack.
+    // column-reverse puts the newest toast first, so :nth-child(n+3) is the OLDEST
+    // (top of the band) — hiding it frees the ~26px that closed the floor overlap.
+    expect(css).toMatch(/@media\s*\(\s*max-height:\s*700px\s*\)/);
+    expect(css).toMatch(/\.radioLog\s+\.radio-msg:nth-child\(\s*n\+3\s*\)\s*\{\s*display:\s*none/);
+  });
+
+  it('the gate bottom reserve is DERIVED from the (capped) radio band, not a magic number (rider b)', () => {
+    const root = rule(':root');
+    // The band components the reserve is built from — a change to either moves the
+    // padding with it (offset from the floor + the 2-toast stack the cap leaves).
+    expect(root).toMatch(/--radio-bottom:/);
+    expect(root).toMatch(/--radio-2stack:/);
+    // reserve = radio offset + the capped 2-toast stack + a small clearance …
+    expect(root).toMatch(/--gate-toast-reserve:\s*calc\(\s*var\(--radio-bottom\)\s*\+\s*var\(--radio-2stack\)/);
+    // … and the gate consumes exactly that as its bottom padding.
+    expect(rule('.gate')).toMatch(/padding:[^;]*var\(--gate-toast-reserve\)/);
   });
 });
 
