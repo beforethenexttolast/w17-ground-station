@@ -1872,3 +1872,182 @@ describe('setup navigation matrix (Batch 8b)', () => {
     expect(activeStep()).toBe('pitwall'); // deliberately re-entered — not locked out
   });
 });
+
+// Batch 9 — controller-driven UI navigation, INTEGRATION. Loads the REAL
+// renderer (setupFlow.js wires the pad-nav singleton at boot) and drives it with
+// an injected gamepad via navigator.getGamepads — the same seam the SEAT FIT
+// mirror reads. Proves the whole flow is operable pad-only (GARAGE -> ... -> GRID
+// -> START, no mouse/keyboard), that ⚙ opens/closes via pad on setup AND on the
+// live HUD, and that a wheel capture suspends navigation. VIEWER-ONLY: every
+// effect is a DOM focus/click; there is no control path.
+describe('controller-driven UI navigation (Batch 9)', () => {
+  const CONFIRM = 0, BACK = 1, SETTINGS = 9, DPAD_DOWN = 13;
+  const makePad = (down = []) => ({
+    id: 'nav-pad', index: 0, connected: true, mapping: 'standard',
+    axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: down.includes(i), value: down.includes(i) ? 1 : 0 })),
+  });
+  const setPads = (pads) =>
+    Object.defineProperty(window.navigator, 'getGamepads', { configurable: true, value: () => pads });
+
+  let nav; // the CONFIGURED singleton (dynamic-imported after resetModules)
+  const setDown = (down) => setPads([makePad(down)]);
+  const press = (down) => { setDown(down); nav.pollOnce(); };
+  const release = () => { setDown([]); nav.pollOnce(); };
+
+  // A boot with a controller present, then grab the SAME uiNav instance
+  // setupFlow.js configured (post-resetModules).
+  async function bootNav(gs = mockGs()) {
+    await loadRenderer(gs);
+    // jsdom has no matchMedia; the start-lights hand-off reads reduced-motion.
+    window.matchMedia = window.matchMedia || (() => ({ matches: false }));
+    setDown([]);
+    nav = await import('../renderer/uiNav.js');
+    nav.pollOnce(); // seed the edge baseline (neutral pad) — intents fire from the second poll
+  }
+
+  // Step focus one control at a time until `target` carries the ring, releasing
+  // between presses so each edge re-arms. Returns whether it landed.
+  function navToward(target, max = 80) {
+    for (let i = 0; i < max; i++) {
+      if (nav.focusedElement() === target) return true;
+      press([DPAD_DOWN]);
+      release();
+    }
+    return nav.focusedElement() === target;
+  }
+  const activate = (target) => { expect(navToward(target)).toBe(true); press([CONFIRM]); release(); };
+
+  it('a d-pad press focuses a control and paints the visible focus ring; confirm activates it', async () => {
+    await bootNav();
+    expect(activeStep()).toBe('garage');
+    const solo = document.querySelector('.modecard[data-mode="solo"]');
+    expect(navToward(solo)).toBe(true);
+    expect(solo.classList.contains('uinav-focus')).toBe(true); // ring visible on the focused control
+    expect(document.activeElement).toBe(solo);                  // keyboard parity: same .focus()
+    press([CONFIRM]); await tick();                             // confirm activates the mode card
+    expect(activeStep()).toBe('seatfit');
+  });
+
+  it('completes the whole flow GARAGE -> SEAT FIT -> GRID -> START pad-only (no mouse/keyboard)', async () => {
+    // Desktop/solo, start-lights off so START hands off deterministically.
+    const settings = { ...defaultSettings(), startLightsEnabled: false };
+    // A merging setSettings so save({setupCompleted}) keeps startLightsEnabled
+    // false (the default mock returns a fresh lights-on object) — the START
+    // hand-off then takes the no-countdown path deterministically.
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async (patch) => { Object.assign(settings, patch); return settings; }),
+    });
+    await bootNav(gs);
+
+    activate(document.querySelector('.modecard[data-mode="solo"]')); // GARAGE -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+
+    activate(el('navNext'));                                          // SEAT FIT -> GRID (solo skips PIT WALL)
+    await tick();
+    expect(activeStep()).toBe('grid');
+
+    // Checks are incomplete in the mock (no video/telemetry), so START ANYWAY is
+    // the live action — reach it and confirm, all via the pad.
+    expect(el('startAnywayBtn').classList.contains('hidden')).toBe(false);
+    activate(el('startAnywayBtn'));                                   // GRID START (ANYWAY)
+    await tick();
+    // runLights ran the hand-off: the step rail is retired for the start sequence.
+    expect(el('stepRail').classList.contains('hidden')).toBe(true);
+    // After the 250ms no-lights fade, startRide() dismisses the gate and the
+    // HUD preview toggle is visible/reachable again (triage #4 — hidden while
+    // the gate covered it, un-hidden by start()).
+    await vi.waitFor(() => {
+      expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(false);
+    });
+  });
+
+  it('the HUD preview toggle is hidden (and un-navigable) while the gate covers it', async () => {
+    await bootNav();
+    // Hidden by class from boot (gate up), so uiNav's navigable() filter — which
+    // is class-based, not paint-based — excludes the occluded control too.
+    expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(true);
+    expect(navToward(el('demoBtn'), 40)).toBe(false); // never receives pad focus during setup
+  });
+
+  it('pad BACK (button 1) never steps the setup flow back — it only closes the settings menu', async () => {
+    await bootNav();
+    activate(document.querySelector('.modecard[data-mode="solo"]')); // -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+    press([BACK]); release();               // BOOST-collision guard: no navigation
+    expect(activeStep()).toBe('seatfit');   // still on SEAT FIT (was: ejected to GARAGE)
+    press([SETTINGS]); release();           // open the menu…
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(false);
+    press([BACK]); release();               // …BACK closes it — its only job now
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(true);
+    expect(activeStep()).toBe('seatfit');
+  });
+
+  it('live session (gate dismissed): nav is settings-only — moves are inert, ⚙ works, and nav resumes inside the open menu', async () => {
+    await bootNav();
+    el('gate').classList.add('hidden');     // simulate the live HUD
+    press([DPAD_DOWN]); release();          // d-pad move: inert (driving shares the pad)
+    expect(nav.focusedElement()).toBeNull();
+    setDown([]); setPads([{ ...makePad([]), axes: [0.9, 0, 0, 0] }]); nav.pollOnce(); // steer past half-lock
+    expect(nav.focusedElement()).toBeNull(); // axis move: inert too
+    setDown([]); nav.pollOnce();
+    press([SETTINGS]); release();           // the one live intent: ⚙ toggles
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(false);
+    press([DPAD_DOWN]); release();          // menu open → nav works inside the modal
+    const focused = nav.focusedElement();
+    expect(focused).not.toBeNull();
+    expect(el('settingsScrim').contains(focused)).toBe(true);
+    press([BACK]); release();               // back closes the menu, back to settings-only
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(true);
+  });
+
+  it('the ⚙ pad button (index 9) opens the settings menu and BACK (index 1) closes it — on a setup screen', async () => {
+    await bootNav();
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(true);
+    press([SETTINGS]); release();
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(false); // opened via pad
+    press([BACK]); release();
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(true);  // closed via pad
+  });
+
+  it('the ⚙ pad button toggles the settings menu on the LIVE HUD too (gate dismissed)', async () => {
+    await bootNav();
+    el('gate').classList.add('hidden'); // simulate the live HUD (setup overlay gone)
+    press([SETTINGS]); release();
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(false);
+    press([SETTINGS]); release();       // index 9 toggles it closed again
+    expect(el('settingsScrim').classList.contains('hidden')).toBe(true);
+  });
+
+  it('a wheel capture SUSPENDS navigation: presses go to the capture, not focus; cancelling restores nav', async () => {
+    await bootNav();
+    activate(document.querySelector('.modecard[data-mode="solo"]')); // -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+
+    // WHEEL input reveals the assign/calibrate panel.
+    el('inputTypeRow').querySelector('[data-input="wheel"]').click();
+    expect(el('wheelPanel').querySelector('[data-wassign]')).not.toBeNull();
+
+    // Before arming: navigation works.
+    press([DPAD_DOWN]);
+    expect(nav.focusedElement()).not.toBeNull();
+    nav.clearFocusRing();
+    release();
+
+    // Arm an ASSIGN listen (a wheel-mapping row is now LISTENING).
+    el('wheelPanel').querySelector('[data-wassign]').click();
+    // While suspended, a d-pad press must NOT move focus (it belongs to the capture).
+    press([DPAD_DOWN]);
+    expect(nav.focusedElement()).toBeNull();
+
+    // Switching input type cancels the listen (the CANCEL path) — nav restored.
+    el('inputTypeRow').querySelector('[data-input="gamepad"]').click();
+    release();
+    press([DPAD_DOWN]);
+    expect(nav.focusedElement()).not.toBeNull();
+  });
+});

@@ -568,6 +568,20 @@ button.cammode:hover{border-color:var(--teal)}
   border:1px solid var(--panel-edge);color:var(--muted);padding:.35em .55em;
   clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
 .gearbtn:hover{color:var(--teal)}
+/* Controller UI-nav focus ring (Batch 9): a 2px teal INSET ring + soft inner
+   glow marking the pad-focused control, applied by renderer/uiNav.js. INSET is
+   load-bearing: most focusables carry their corner-cut clip-path on the element
+   ITSELF, and Chromium applies clip-path AFTER outline painting and filter
+   effects — so an outline (outside the border box) and a drop-shadow glow are
+   BOTH clipped to nothing on those controls (pixel-probe-verified, review
+   2026-07-17; the classic workaround of filtering a wrapper doesn't apply — the
+   ring must attach to arbitrary existing elements). An inset box-shadow paints
+   INSIDE the border box, so the clip leaves it intact and the ring follows the
+   corner-cut silhouette exactly. Distinct from the .on/selected teal-FILL
+   states: an additive inner outline, never a fill. No layout properties, so
+   the responsive CSS contracts are unchanged. Cleared on mouse/Tab (uiNav.js)
+   so it never sits stale beside a native focus. */
+.uinav-focus{box-shadow:inset 0 0 0 2px var(--teal),inset 0 0 8px rgba(0,210,190,.55)}
 /* modal backdrop: click anywhere outside the panel to close */
 .scrim{position:fixed;inset:0;z-index:12;pointer-events:auto;background:rgba(3,6,7,.55);backdrop-filter:blur(2px)}
 .scrim.hidden{display:none}

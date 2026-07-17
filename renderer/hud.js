@@ -16,6 +16,7 @@ import { wheelValues, pressedWheelRoles } from '../shared/wheelProfile.mjs';
 import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
 import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
 import { headIntentView } from '../shared/headIntentView.mjs';
+import * as uiNav from './uiNav.js';
 
 const el = (id) => document.getElementById(id);
 const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
@@ -82,6 +83,14 @@ demoBtn.addEventListener('click', () => {
   demoBtn.textContent = demo ? '■ Preview running' : '▶ HUD preview · simulated';
   if (demo) start();
 });
+// Batch 9 (triage #4): while the opaque gate covers the page the preview button
+// is invisible (z-index 9 under the gate's 10) yet still in the Tab/pad focus
+// order — focus would land on, and confirm would click, a control the user
+// cannot see. Hide it (class-based, so uiNav's navigable() filter sees it too)
+// until the gate is dismissed; setupFlow re-hides it when CHANGE SETUP brings
+// the gate back.
+const demoWrap = document.querySelector('.demoToggle');
+demoWrap.classList.add('hidden');
 
 // Controller selection: persisted device id + layout preset (SEAT FIT step).
 // Defaults reproduce the original behavior: first pad, DualShock layout.
@@ -137,7 +146,12 @@ function refreshPad() {
   gpEl.textContent = p ? 'Controller ready' : 'No controller';
   gpEl.classList.toggle('on', !!p);
 }
-function start() { if (S.started) return; S.started = true; S.t0 = performance.now(); gate.classList.add('hidden'); }
+function start() {
+  if (S.started) return;
+  S.started = true; S.t0 = performance.now();
+  gate.classList.add('hidden');
+  demoWrap.classList.remove('hidden'); // gate gone — the preview toggle is visible/reachable again
+}
 setInterval(refreshPad, 600); refreshPad();
 
 // --- Hooks for the setup flow (renderer/setupFlow.js drives the gate). ---
@@ -424,11 +438,22 @@ function sendCommandMirror(now) {
 }
 
 let last = performance.now();
+let uiNavPollErrored = false; // one console line, not one per frame (triage #9)
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (S.started || demo) { readInputs(); updateSim(dt); }
   render();
   sendCommandMirror(now);
+  // Batch 9: drive controller UI-navigation on this existing per-frame poll tick
+  // (setup flow AND live HUD). Display/focus only — a no-op until setupFlow.js
+  // configures it, and never a control path (see renderer/uiNav.js). Guarded
+  // (triage #9): confirm runs a click handler synchronously inside this frame
+  // callback, and an exception here would otherwise end the rAF chain and
+  // freeze the HUD for good — a mouse click throwing the same way only loses
+  // its own event task. Log the first failure, keep the loop alive.
+  try { uiNav.pollOnce(); } catch (err) {
+    if (!uiNavPollErrored) { uiNavPollErrored = true; console.error('[uiNav] pollOnce failed:', err); }
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

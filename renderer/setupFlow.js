@@ -28,6 +28,7 @@ import {
   WHEEL_BUTTON_ROLES, WHEEL_BUTTON_LABELS, MAX_DEADZONE,
 } from '../shared/wheelProfile.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
+import * as uiNav from './uiNav.js';
 
 const el = (id) => document.getElementById(id);
 const gs = window.groundStation || null;
@@ -1645,6 +1646,9 @@ el('setTelemetryPort').addEventListener('change', telemetryChanged);
 el('setRerun').addEventListener('click', () => {
   settingsScrim.classList.add('hidden');
   gate.classList.remove('hidden', 'fade');
+  // Gate back up ⇒ the HUD preview toggle is covered again — re-hide it so it
+  // leaves the Tab/pad focus order (Batch 9 triage #4; hud.js un-hides on start).
+  document.querySelector('.demoToggle').classList.add('hidden');
   el('gateFootnote').classList.remove('hidden');
   showStep('garage');
 });
@@ -1680,4 +1684,49 @@ async function boot() {
   // (showStep('grid')). A fresh user sees GARAGE with no card.
   showStep('garage');
 }
+
+// ---------- controller-driven UI navigation (Batch 9) ----------
+// Wire the pad-nav singleton to THIS viewer's own chrome. VIEWER-ONLY: every
+// action here is a .focus()/.click() on an existing control or a class toggle —
+// the same moves a keyboard user makes. Polled once per animation frame by
+// hud.js's existing frame() tick (renderer/uiNav.js is a no-op until configured).
+//   - getPad: the SAME device the SEAT FIT mirror follows — resolveSelectedPad
+//     honours the operator's DEVICE choice (chosenPadKey) and returns null when
+//     the chosen pad is missing, never a silent substitute. In a BOTH session
+//     the chosen GAMEPAD navigates, never the wheel (triage #5).
+//   - getRoot: the active focus scope — the settings menu while it is open (so
+//     nav stays inside the modal), else the whole page (the active setup screen's
+//     controls, the BACK/NEXT nav, and the ⚙ all live in document order under
+//     <body>; hidden screens/panes — including the gate-covered preview toggle,
+//     triage #4 — are filtered out by class).
+//   - isSuspended: a wheel-mapping row is LISTENING — hand presses/axis motion
+//     to that capture, not to focus movement (task §4); CANCEL stays reachable
+//     by mouse/keyboard and the listen timeout restores nav. (REST/FULL capture
+//     is instantaneous — captureCal — so it has no armed state to suspend for.)
+//   - settingsOnly: a live session is running (gate dismissed) and the settings
+//     menu is closed — driving shares the pad's axes/buttons (steer = axis 0,
+//     BOOST = button 1), so ONLY the button-9 settings toggle stays live; with
+//     the menu open, nav works inside the modal as usual (triage #2i).
+//   - toggleSettings: reuse the EXISTING ⚙ behaviour (button 9 toggles anywhere).
+//   - back: closes the settings menu ONLY — approved deviation from the original
+//     back=1=step-BACK mapping (triage #2ii): button 1 is BOOST in every preset,
+//     so a SEAT FIT mirror test press must never navigate. Step-BACK is reached
+//     by focusing the visible BACK button + confirm(0). The lightsRunning guard
+//     is defense in depth (triage #3): no pad-back action during the start-lights
+//     countdown, whatever back() grows to do later.
+uiNav.configure({
+  getPad: () => {
+    const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
+    return resolveSelectedPad(pads, { chosenKey: chosenPadKey });
+  },
+  getRoot: () => (settingsScrim.classList.contains('hidden') ? document.body : settingsScrim),
+  isSuspended: () => listening !== null,
+  settingsOnly: () => gate.classList.contains('hidden') && settingsScrim.classList.contains('hidden'),
+  toggleSettings: () => el('settingsBtn').click(),
+  back: () => {
+    if (lightsRunning) return;
+    if (!settingsScrim.classList.contains('hidden')) settingsScrim.classList.add('hidden');
+  },
+});
+
 boot();
