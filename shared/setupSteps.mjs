@@ -1,13 +1,15 @@
 // Pure step machine for the pre-ride setup flow. ESM (renderer + vitest).
-// Steps carry the pit-wall naming: GARAGE (mode) -> PIT WALL (network,
-// iphone-hud mode only) -> SEAT FIT (controller) -> GRID (checklist);
-// 'lights' is the terminal transition out of the flow into the HUD.
+// Steps carry the pit-wall naming: GARAGE (mode) -> SEAT FIT (controller) ->
+// PIT WALL (network, iphone-hud mode only) -> GRID (checklist); 'lights' is the
+// terminal transition out of the flow into the HUD. Desktop/solo mode omits
+// PIT WALL entirely — the network step exists only when an iPhone must join the
+// session (Batch 8b reorder: GARAGE -> SEAT FIT -> PIT WALL -> GRID).
 
 export const LIGHTS = 'lights';
 
 export function stepsFor(mode) {
     return mode === 'iphone-hud'
-        ? ['garage', 'pitwall', 'seatfit', 'grid']
+        ? ['garage', 'seatfit', 'pitwall', 'grid']
         : ['garage', 'seatfit', 'grid'];
 }
 

@@ -87,11 +87,15 @@ async function loadRenderer(gs) {
   await tick();
 }
 
-// Boot into PIT WALL (iphone-hud mode) — the step both audit defects hit.
+// Boot into PIT WALL (iphone-hud mode) — the step both audit defects hit. Batch
+// 8b reordered the flow to GARAGE -> SEAT FIT -> PIT WALL -> GRID, so PIT WALL is
+// reached by advancing once past SEAT FIT (the network step no longer sits first).
 async function loadPitwall(gs) {
   await loadRenderer(gs);
   document.querySelector('.modecard[data-mode="iphone-hud"]').click();
-  await tick();
+  await tick(); // GARAGE -> SEAT FIT
+  el('navNext').click();
+  await tick(); // SEAT FIT -> PIT WALL
   expect(activeStep()).toBe('pitwall');
 }
 
@@ -154,11 +158,11 @@ describe('keyboard scoping end-to-end (audit M1)', () => {
     keydown(addr, 'Enter');
     await tick();
     expect(activeStep()).toBe('pitwall'); // stayed put
-    // No editable control focused: Enter = NEXT still works.
+    // No editable control focused: Enter = NEXT still works (PIT WALL -> GRID).
     addr.blur();
     keydown(document.body, 'Enter');
     await tick();
-    expect(activeStep()).toBe('seatfit');
+    expect(activeStep()).toBe('grid');
   });
 });
 
@@ -699,11 +703,12 @@ describe('HOTSPOT lifecycle pane (audit B1/N3)', () => {
     expect(el('hsStart').disabled).toBe(true);
     expect(el('hsStop').disabled).toBe(false);
     expect(el('radioLog').textContent).toContain('HOTSPOT W17-GRID IS LIVE');
-    // Navigate away and back while LIVE: the pane re-reads the authority.
-    el('navNext').click();
+    // Navigate away and back while LIVE: the pane re-reads the authority. Batch
+    // 8b: SEAT FIT now precedes PIT WALL, so BACK leaves and NEXT returns.
+    el('navBack').click();
     await tick();
     expect(activeStep()).toBe('seatfit');
-    el('navBack').click();
+    el('navNext').click();
     await tick();
     expect(activeStep()).toBe('pitwall');
     expect(el('hsStatus').textContent).toContain('LIVE (mobile)');
@@ -788,14 +793,14 @@ describe('HOTSPOT lifecycle pane (audit B1/N3)', () => {
     });
     await loadPitwall(gs);
     expect(el('hsStatus').textContent).toBe('CHECKING HOTSPOT SUPPORT…');
-    el('navNext').click(); // leave while the probe is in flight
+    el('navBack').click(); // leave while the probe is in flight (Batch 8b: SEAT FIT precedes PIT WALL)
     await tick();
     expect(activeStep()).toBe('seatfit');
     release();
     await tick();
     // The stale completion did NOT rewrite the (now hidden) PIT WALL pane.
     expect(el('hsStatus').textContent).toBe('CHECKING HOTSPOT SUPPORT…');
-    el('navBack').click();
+    el('navNext').click();
     await tick();
     // Re-entry renders the cached result — and spawned no second probe.
     expect(el('hsStatus').textContent).toBe('READY — mobile backend');
@@ -852,8 +857,8 @@ describe('hotspot snapshot adoption / lifecycle sequence race (audit B1)', () =>
     expect(el('hsStatus').textContent).toContain('LIVE (mobile)');
     // Re-entry pulls a STALE snapshot (seq 4) — it must be dropped.
     pull.snap = STARTING(4);
+    el('navBack').click(); await tick(); // Batch 8b: SEAT FIT precedes PIT WALL — leave and return
     el('navNext').click(); await tick();
-    el('navBack').click(); await tick();
     expect(el('hsStatus').textContent).toContain('LIVE (mobile)');
     expect(el('hsStart').disabled).toBe(true);
     expect(el('hsStop').disabled).toBe(false);
@@ -932,8 +937,8 @@ describe('hotspot snapshot adoption / lifecycle sequence race (audit B1)', () =>
     expect(seqLive).toBeGreaterThan(seq0);
     // Leave and return while LIVE: the re-entry pull carries the authoritative
     // (higher) seq and is adopted — the pane restores LIVE, not a stale READY.
+    el('navBack').click(); await tick(); // Batch 8b: SEAT FIT precedes PIT WALL — leave and return
     el('navNext').click(); await tick();
-    el('navBack').click(); await tick();
     expect(el('hsStatus').textContent).toContain('LIVE (mobile)');
     expect(el('hsStop').disabled).toBe(false);
     el('hsStop').click();
@@ -1189,10 +1194,10 @@ describe('renderer boot/config integration (audit D2)', () => {
   it('push subscriptions are module-lifetime singletons: navigation never re-subscribes', async () => {
     const gs = mockGs();
     await loadPitwall(gs);
-    el('navNext').click(); await tick(); // -> seatfit
-    el('navBack').click(); await tick(); // -> pitwall (re-entry)
-    el('navNext').click(); await tick();
+    el('navBack').click(); await tick(); // -> seatfit (Batch 8b: SEAT FIT precedes PIT WALL)
+    el('navNext').click(); await tick(); // -> pitwall (re-entry)
     el('navBack').click(); await tick();
+    el('navNext').click(); await tick();
     expect(gs.onHotspotState).toHaveBeenCalledTimes(1);
     expect(gs.onTelemetry).toHaveBeenCalledTimes(1);
   });
@@ -1207,9 +1212,12 @@ describe('renderer boot/config integration (audit D2)', () => {
     vi.useFakeTimers();
     try {
       document.querySelector('.modecard[data-mode="iphone-hud"]').click();
-      await vi.advanceTimersByTimeAsync(0); // flush the save microtask
+      await vi.advanceTimersByTimeAsync(0); // flush the save microtask -> SEAT FIT (Batch 8b order)
+      expect(activeStep()).toBe('seatfit');
+      el('navNext').click(); // SEAT FIT -> PIT WALL; enterPitwall now awaits capabilities
+      await vi.advanceTimersByTimeAsync(0);
       expect(activeStep()).toBe('pitwall'); // rendered; enterPitwall still awaiting capabilities
-      el('navNext').click(); // leave before the check resolves
+      el('navBack').click(); // leave before the check resolves
       await vi.advanceTimersByTimeAsync(0);
       expect(activeStep()).toBe('seatfit');
       release();
@@ -1264,18 +1272,21 @@ describe('renderer boot/config integration (audit D2)', () => {
     };
     try {
       document.querySelector('.modecard[data-mode="iphone-hud"]').click();
+      await settle(); // -> SEAT FIT (Batch 8b order)
+      expect(activeStep()).toBe('seatfit');
+      el('navNext').click(); // SEAT FIT -> PIT WALL
       await settle();
       expect(activeStep()).toBe('pitwall');
       const initial = gs.getAddrHint.mock.calls.length;
       expect(initial).toBeGreaterThan(0); // the immediate entry poll ran
       await vi.advanceTimersByTimeAsync(6_000);
       expect(gs.getAddrHint.mock.calls.length - initial).toBe(3); // ONE 2 s interval, not two
-      el('navNext').click(); // -> seatfit; leavePitwall clears the poll
+      el('navBack').click(); // -> seatfit; leavePitwall clears the poll
       await settle();
       const atLeave = gs.getAddrHint.mock.calls.length;
       await vi.advanceTimersByTimeAsync(10_000);
       expect(gs.getAddrHint.mock.calls.length).toBe(atLeave); // fully stopped off-step
-      el('navBack').click(); // re-enter PIT WALL
+      el('navNext').click(); // re-enter PIT WALL
       await settle();
       const reentry = gs.getAddrHint.mock.calls.length;
       await vi.advanceTimersByTimeAsync(4_000);
@@ -1699,16 +1710,16 @@ describe('step rail states (Batch 8a / flow chrome)', () => {
     const steps = [...el('stepRail').querySelectorAll('.railstep')];
     expect(steps.map((s) => s.dataset.step)).toEqual(['garage', 'seatfit', 'pitwall', 'grid']);
     expect(steps.map((s) => s.querySelector('b').textContent)).toEqual(['01', '02', '03', '04']);
-    expect(steps.map((s) => s.textContent.replace(/^\d+/, '').replace(/DESKTOP$/, '').trim()))
+    expect(steps.map((s) => s.textContent.replace(/^\d+/, '').replace(/SKIPPED.*$/, '').trim()))
       .toEqual(['GARAGE', 'SEAT FIT', 'PIT WALL', 'GRID']);
   });
 
-  it('desktop/solo mode marks PIT WALL skipped with a DESKTOP reason chip; the rest track the path', async () => {
+  it('desktop/solo mode marks PIT WALL skipped with a SKIPPED · DESKTOP reason chip; the rest track the path', async () => {
     await loadRenderer(mockGs()); // solo, on GARAGE
     expect(railState('garage')).toBe('current');
     expect(railState('seatfit')).toBe('todo');
     expect(railState('pitwall')).toBe('skipped');
-    expect(railStep('pitwall').querySelector('.whychip').textContent).toBe('DESKTOP');
+    expect(railStep('pitwall').querySelector('.whychip').textContent).toBe('SKIPPED · DESKTOP');
     expect(railState('grid')).toBe('todo');
     // Advance to SEAT FIT (solo skips PIT WALL in the real path): GARAGE done now.
     document.querySelector('.modecard[data-mode="solo"]').click();
@@ -1764,5 +1775,100 @@ describe('GARAGE fast-path card (Batch 8a / flow chrome)', () => {
     await loadRenderer(mockGs()); // setupCompleted:false
     expect(activeStep()).toBe('garage');
     expect(el('fastPath').classList.contains('hidden')).toBe(true);
+  });
+});
+
+// Batch 8b — step reorder + skip navigation matrix. The flow is now
+// GARAGE -> SEAT FIT -> PIT WALL -> GRID; desktop/solo mode omits PIT WALL
+// (shared/setupSteps.mjs), so BACK/NEXT traverse the mode's ACTUAL path. CHANGE
+// SETUP always returns to GARAGE, where re-picking a mode re-enters its path —
+// the PIT WALL skip is a mode default, not a lock.
+describe('setup navigation matrix (Batch 8b)', () => {
+  const pickMode = async (m) => {
+    document.querySelector(`.modecard[data-mode="${m}"]`).click();
+    await tick();
+  };
+  const railStateOf = (key) => {
+    const s = el('stepRail').querySelector(`[data-step="${key}"]`);
+    return ['done', 'current', 'todo', 'skipped'].find((c) => s.classList.contains(c)) || null;
+  };
+  const whychip = (key) => el('stepRail').querySelector(`[data-step="${key}"] .whychip`);
+
+  it('desktop/solo NEXT walks GARAGE -> SEAT FIT -> GRID, skipping PIT WALL', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('solo');
+    expect(activeStep()).toBe('seatfit');
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('grid'); // PIT WALL never entered
+    expect(railStateOf('pitwall')).toBe('skipped');
+    expect(whychip('pitwall').textContent).toBe('SKIPPED · DESKTOP');
+  });
+
+  it('desktop/solo BACK from GRID returns to SEAT FIT then GARAGE (never PIT WALL)', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('solo');
+    el('navNext').click(); await tick(); // -> grid
+    expect(activeStep()).toBe('grid');
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('seatfit'); // BACK skips PIT WALL too
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('garage');
+  });
+
+  it('iPhone mode NEXT walks GARAGE -> SEAT FIT -> PIT WALL -> GRID in the new order', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('iphone-hud');
+    expect(activeStep()).toBe('seatfit'); // SEAT FIT now precedes PIT WALL
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('pitwall');
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('grid');
+  });
+
+  it('iPhone mode BACK from GRID walks GRID -> PIT WALL -> SEAT FIT -> GARAGE', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('iphone-hud');
+    el('navNext').click(); await tick(); // -> pitwall
+    el('navNext').click(); await tick(); // -> grid
+    expect(activeStep()).toBe('grid');
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('pitwall');
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('seatfit');
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('garage');
+  });
+
+  it('iPhone mode has no skipped step: PIT WALL is a real todo on the rail (no reason chip)', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('iphone-hud'); // -> seatfit
+    expect(railStateOf('pitwall')).toBe('todo');
+    expect(whychip('pitwall')).toBeNull();
+  });
+
+  it('CHANGE SETUP from GRID returns to GARAGE and re-enters the same mode path', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('solo');
+    el('navNext').click(); await tick(); // -> grid (solo)
+    expect(activeStep()).toBe('grid');
+    el('changeSetup').click(); await tick();
+    expect(activeStep()).toBe('garage');
+    await pickMode('solo'); // re-pick: same skip path
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('grid');
+  });
+
+  it('the PIT WALL skip is a mode default, not a lock: CHANGE SETUP -> iPhone Cockpit re-enters PIT WALL', async () => {
+    await loadRenderer(mockGs());
+    await pickMode('solo');
+    el('navNext').click(); await tick(); // solo -> grid, PIT WALL skipped
+    expect(activeStep()).toBe('grid');
+    expect(railStateOf('pitwall')).toBe('skipped');
+    el('changeSetup').click(); await tick();
+    expect(activeStep()).toBe('garage');
+    await pickMode('iphone-hud'); // -> seatfit; PIT WALL now in the path
+    expect(railStateOf('pitwall')).toBe('todo');
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('pitwall'); // deliberately re-entered — not locked out
   });
 });

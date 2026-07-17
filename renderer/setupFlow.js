@@ -53,8 +53,9 @@ const RAIL_STEPS = [
 ];
 function skipReason(key) {
   // Only PIT WALL is skippable today, and only because desktop/solo mode omits
-  // the network step (stepsFor). 8b surfaces/exercises this; 8a just renders it.
-  return key === 'pitwall' ? 'DESKTOP' : 'SKIPPED';
+  // the network step (stepsFor). The chip states the skip AND its cause (Batch
+  // 8b surfaces it; 8a rendered the bare cause).
+  return key === 'pitwall' ? 'SKIPPED · DESKTOP' : 'SKIPPED';
 }
 
 let settings = null;
@@ -121,8 +122,9 @@ const leaveHooks = { pitwall: leavePitwall, seatfit: leaveSeatfit, grid: leaveGr
 // Render the step rail from the live per-mode step list. done/current/todo come
 // from the step's position in the ACTUAL path (never a lie about "done"); a
 // canonical step absent from the path is `skipped` with a reason chip. The rail
-// shows the FIXED design order/labels regardless of the current nav order (8a
-// keeps the nav order; 8b aligns it) — display only, no navigation change.
+// shows the FIXED design order/labels, which now matches the nav order for every
+// mode (Batch 8b reordered stepsFor to GARAGE -> SEAT FIT -> PIT WALL -> GRID) —
+// display only, no navigation logic lives here.
 function renderStepRail() {
   if (!stepRail) return;
   const path = stepsFor(mode);
