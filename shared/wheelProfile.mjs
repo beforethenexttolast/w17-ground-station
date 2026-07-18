@@ -85,6 +85,11 @@ export function splitCombined(raw, { rest = 0, throttleEnd = 1, brakeEnd = -1, d
 export function wheelValues(pad, profile = DEFAULT_WHEEL_PROFILE) {
     const p = profile || DEFAULT_WHEEL_PROFILE;
     const ax = (pad && pad.axes) || [];
+    // WAIVED (Batch 6 rider d / audit obs): readAxis + clampAxis (:45) mirror
+    // inputPresets.axisValues' local clamp, but they read through THIS module's own
+    // `finite`/`clampAxis` primitives (also used by cal/pedalValue below). Deduping
+    // would mean a cross-module import or a new shared file — extra coupling and a
+    // noControlPath-discovery surface for a two-line clamp. Left in place deliberately.
     const readAxis = (i) => { const n = finite(ax[i]); return n === null ? 0 : clampAxis(n); };
     const steer = readAxis((p.steer && p.steer.axis) || 0);
     const dz = p.deadzone;

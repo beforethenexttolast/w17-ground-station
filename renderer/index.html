@@ -338,6 +338,13 @@
           <!-- GAMEPAD mirror — unchanged; hidden only when INPUT TYPE is WHEEL. -->
           <div id="gamepadMirror">
             <div class="colhead">LIVE MIRROR <small>observed controller input · not proof of car/camera motion</small></div>
+            <!-- BOTH-mode per-device source tag (Batch 3 / design bundle §10, display
+                 only): when the two mirrors stack in BOTH mode, name which device
+                 feeds which bars. The gamepad supplies PAN/TILT (the wheel supplies
+                 STR/THR/BRK). Placement mirrors the HUD's INPUT tag. Hidden in
+                 GAMEPAD-only mode, where the pad drives every bar and no tag is
+                 needed; toggled by applyInputType(). -->
+            <div class="barsrc hidden" id="gamepadMirrorSrc"><span class="srctag pad">PAD → PAN/TILT</span></div>
             <div class="padpreview" id="padPreview"></div>
             <div class="teststrip panel" id="testStrip">
               <div class="bar"><b>STR</b><div class="steerbar"><div class="steerdot" id="tsSteer"></div></div></div>
@@ -353,6 +360,11 @@
                in BOTH mode it stacks under the gamepad mirror. -->
           <div id="wheelMirror" class="hidden">
             <div class="colhead">OBSERVED WHEEL INPUT <small>not proof of car/camera motion</small></div>
+            <!-- BOTH-mode per-device source tag (Batch 3 / design bundle §10, display
+                 only): the wheel supplies STR/THR/BRK when both mirrors stack.
+                 Hidden in WHEEL-only mode (one mirror, nothing to disambiguate);
+                 toggled by applyInputType(). -->
+            <div class="barsrc hidden" id="wheelMirrorSrc"><span class="srctag wheel">WHEEL → STR/THR/BRK</span></div>
             <div class="wheelpreview" id="wheelPreview"></div>
           </div>
         </div>

@@ -165,6 +165,9 @@ function start() {
   S.started = true; S.t0 = performance.now();
   gate.classList.add('hidden');
   demoWrap.classList.remove('hidden'); // gate gone — the preview toggle is visible/reachable again
+  // Drop any pad focus ring parked on a now-hidden setup control (e.g. START) so it
+  // does not linger invisibly on the gate-covered chrome (audit observation).
+  uiNav.clearFocusRing();
 }
 setInterval(refreshPad, 600); refreshPad();
 

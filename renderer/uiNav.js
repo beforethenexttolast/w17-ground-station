@@ -35,6 +35,14 @@ export const AXIS_THRESHOLD = 0.5;
 
 // Everything the browser treats as tabbable; tabindex="-1" is filtered out in
 // navigable(). Order is document order (querySelectorAll), i.e. the Tab order.
+//
+// DEFERRAL (Batch 9 triage #6, durable in-code marker for finding 7): <select>
+// and range/<input type=range> controls ARE reached by pad focus (they match the
+// selector), but confirm cannot open a native <select> and d-pad left/right moves
+// focus rather than stepping the value — so their VALUE is pad-inoperable. Affected
+// today: #adapterSelect, #setTelemetrySource, #wheelDeadzone. Mouse/keyboard fully
+// work. Candidate follow-up: left/right value-stepping while such a control holds
+// pad focus. Recorded in-repo here (not only in the external plan).
 const FOCUSABLE_SEL = 'a[href], button, input, select, textarea, summary, [tabindex]';
 
 // A control is navigable only if it — and every ancestor up to the root — is
@@ -79,6 +87,12 @@ export function nextIndex(len, cur, dir) {
 // (shared/wheelProfile.mjs), so analog-only buttons (wheel paddles, triggers)
 // register for navigation exactly as they do for the mirror. (Missing pads
 // never reach here — pollOnce resets to the unseeded state instead, see below.)
+//
+// DEFERRAL (Batch 9 triage, durable in-code marker for finding 7): this allocates
+// two arrays per poll (once per rAF frame), and setupFlow's snapPad ≈ this
+// snapshotPad while dedupeGamepads runs a few times a frame in wheel sessions.
+// Acceptable allocation churn on desktop Electron; a follow-up could reuse buffers
+// / share one snapshot. Recorded in-repo here (not only in the external plan).
 function snapshotPad(pad) {
   if (!pad) return { buttons: [], axes: [] };
   return {

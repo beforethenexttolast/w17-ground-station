@@ -155,16 +155,15 @@ function renderStepRail() {
 }
 
 // Returning-user fast-path card (Batch 8a): shown only on GARAGE when a prior
-// session completed. Populates the reused-config summary and focuses the button
-// so a returning operator resumes with a single Enter (user decision, 2026-07-16).
+// session completed. Populates the reused-config summary. The card is FOCUSED only
+// once, on boot (see boot()) — NOT on every GARAGE entry: CHANGE SETUP / re-run
+// setup / BACK-to-garage must not re-steal focus onto STRAIGHT TO THE GRID and
+// bounce an accidental Enter straight back to GRID (finding 6).
 function updateFastPath() {
   if (!fastPath) return;
   const show = step === 'garage' && !!settings?.setupCompleted;
   fastPath.classList.toggle('hidden', !show);
-  if (show) {
-    fastPathSummary.textContent = fastPathSummaryText(settings);
-    fastPathBtn.focus();
-  }
+  if (show) fastPathSummary.textContent = fastPathSummaryText(settings);
 }
 
 const FASTPATH_MODE = { solo: 'DESKTOP FPV', 'iphone-hud': 'IPHONE COCKPIT' };
@@ -839,6 +838,9 @@ let presetManual = false; // a pill click this visit beats auto-detection
 const inputTypeRow = el('inputTypeRow');
 const gamepadPanel = el('gamepadPanel'), gamepadMirror = el('gamepadMirror');
 const wheelPanel = el('wheelPanel'), wheelMirror = el('wheelMirror'), wheelPreview = el('wheelPreview');
+// Per-device source tags shown ONLY in BOTH mode, where the two mirrors stack and
+// each device feeds different bars (Batch 3 / design bundle §10; display only).
+const gamepadMirrorSrc = el('gamepadMirrorSrc'), wheelMirrorSrc = el('wheelMirrorSrc');
 let inputType = 'gamepad';   // 'gamepad' | 'wheel' | 'both' — session only, never persisted
 let wheelProfile = null;     // normalized profile, edited in place by the panel
 let wheelPadKey = '';        // BOTH-mode wheel device (session key); '' = auto
@@ -883,9 +885,10 @@ function resolveWheelPad(pads) {
 // deliberately never written (decision #2).
 function saveWheel() { save({ wheel: { profile: wheelProfile } }); }
 
-// Hand the live HUD the session input source at START (task §134). GAMEPAD passes
-// only the type, so the HUD mirror stays bit-identical to before. WHEEL/BOTH also
-// pass the calibrated profile and the wheel device's session key, resolved NOW so
+// Hand the live HUD the session input source at START (task §134). The profile is
+// passed unconditionally (unused outside a wheel session) and a GAMEPAD session's
+// wheelKey resolves to null, so the GAMEPAD mirror stays bit-identical to before.
+// WHEEL/BOTH pass the same profile plus the wheel device's session key, resolved NOW so
 // the HUD follows the SAME device SEAT FIT mirrored (START is in-session, slots
 // stable). When the wheel does NOT resolve to a device (none present at START),
 // we pass wheelKey null — NOT the first slot — so the HUD reads neutral and tags
@@ -921,6 +924,10 @@ function applyInputType(type) {
   gamepadMirror.classList.toggle('hidden', !showGamepad);
   wheelPanel.classList.toggle('hidden', !showWheel);
   wheelMirror.classList.toggle('hidden', !showWheel);
+  // Per-device source tags only make sense when BOTH mirrors are visible at once.
+  const both = type === 'both';
+  if (gamepadMirrorSrc) gamepadMirrorSrc.classList.toggle('hidden', !both);
+  if (wheelMirrorSrc) wheelMirrorSrc.classList.toggle('hidden', !both);
   for (const b of inputTypeRow.children) b.classList.toggle('on', b.dataset.input === type);
   cancelListen();
   if (showWheel) {
@@ -1698,10 +1705,14 @@ async function boot() {
   setSoundEnabled(settings.soundEnabled);
   // A completed prior session lands on GARAGE with the fast-path card (Batch 8a /
   // flow chrome, design bundle §3), instead of the old auto-jump + welcome-back
-  // toast. showStep('garage') reveals + focuses the card via updateFastPath when
+  // toast. showStep('garage') reveals the card via updateFastPath when
   // setupCompleted is set; the card's button runs the existing resume path
   // (showStep('grid')). A fresh user sees GARAGE with no card.
   showStep('garage');
+  // Boot-only: land a returning operator ON the card so a single Enter resumes
+  // (user decision 2026-07-16). ONLY here — later GARAGE entries must not re-steal
+  // focus onto STRAIGHT TO THE GRID (finding 6).
+  if (fastPath && !fastPath.classList.contains('hidden')) fastPathBtn.focus();
 }
 
 // ---------- controller-driven UI navigation (Batch 9) ----------
@@ -1725,8 +1736,15 @@ async function boot() {
 //   - settingsOnly: a live session is running (gate dismissed) and the settings
 //     menu is closed — driving shares the pad's axes/buttons (steer = axis 0,
 //     BOOST = button 1), so ONLY the button-9 settings toggle stays live; with
-//     the menu open, nav works inside the modal as usual (triage #2i).
-//   - toggleSettings: reuse the EXISTING ⚙ behaviour (button 9 toggles anywhere).
+//     the menu open, nav works inside the modal as usual (triage #2i). The
+//     start-lights countdown counts as settings-only too (lightsRunning): focus /
+//     confirm / back are all inert while the lights run, so a stray press can't
+//     activate the gate-covered chrome mid-hand-off (finding 5, with the
+//     toggleSettings guard below closing the button-9 escape).
+//   - toggleSettings: reuse the EXISTING ⚙ behaviour (button 9 toggles anywhere)
+//     — but NOT during the start-lights countdown, so ⚙ can't open over the lights
+//     (finding 5; the settings toggle fires ahead of the settingsOnly gate in
+//     pollOnce, so it needs its own lightsRunning guard, matching back()).
 //   - back: closes the settings menu ONLY — approved deviation from the original
 //     back=1=step-BACK mapping (triage #2ii): button 1 is BOOST in every preset,
 //     so a SEAT FIT mirror test press must never navigate. Step-BACK is reached
@@ -1740,8 +1758,8 @@ uiNav.configure({
   },
   getRoot: () => (settingsScrim.classList.contains('hidden') ? document.body : settingsScrim),
   isSuspended: () => listening !== null,
-  settingsOnly: () => gate.classList.contains('hidden') && settingsScrim.classList.contains('hidden'),
-  toggleSettings: () => el('settingsBtn').click(),
+  settingsOnly: () => lightsRunning || (gate.classList.contains('hidden') && settingsScrim.classList.contains('hidden')),
+  toggleSettings: () => { if (lightsRunning) return; el('settingsBtn').click(); },
   back: () => {
     if (lightsRunning) return;
     if (!settingsScrim.classList.contains('hidden')) settingsScrim.classList.add('hidden');

@@ -1832,6 +1832,48 @@ describe('SEAT FIT — wheel device resolution & absence (Batch 2 · findings 2 
   });
 });
 
+// BOTH-mode per-device source tags (Batch 3 / Decision B, design bundle §10):
+// when the two SEAT FIT mirrors stack in BOTH mode, each device feeds different
+// bars — the wheel STR/THR/BRK, the gamepad PAN/TILT. Small teal/violet tags name
+// that split, reusing the existing .srctag.wheel/.srctag.pad classes. Display only;
+// shown ONLY in BOTH (a single mirror has nothing to disambiguate).
+describe('SEAT FIT — BOTH-mode per-device source tags (Batch 3 / Decision B)', () => {
+  const pill = (type) => el('inputTypeRow').querySelector(`[data-input="${type}"]`);
+  const gpTag = () => el('gamepadMirrorSrc');
+  const whTag = () => el('wheelMirrorSrc');
+  async function enterSeatfit() {
+    await loadRenderer(mockGs());
+    document.querySelector('.modecard[data-mode="solo"]').click(); // GARAGE -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+  }
+
+  it('BOTH reveals both tags, naming which device feeds which bars (right classes + copy)', async () => {
+    await enterSeatfit();
+    pill('both').click();
+    await tick();
+    expect(gpTag().classList.contains('hidden')).toBe(false);
+    expect(whTag().classList.contains('hidden')).toBe(false);
+    const pad = gpTag().querySelector('.srctag.pad');
+    const wheel = whTag().querySelector('.srctag.wheel');
+    expect(pad, 'gamepad mirror reuses the violet .srctag.pad class').not.toBeNull();
+    expect(wheel, 'wheel mirror reuses the teal .srctag.wheel class').not.toBeNull();
+    expect(pad.textContent).toBe('PAD → PAN/TILT');
+    expect(wheel.textContent).toBe('WHEEL → STR/THR/BRK');
+  });
+
+  it('single-mirror modes (WHEEL, GAMEPAD) hide both tags — nothing to disambiguate', async () => {
+    await enterSeatfit();
+    pill('both').click(); await tick();     // reveal…
+    pill('wheel').click(); await tick();     // …WHEEL: one mirror, tags retire
+    expect(gpTag().classList.contains('hidden')).toBe(true);
+    expect(whTag().classList.contains('hidden')).toBe(true);
+    pill('gamepad').click(); await tick();   // GAMEPAD: also hidden
+    expect(gpTag().classList.contains('hidden')).toBe(true);
+    expect(whTag().classList.contains('hidden')).toBe(true);
+  });
+});
+
 // Step rail (Batch 8a / flow chrome). The rail is rendered from the live per-mode
 // step list (shared/setupSteps.mjs) in the FIXED design order/labels
 // (01 GARAGE · 02 SEAT FIT · 03 PIT WALL · 04 GRID). States are honest: done for
@@ -1915,6 +1957,25 @@ describe('GARAGE fast-path card (Batch 8a / flow chrome)', () => {
     await loadRenderer(mockGs()); // setupCompleted:false
     expect(activeStep()).toBe('garage');
     expect(el('fastPath').classList.contains('hidden')).toBe(true);
+  });
+
+  it('focuses the card on boot ONLY — a later GARAGE return leaves it visible but unfocused (finding 6)', async () => {
+    const settings = { ...defaultSettings(), setupCompleted: true, fpvMode: 'solo' };
+    const gs = mockGs({ getSettings: vi.fn(async () => ({ settings, envOverridden: {} })) });
+    await loadRenderer(gs);
+    expect(document.activeElement).toBe(el('fastPathBtn')); // boot lands on the card (single-Enter resume)
+    el('fastPathBtn').click(); // resume to GRID
+    await tick();
+    expect(activeStep()).toBe('grid');
+    // Simulate the operator on CHANGE SETUP (a real browser focuses a clicked
+    // control; jsdom does not, so focus it explicitly), then return to GARAGE.
+    el('changeSetup').focus();
+    expect(document.activeElement).toBe(el('changeSetup'));
+    el('changeSetup').click(); // CHANGE SETUP -> showStep('garage') -> updateFastPath()
+    await tick();
+    expect(activeStep()).toBe('garage');
+    expect(el('fastPath').classList.contains('hidden')).toBe(false); // card visible again…
+    expect(document.activeElement).toBe(el('changeSetup'));           // …but updateFastPath did NOT steal focus (finding 6)
   });
 });
 
@@ -2189,5 +2250,38 @@ describe('controller-driven UI navigation (Batch 9)', () => {
     release();
     press([DPAD_DOWN]);
     expect(nav.focusedElement()).not.toBeNull();
+  });
+
+  it('⚙ (and confirm/move) are inert to the pad during the start-lights countdown (finding 5)', async () => {
+    await bootNav(); // default settings → start-lights ENABLED (the countdown path)
+    activate(document.querySelector('.modecard[data-mode="solo"]')); // GARAGE -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+    activate(el('navNext'));                                          // SEAT FIT -> GRID (solo skips PIT WALL)
+    await tick();
+    expect(activeStep()).toBe('grid');
+    expect(el('startAnywayBtn').classList.contains('hidden')).toBe(false); // checks incomplete
+    expect(navToward(el('startAnywayBtn'))).toBe(true);
+    vi.useFakeTimers(); // freeze the countdown timers (useRealTimers drops the pending ones)
+    try {
+      press([CONFIRM]); release();                 // START ANYWAY -> beginStart()
+      await vi.advanceTimersByTimeAsync(0);         // flush the save microtask -> runLights()
+      // The countdown is on-screen and the gate is STILL up (startRide fires only at
+      // lights-out), so settingsOnly's normal gate-hidden branch is false here — the
+      // guard rides on lightsRunning alone.
+      expect(el('lights').classList.contains('hidden')).toBe(false);
+      expect(el('gate').classList.contains('hidden')).toBe(false);
+      // ⚙ press: swallowed by the toggleSettings lightsRunning guard.
+      press([SETTINGS]); release();
+      expect(el('settingsScrim').classList.contains('hidden')).toBe(true);
+      // confirm + d-pad are inert too (settingsOnly true while the lights run).
+      nav.clearFocusRing();
+      press([DPAD_DOWN]); release();
+      expect(nav.focusedElement()).toBeNull();
+      press([CONFIRM]); release();
+      expect(nav.focusedElement()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
