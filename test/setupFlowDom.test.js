@@ -6,7 +6,7 @@
 // rejections leaving the gate blank / unhandled — which pure helper tests
 // cannot see. Any IPC rejection these flows fail to handle fails this file
 // (vitest surfaces unhandled rejections as errors).
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
@@ -98,6 +98,26 @@ async function loadPitwall(gs) {
   await tick(); // SEAT FIT -> PIT WALL
   expect(activeStep()).toBe('pitwall');
 }
+
+// Entering a screen opens a real setInterval (padTimer 250 ms / gridTimer 1 s /
+// hintTimer 2 s) that the module clears only on LEAVING that screen. A test that
+// ends still on the screen never leaves, and loadRenderer's vi.resetModules()
+// orphans the timer instead of clearing it — so a stale tick from a prior test's
+// module can re-render into the next test's shared DOM (e.g. re-marking the wheel
+// device list, a flaky selection). Track every real interval the module opens and
+// clear it between tests. (Fake-timer tests replace globalThis.setInterval while
+// active, so their ids never enter this set — only real, leakable ids do.)
+const _openIntervals = new Set();
+const _realSetInterval = globalThis.setInterval.bind(globalThis);
+globalThis.setInterval = (fn, ms, ...rest) => {
+  const id = _realSetInterval(fn, ms, ...rest);
+  _openIntervals.add(id);
+  return id;
+};
+afterEach(() => {
+  for (const id of _openIntervals) clearInterval(id);
+  _openIntervals.clear();
+});
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -1689,6 +1709,126 @@ describe('SEAT FIT — wheel input + persistence (Batch 6 / P5b)', () => {
     expect(on.length).toBe(1);
     // gamepad DEVICE auto-selects slot 0, so the wheel defaults to slot 1.
     expect(on[0].querySelector('.padslot').textContent).toBe('SLOT 1');
+  });
+});
+
+// Wheel device resolution & absence (Batch 2 · findings 2 + 3 + 4). These pin the
+// three-way concern of WHICH device the wheel mirror follows and what happens when
+// none is present: WHEEL mode gets its own device selector (finding 3), an absent
+// wheel hands the live HUD a null wheelKey — not the first pad — so it tags
+// INPUT · WHEEL (NO DEVICE) instead of reading a gamepad through wheel calibration
+// (finding 2), and the selection is session-only, never persisted (decision #2).
+// The HUD-side neutral/fallback behavior (finding 4) is pinned in hudWheel.test.js.
+describe('SEAT FIT — wheel device resolution & absence (Batch 2 · findings 2 + 3 + 4)', () => {
+  const makePad = (id, index) => ({
+    id, index, connected: true, mapping: 'standard',
+    axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })),
+  });
+  const setPads = (pads) => {
+    Object.defineProperty(window.navigator, 'getGamepads', { configurable: true, value: () => pads });
+  };
+  const pill = (type) => el('inputTypeRow').querySelector(`[data-input="${type}"]`);
+  async function enterSeatfit(gs, pads = []) {
+    await loadRenderer(gs);
+    setPads(pads);
+    document.querySelector('.modecard[data-mode="solo"]').click(); // GARAGE -> SEAT FIT
+    await tick();
+    expect(activeStep()).toBe('seatfit');
+  }
+  const slotOf = (row) => row.querySelector('.padslot').textContent;
+
+  it('WHEEL mode shows the device selector; it defaults to the first slot and a click overrides it (finding 3)', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, [makePad('DualShock 4', 0), makePad('G29 Wheel', 1)]);
+    pill('wheel').click();
+    await tick();
+    const wl = el('wheelPadList');
+    expect(wl, 'WHEEL mode builds a wheel device list (finding 3)').toBeTruthy();
+    const rows = [...wl.querySelectorAll('.netrow')];
+    expect(rows.length).toBe(2);
+    // Default: first slot — single-device users see no change.
+    let on = [...wl.querySelectorAll('.netrow.on')];
+    expect(on.length).toBe(1);
+    expect(slotOf(on[0])).toBe('SLOT 0');
+    // Override: pick slot 1 → the session selection follows it.
+    rows.find((r) => slotOf(r) === 'SLOT 1').click();
+    await tick();
+    on = [...wl.querySelectorAll('.netrow.on')];
+    expect(on.length).toBe(1);
+    expect(slotOf(on[0])).toBe('SLOT 1');
+  });
+
+  it('a device picked in WHEEL does NOT leak into BOTH — switching modes re-derives auto-separate (F1)', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, [makePad('DualShock 4', 0), makePad('G29 Wheel', 1)]);
+    pill('wheel').click();
+    await tick();
+    // Deliberately point the WHEEL selector at slot 0 (the pad BOTH auto-assigns
+    // to the gamepad). If this session pick leaked, BOTH would resolve the wheel to
+    // slot 0 too and the two inputs would collide on one device.
+    [...el('wheelPadList').querySelectorAll('.netrow')].find((r) => slotOf(r) === 'SLOT 0').click();
+    await tick();
+    pill('both').click();
+    await tick();
+    // BOTH re-derives: gamepad DEVICE auto-selects slot 0, so the wheel auto-separates
+    // to the unused slot 1 — NOT the slot 0 carried over from the WHEEL pick.
+    const on = [...el('wheelPadList').querySelectorAll('.netrow.on')];
+    expect(on.length).toBe(1);
+    expect(slotOf(on[0])).toBe('SLOT 1');
+  });
+
+  it('the wheel device selection is session-only — a pick never writes settings (decision #2)', async () => {
+    const gs = mockGs();
+    await enterSeatfit(gs, [makePad('DualShock 4', 0), makePad('G29 Wheel', 1)]);
+    pill('wheel').click();
+    await tick();
+    const before = gs.setSettings.mock.calls.length;
+    const rows = [...el('wheelPadList').querySelectorAll('.netrow')];
+    rows.find((r) => slotOf(r) === 'SLOT 1').click();
+    await tick();
+    // Switching the wheel device changed only session state — nothing persisted.
+    expect(gs.setSettings.mock.calls.length).toBe(before);
+  });
+
+  it('hands the HUD a null wheelKey when no wheel resolves → the live HUD tags INPUT · WHEEL (NO DEVICE) (finding 2)', async () => {
+    // A merging setSettings + start-lights off, so START hands off deterministically
+    // (the no-countdown path) — the same seam the Batch 9 pad-flow test uses.
+    const settings = { ...defaultSettings(), startLightsEnabled: false };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async (patch) => { Object.assign(settings, patch); return settings; }),
+    });
+    await enterSeatfit(gs, [makePad('DualShock 4', 0)]); // ONE device, no wheel
+    pill('both').click();                                 // BOTH: gamepad + a SEPARATE wheel
+    await tick();
+    // With only the gamepad, the wheel resolves to no device — SEAT FIT must pass
+    // null to the HUD, not fall back to the first (gamepad) slot.
+    el('navNext').click(); await tick();                  // SEAT FIT -> GRID (solo skips PIT WALL)
+    expect(activeStep()).toBe('grid');
+    el('startAnywayBtn').click();                         // beginStart() → applyInputSource() (sync)
+    await vi.waitFor(() => {
+      expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(false);
+    });
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL (NO DEVICE)');
+  });
+
+  it("a resolved wheel is NOT tagged (NO DEVICE): a present device hands the HUD its key, plain INPUT · WHEEL", async () => {
+    const settings = { ...defaultSettings(), startLightsEnabled: false };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async (patch) => { Object.assign(settings, patch); return settings; }),
+    });
+    await enterSeatfit(gs, [makePad('G29 Wheel', 0)]); // one device, WHEEL mode owns it
+    pill('wheel').click();
+    await tick();
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('grid');
+    el('startAnywayBtn').click();
+    await vi.waitFor(() => {
+      expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(false);
+    });
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL'); // resolved → no NO DEVICE suffix
   });
 });
 

@@ -115,28 +115,42 @@ function pad() { const ps = navigator.getGamepads ? navigator.getGamepads() : []
 // here reaches a control output (driving stays with elrs-joystick-control).
 let inputType = 'gamepad';   // 'gamepad' | 'wheel' | 'both'
 let wheelProfile = null;     // normalized profile passed from SEAT FIT; null in GAMEPAD
-let wheelPadKey = '';        // session key (slot+id) of the wheel device; '' = first slot
+// Session key (slot+id) of the wheel device the mirror follows. Three states,
+// all set once at START by setInputSource: a key string → follow that device;
+// '' → follow the first slot (auto); null → NO wheel device resolved this
+// session (finding 2), so the mirror must read neutral and the INPUT tag says
+// "(NO DEVICE)" rather than resolving the first slot (a gamepad) through wheel
+// calibration under a WHEEL label.
+let wheelPadKey = '';
 export function setInputSource({ type = 'gamepad', profile = null, wheelKey = '' } = {}) {
   inputType = (type === 'wheel' || type === 'both') ? type : 'gamepad';
   wheelProfile = profile;
-  wheelPadKey = wheelKey || '';
+  // Preserve an explicit null (no device this session); '' still means first slot.
+  wheelPadKey = wheelKey === null ? null : (wheelKey || '');
   renderInputSrc();
 }
 // INPUT source tag above the THR/BRK/STR bars (Batch 8a): a truthful label for
 // which device feeds those bars this session. WHEEL/BOTH read the wheel for
-// STR/THR/BRK (teal wheel tag); GAMEPAD reads the pad (muted). Display only.
+// STR/THR/BRK (teal wheel tag); GAMEPAD reads the pad (muted). When a wheel
+// session resolved NO wheel device (wheelPadKey null), the tag reads
+// "INPUT · WHEEL (NO DEVICE)" so the honest fallback is visible (finding 2).
+// Display only.
 function renderInputSrc() {
   if (!inputSrcTagEl) return;
   const wheel = inputType === 'wheel' || inputType === 'both';
-  inputSrcTagEl.textContent = `INPUT · ${wheel ? 'WHEEL' : 'GAMEPAD'}`;
+  const noDevice = wheel && wheelPadKey === null;
+  inputSrcTagEl.textContent = `INPUT · ${wheel ? 'WHEEL' : 'GAMEPAD'}${noDevice ? ' (NO DEVICE)' : ''}`;
   inputSrcTagEl.className = `srctag${wheel ? ' wheel' : ''}`;
 }
 renderInputSrc();
 // The pad the wheel mirror reads. START happens in the same session (no restart),
-// so the session key from SEAT FIT still resolves the same slot; a wheel that
-// disconnects after START resolves to null → wheelValues reads neutral, never a
-// stale deflection (task §5).
+// so the session key from SEAT FIT still resolves the same slot. A wheel that
+// disconnects after START resolves to null here → wheelActive goes false and
+// readInputs falls through to the gamepad/keyboard mirror (finding 4), never a
+// stale wheel deflection (task §5). Known display-only edge (F3): the INPUT tag,
+// set once at START, keeps its plain WHEEL label across a mid-session disconnect.
 function wheelPad() {
+  if (wheelPadKey === null) return null; // no wheel device resolved this session (finding 2)
   const ps = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
   return resolveSelectedPad(ps, { chosenKey: wheelPadKey });
 }
@@ -258,7 +272,15 @@ function readInputs() {
   // are skipped this session so the two sources can't double-count a press. A
   // GAMEPAD session leaves wheelSession false, so every branch here runs exactly
   // as before — bit-identical.
+  // The override only owns the mirror when the wheel device actually RESOLVES
+  // (wheelActive). A wheel session with no wheel device present (none picked, or
+  // disconnected) must NOT let the override zero out the mirror (finding 4): it
+  // falls through to the gamepad/keyboard path so the universal keyboard fallback
+  // keeps driving STR/THR/BRK, and a gamepad in slot 0 is read through its OWN
+  // preset — never through wheel calibration under a WHEEL tag.
   const wheelSession = inputType === 'wheel' || inputType === 'both';
+  const wp = wheelSession ? wheelPad() : null;
+  const wheelActive = !!wp;
   const p = pad();
   if (p) {
     const ax = p.axes, b = p.buttons;
@@ -266,7 +288,7 @@ function readInputs() {
     S.steer = clamp(ax[m.steerAxis] || 0, -1, 1);
     S.throttle = b[m.throttleBtn] ? b[m.throttleBtn].value : 0;
     S.brake = b[m.brakeBtn] ? b[m.brakeBtn].value : 0;
-    if (!wheelSession) {
+    if (!wheelActive) {
       applyButtons({
         up: !!(b[m.gearUpBtn] && b[m.gearUpBtn].pressed),
         down: !!(b[m.gearDownBtn] && b[m.gearDownBtn].pressed),
@@ -282,7 +304,7 @@ function readInputs() {
     S.steer = clamp((keys.arrowright ? 1 : 0) - (keys.arrowleft ? 1 : 0), -1, 1);
     S.throttle = keys.arrowup ? 1 : 0;
     S.brake = keys.arrowdown ? 1 : 0;
-    if (!wheelSession) {
+    if (!wheelActive) {
       applyButtons({
         up: !!keys.e, down: !!keys.q, drs: !!keys.d, boost: !!keys.b, overtake: !!keys.o,
       });
@@ -296,10 +318,11 @@ function readInputs() {
   // the sole button source — same edge-triggered gear/DRS and level boost/overtake
   // logic, just fed from pressedWheelRoles instead of the preset map. Camera pan/
   // tilt stays gamepad-sourced (a wheel has no aim stick — camera-aim semantics
-  // untouched). GAMEPAD sessions skip this whole block (bit-identical). A missing
-  // wheel pad reads neutral / released, never a stale deflection.
-  if (wheelSession) {
-    const wp = wheelPad();
+  // untouched). GAMEPAD sessions skip this whole block (bit-identical). A wheel
+  // session whose device is absent skips it too (wheelActive false, finding 4),
+  // so the mirror keeps the gamepad/keyboard fallback set above instead of being
+  // zeroed by a null-pad read.
+  if (wheelActive) {
     const { steer, thr, brk } = wheelValues(wp, wheelProfile);
     S.steer = steer;
     S.throttle = thr;

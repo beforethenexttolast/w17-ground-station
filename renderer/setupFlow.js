@@ -887,15 +887,19 @@ function saveWheel() { save({ wheel: { profile: wheelProfile } }); }
 // only the type, so the HUD mirror stays bit-identical to before. WHEEL/BOTH also
 // pass the calibrated profile and the wheel device's session key, resolved NOW so
 // the HUD follows the SAME device SEAT FIT mirrored (START is in-session, slots
-// stable). The active input type is passed but NEVER persisted (decision #2); only
-// the profile persists, via saveWheel(). No IPC — a renderer→renderer call.
+// stable). When the wheel does NOT resolve to a device (none present at START),
+// we pass wheelKey null — NOT the first slot — so the HUD reads neutral and tags
+// INPUT · WHEEL (NO DEVICE) instead of driving a gamepad through wheel
+// calibration under a WHEEL label (finding 2). The active input type is passed
+// but NEVER persisted (decision #2); only the profile persists, via saveWheel().
+// No IPC — a renderer→renderer call.
 function applyInputSource() {
   const pads = dedupeGamepads(navigator.getGamepads ? navigator.getGamepads() : []);
   const wp = (inputType === 'wheel' || inputType === 'both') ? resolveWheelPad(pads) : null;
   setInputSource({
     type: inputType,
     profile: wheelProfile,
-    wheelKey: wp ? gamepadKey(wp) : wheelPadKey,
+    wheelKey: wp ? gamepadKey(wp) : null,
   });
 }
 
@@ -904,6 +908,13 @@ function applyInputSource() {
 // no stale LISTENING/highlight survives the change (acceptance).
 function applyInputType(type) {
   inputType = type;
+  // Reset the session wheel-device pick on every mode switch. The WHEEL selector
+  // is now writable (finding 3), so a device picked there would otherwise carry a
+  // non-empty wheelPadKey into BOTH, whose auto-separate branch only runs when
+  // wheelPadKey is empty (resolveWheelPad) — the wheel would then collide onto the
+  // gamepad's slot instead of the unused second device. Each mode re-derives its
+  // default: '' = first slot (WHEEL) / auto-separate (BOTH).
+  wheelPadKey = '';
   const showGamepad = type === 'gamepad' || type === 'both';
   const showWheel = type === 'wheel' || type === 'both';
   gamepadPanel.classList.toggle('hidden', !showGamepad);
@@ -970,8 +981,15 @@ function renderWheelPanel() {
   if (!wheelProfile) return;
   const p = wheelProfile;
   const sep = p.pedalMode !== 'combined';
-  const deviceBlock = inputType === 'both'
-    ? '<div id="wheelDeviceRow"><div class="colhead">WHEEL DEVICE <small>separate from the gamepad</small></div>'
+  // The wheel DEVICE selector shows in WHEEL and BOTH modes (finding 3): both
+  // resolve a wheel device, so both let the operator pick which pad is the wheel.
+  // It defaults to the first slot (single-device users see no change) and lets a
+  // multi-device user override; the choice (wheelPadKey) stays session-only, never
+  // persisted. GAMEPAD mode has no wheel and shows no block.
+  const showDevice = inputType === 'wheel' || inputType === 'both';
+  const deviceHint = inputType === 'both' ? 'separate from the gamepad' : 'which pad is the wheel';
+  const deviceBlock = showDevice
+    ? `<div id="wheelDeviceRow"><div class="colhead">WHEEL DEVICE <small>${deviceHint}</small></div>`
       + '<div class="wheelpadlist" id="wheelPadList"></div></div>'
     : '';
   wheelPanel.innerHTML = deviceBlock
@@ -988,7 +1006,7 @@ function renderWheelPanel() {
     + '<div class="colhead">BUTTONS</div>'
     + WHEEL_BUTTON_ROLES.map((role) => wheelRow(WHEEL_BUTTON_LABELS[role], role)).join('');
   updateWheelLabels();
-  if (inputType === 'both') renderWheelDeviceList();
+  if (showDevice) renderWheelDeviceList();
 }
 
 // Refresh every readout span; the listening row shows an amber prompt instead.
@@ -1074,9 +1092,10 @@ if (wheelPanel) {
   });
 }
 
-// BOTH-mode wheel device selector — its own list, independent of the gamepad
-// DEVICE list. Rebuilds only when the pad set changes (sig), else just re-marks
-// the active row (avoids killing :hover on the 250 ms loop, like padList).
+// Wheel device selector (WHEEL + BOTH modes, finding 3) — its own list,
+// independent of the gamepad DEVICE list. Rebuilds only when the pad set changes
+// (sig), else just re-marks the active row (avoids killing :hover on the 250 ms
+// loop, like padList).
 function renderWheelDeviceList() {
   const list = el('wheelPadList');
   if (!list) return;
@@ -1098,7 +1117,7 @@ function renderWheelDeviceList() {
     b.append(name, slot);
     b.addEventListener('click', () => { wheelPadKey = key; renderWheelDeviceList(); seatfitTick(); sounds.uiTick(); });
     return b;
-  }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: 'NO SECOND DEVICE DETECTED' })]));
+  }) : [Object.assign(document.createElement('div'), { className: 'netstatus', textContent: inputType === 'both' ? 'NO SECOND DEVICE DETECTED' : 'NO DEVICE DETECTED' })]));
 }
 function refreshWheelDeviceSelection(pads, wp) {
   const list = el('wheelPadList');
@@ -1351,7 +1370,7 @@ function seatfitTick() {
       if (change && change.type === listening.kind) applyAssignment(listening.role, change.index);
     }
     updateWheelViz(wp);
-    if (inputType === 'both') refreshWheelDeviceSelection(pads, wp);
+    refreshWheelDeviceSelection(pads, wp); // already inside the wheel||both guard above
   }
 }
 

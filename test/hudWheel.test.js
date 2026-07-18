@@ -232,6 +232,86 @@ describe('HUD wheel button pills (Batch 8a.1 rider c)', () => {
   });
 });
 
+// No wheel device resolved (Batch 2 · findings 2 + 4). When SEAT FIT hands the HUD
+// a null wheelKey — a wheel session whose device is absent at START (BOTH mode with
+// only a gamepad, or an explicitly-chosen wheel that has gone) — the HUD must NOT
+// read the first pad through wheel calibration. It reads NEUTRAL from the wheel
+// path, tags INPUT · WHEEL (NO DEVICE), and lets STR/THR/BRK + the pills fall
+// through to the universal gamepad/keyboard mirror. An empty-string wheelKey
+// ('' = first slot) is a DIFFERENT state that keeps the plain INPUT · WHEEL wheel
+// calibration behavior. Display-only throughout (noControlPath proves no path).
+describe('HUD wheel — no device resolved (Batch 2 · findings 2 + 4)', () => {
+  // Wheel axes/buttons DISTINCT from the DualShock preset (steer axis4, throttle
+  // axis1; buttons 8–12), so a driven bar/pill can ONLY be the gamepad fallback —
+  // never a gamepad read through wheel calibration (which would use axis4/axis1).
+  const NO_OVERLAP_PROFILE = {
+    ...WHEEL_PROFILE,
+    buttons: { gearUp: 8, gearDown: 9, drs: 10, boost: 11, overtake: 12 },
+  };
+  const press = (...idx) => { const b = []; for (const i of idx) b[i] = { pressed: true, value: 1 }; return b; };
+
+  it('null wheelKey with a gamepad present → NO DEVICE tag + gamepad fallback drives the mirror (never wheel calibration)', async () => {
+    const hud = await loadHud();
+    // Gamepad: preset steer axis0=0.3, throttle button7=0.6, gearUp button5 pressed.
+    // Its axis4/axis1 (the wheel's steer/throttle axes) are 0, so a wheel read would
+    // show centred/released — the opposite of the gamepad fallback we assert.
+    const buttons = press(5); buttons[7] = { pressed: true, value: 0.6 };
+    setPads([makePad('DualShock 4', 0, { axes: [0.3, 0, 0, 0], buttons })]);
+    hud.setInputSource({ type: 'wheel', profile: NO_OVERLAP_PROFILE, wheelKey: null });
+    hud.startRide();
+    stepFrame(1000);
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL (NO DEVICE)');
+    expect(el('inputSrcTag').className).toContain('wheel');
+    // Bars come from the gamepad PRESET (axis0/button7), NOT the wheel axes (4/1).
+    expect(el('steer').style.left).toBe(`${50 + 0.3 * 42}%`);
+    expect(el('thr').style.width).toBe('60%');
+    // The gamepad button block runs (fallback): preset gearUp(5) shifts to gear 2.
+    // On the pre-fix path the wheel override ran and the gamepad button block was
+    // skipped, so gear never left 1 and steer/thr read the null-wheel neutral.
+    expect(el('gear').textContent).toBe('2');
+  });
+
+  it('null wheelKey with NO pads → keyboard fallback still drives THR (never zeroed by the wheel override)', async () => {
+    const hud = await loadHud();
+    setPads([]);
+    hud.setInputSource({ type: 'wheel', profile: NO_OVERLAP_PROFILE, wheelKey: null });
+    hud.startRide();
+    // Hold the throttle key on a non-editable target so the HUD records it.
+    document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    stepFrame(1000);
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL (NO DEVICE)');
+    expect(el('thr').style.width).toBe('100%'); // keyboard drives; not the null-pad wheel read (0%)
+    document.body.dispatchEvent(new window.KeyboardEvent('keyup', { key: 'ArrowUp', bubbles: true }));
+  });
+
+  it('BOTH session, null wheelKey (only a gamepad) → NO DEVICE, pan/tilt stays gamepad, STR not zeroed', async () => {
+    const hud = await loadHud();
+    // A single DualShock: it is the GAMEPAD (drives pan/tilt), not a wheel. With no
+    // second device SEAT FIT resolves the wheel to null → the mirror falls back to
+    // this gamepad's preset for STR/THR/BRK, NOT its pan/tilt axes read as pedals.
+    const buttons = []; buttons[7] = { pressed: true, value: 0.5 };
+    setPads([makePad('DualShock 4', 0, { axes: [-0.4, 0, 0.6, -0.2], buttons })]);
+    hud.setInputSource({ type: 'both', profile: NO_OVERLAP_PROFILE, wheelKey: null });
+    hud.startRide();
+    stepFrame(1000);
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL (NO DEVICE)');
+    expect(el('steer').style.left).toBe(`${50 + -0.4 * 42}%`); // gamepad preset steer, not wheel axis4
+    expect(el('thr').style.width).toBe('50%');                 // gamepad button7 fallback
+    expect(el('camdot').style.left).toBe(`${50 + 0.6 * 40}%`); // pan/tilt still gamepad axis2
+    expect(el('camdot').style.top).toBe(`${50 + -0.2 * 40}%`); // pan/tilt still gamepad axis3
+  });
+
+  it("wheelKey '' (first slot) stays DISTINCT from null — plain INPUT · WHEEL, calibration active", async () => {
+    const hud = await loadHud();
+    setPads([makePad('G29 Racing Wheel', 0, { axes: [0, -1, 0, 0, 0.5, 1] })]);
+    hud.setInputSource({ type: 'wheel', profile: WHEEL_PROFILE, wheelKey: '' });
+    hud.startRide();
+    stepFrame(1000);
+    expect(el('inputSrcTag').textContent).toBe('INPUT · WHEEL'); // NOT (NO DEVICE)
+    expect(el('steer').style.left).toBe(`${50 + 0.5 * 42}%`);    // wheel axis4 drives (calibration active)
+  });
+});
+
 // HUD status stack + INPUT source tag (Batch 8a / flow chrome). The scattered
 // chips consolidate into one right-aligned .statusstack under the session clock
 // (ids/logic unchanged, only placement); an INPUT · GAMEPAD/WHEEL tag above the
