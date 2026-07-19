@@ -1872,6 +1872,19 @@ describe('SEAT FIT — BOTH-mode per-device source tags (Batch 3 / Decision B)',
     expect(gpTag().classList.contains('hidden')).toBe(true);
     expect(whTag().classList.contains('hidden')).toBe(true);
   });
+
+  // jsdom applies no linked CSS, so the two tests above only prove the `hidden`
+  // CLASS is toggled — NOT that it hides anything. hud.css has no generic
+  // `.hidden` rule and `.barsrc{display:flex}` would otherwise win the cascade,
+  // so pin the element-scoped `.barsrc.hidden{display:none}` rule that makes the
+  // toggle real. Without it the tags leaked into single-mirror modes (a live
+  // browser check caught what the class-only assertions above could not).
+  it('the hidden class actually hides a .barsrc tag — hud.css pins .barsrc.hidden → display:none', () => {
+    const css = readFileSync('renderer/hud.css', 'utf8');
+    const m = css.match(/\.barsrc\.hidden\s*\{([^}]*)\}/);
+    expect(m, '.barsrc.hidden rule must exist in hud.css (else the hidden class is inert on .barsrc)').not.toBeNull();
+    expect(m[1].replace(/\s/g, '')).toContain('display:none');
+  });
 });
 
 // Step rail (Batch 8a / flow chrome). The rail is rendered from the live per-mode

@@ -145,6 +145,7 @@ body{background:#000;color:var(--silver);
 .srctag.wheel{border-color:var(--teal);color:var(--teal)}
 .srctag.pad{border-color:var(--violet);color:var(--violet)}
 .barsrc{display:flex;justify-content:flex-start;margin-bottom:.15em}
+.barsrc.hidden{display:none} /* BOTH-mode source tags hide in single-mirror modes (no generic .hidden rule; .barsrc's display:flex would otherwise win) */
 .gearbox{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:.2em}
 .gearlabel{color:var(--muted);letter-spacing:.5em;font-size:clamp(8px,1vw,12px);text-transform:uppercase;margin-bottom:.1em}
 .gear{font-style:italic;font-weight:800;line-height:.8;font-size:clamp(96px,17vw,210px);color:var(--silver);transform:skewX(-6deg);
