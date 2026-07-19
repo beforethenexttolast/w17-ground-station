@@ -100,6 +100,13 @@ apart from one working session). Process-level only; content partitions cleanly.
   + own selector); the 02c mockup's per-device source tags and CALIBRATED-chip +
   EDIT MAPPING summary are absent (live: srctag count 0). Plan and bundle conflict —
   needs a recorded decision (implement §10 later, or amend the bundle).
+  - **RESOLVED 2026-07-19 (Decision B), both ways:** the per-device source tags were
+    implemented (`ec1baef`, 2026-07-18 — gamepad mirror `srctag pad` PAD → PAN/TILT,
+    wheel mirror `srctag wheel` WHEEL → STR/THR/BRK, shown only in BOTH mode), and the
+    design bundle was amended (`w17-design-system` DESIGN_NOTES.md §10): the shipped
+    stacked full-panel BOTH-mode layout is now the canonical design (superseding the 02c
+    mockup), and the CALIBRATED-chip + EDIT MAPPING summarization is recorded as an
+    optional future density refinement only (no measured overflow). No app change pending.
 - Wheel-only sessions: `pad()` falls back to the wheel, so the violet camera dot mirrors
   the wheel device's axes 2/3 labeled STICK INPUT · PAD (pinned by `hudWheel` test —
   intended; docs §6.2's "a wheel has no aim stick" doesn't cover the wheel-as-only-pad
