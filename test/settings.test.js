@@ -67,10 +67,18 @@ describe('normalizeSettings — garbage-safe, field-by-field', () => {
     expect(normalizeSettings({ evilExtra: true })).not.toHaveProperty('evilExtra');
   });
 
-  it('start lights default ON; only a boolean false disables them', () => {
-    expect(normalizeSettings(null).startLightsEnabled).toBe(true);
-    expect(normalizeSettings({ startLightsEnabled: false }).startLightsEnabled).toBe(false);
-    expect(normalizeSettings({ startLightsEnabled: 'no' }).startLightsEnabled).toBe(true);
+  it('start lights default OFF; only a boolean true enables them', () => {
+    expect(normalizeSettings(null).startLightsEnabled).toBe(false);
+    expect(normalizeSettings({ startLightsEnabled: true }).startLightsEnabled).toBe(true);
+    expect(normalizeSettings({ startLightsEnabled: 'yes' }).startLightsEnabled).toBe(false);
+  });
+
+  it('drivingMode defaults to normal; a known mode persists, anything else coerces back', () => {
+    expect(normalizeSettings(null).drivingMode).toBe('normal');
+    expect(normalizeSettings({ drivingMode: 'sim' }).drivingMode).toBe('sim');
+    expect(normalizeSettings({ drivingMode: 'full-sim' }).drivingMode).toBe('full-sim');
+    expect(normalizeSettings({ drivingMode: 'turbo' }).drivingMode).toBe('normal');
+    expect(normalizeSettings({ drivingMode: 42 }).drivingMode).toBe('normal');
   });
 
   it('network.adapter is a plain string, defaulting to "" (system default)', () => {

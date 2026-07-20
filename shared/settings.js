@@ -22,6 +22,10 @@ const FPV_MODES = ['solo', 'iphone-hud'];
 const NETWORK_KINDS = ['join', 'hotspot', 'guide'];
 const CONTROLLER_PRESETS = ['dualshock', 'xbox', 'generic'];
 const TELEMETRY_SOURCES = ['none', 'replay', 'crsf-serial'];
+// GS DRIVE MODE display preference (NOT the car's mode). Maps to the firmware
+// drive-mode index the HUD previews: normal=TRAINING(0), sim=RACE/gearbox(1),
+// full-sim=ERS(2). The car owns its real mode and reports it via telemetry.
+const DRIVING_MODES = ['normal', 'sim', 'full-sim'];
 
 const SETTINGS_VERSION = 1;
 
@@ -39,7 +43,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     iphonePort: 5601,
     controller: Object.freeze({ id: '', preset: 'dualshock' }),
     soundEnabled: false, // radio sounds are opt-in by decision
-    startLightsEnabled: true, // five-red-lights countdown before the HUD
+    startLightsEnabled: false, // five-red-lights countdown before the HUD; opt-in
+    drivingMode: 'normal', // HUD DRIVE MODE display preference; the car reports its own
     elrsPath: '',
     w3DiagnosticEnabled: false, // LOG-ONLY diagnostic wish; resolved in main.js
     telemetry: Object.freeze({ source: 'none', port: '' }),
@@ -169,6 +174,7 @@ function normalizeSettings(raw) {
         },
         soundEnabled: bool(raw.soundEnabled, d.soundEnabled),
         startLightsEnabled: bool(raw.startLightsEnabled, d.startLightsEnabled),
+        drivingMode: oneOf(raw.drivingMode, DRIVING_MODES, d.drivingMode),
         elrsPath: str(raw.elrsPath, d.elrsPath),
         w3DiagnosticEnabled: bool(raw.w3DiagnosticEnabled, d.w3DiagnosticEnabled),
         telemetry: {
@@ -260,6 +266,7 @@ module.exports = {
     NETWORK_KINDS,
     CONTROLLER_PRESETS,
     TELEMETRY_SOURCES,
+    DRIVING_MODES,
     normalizeSettings,
     normalizeWheelProfile,
     resolveEffective,

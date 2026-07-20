@@ -6,7 +6,7 @@
 // glue over the pure step/checklist/address modules in shared/. It never
 // touches control — the START buttons only dismiss a viewer overlay.
 
-import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource } from './hud.js';
+import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource, setDriveMode } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
@@ -48,8 +48,8 @@ const fastPath = el('fastPath'), fastPathBtn = el('fastPathBtn'), fastPathSummar
 // (shared/setupSteps.mjs only includes it in iphone-hud mode). Pure display.
 const RAIL_STEPS = [
   { key: 'garage', num: '01', label: 'GARAGE' },
-  { key: 'seatfit', num: '02', label: 'SEAT FIT' },
-  { key: 'pitwall', num: '03', label: 'PIT WALL' },
+  { key: 'pitwall', num: '02', label: 'PIT WALL' },
+  { key: 'seatfit', num: '03', label: 'SEAT FIT' },
   { key: 'grid', num: '04', label: 'GRID' },
 ];
 function skipReason(key) {
@@ -124,8 +124,9 @@ const leaveHooks = { pitwall: leavePitwall, seatfit: leaveSeatfit, grid: leaveGr
 // from the step's position in the ACTUAL path (never a lie about "done"); a
 // canonical step absent from the path is `skipped` with a reason chip. The rail
 // shows the FIXED design order/labels, which now matches the nav order for every
-// mode (Batch 8b reordered stepsFor to GARAGE -> SEAT FIT -> PIT WALL -> GRID) —
-// display only, no navigation logic lives here.
+// mode (2026-07-20 reorder: stepsFor is GARAGE -> PIT WALL -> SEAT FIT -> GRID so
+// the iPhone/network joins before the controller/camera-mode step) — display
+// only, no navigation logic lives here.
 function renderStepRail() {
   if (!stepRail) return;
   const path = stepsFor(mode);
@@ -836,12 +837,14 @@ let presetManual = false; // a pill click this visit beats auto-detection
 // active input type never does. Everything here is a DISPLAY MIRROR + a local
 // profile editor — no control path, no new IPC.
 const inputTypeRow = el('inputTypeRow');
+const driveModeRow = el('driveModeRow');
 const gamepadPanel = el('gamepadPanel'), gamepadMirror = el('gamepadMirror');
 const wheelPanel = el('wheelPanel'), wheelMirror = el('wheelMirror'), wheelPreview = el('wheelPreview');
 // Per-device source tags shown ONLY in BOTH mode, where the two mirrors stack and
 // each device feeds different bars (Batch 3 / design bundle §10; display only).
 const gamepadMirrorSrc = el('gamepadMirrorSrc'), wheelMirrorSrc = el('wheelMirrorSrc');
 let inputType = 'gamepad';   // 'gamepad' | 'wheel' | 'both' — session only, never persisted
+let drivingMode = 'normal';  // HUD DRIVE MODE display preference — PERSISTED (unlike inputType)
 let wheelProfile = null;     // normalized profile, edited in place by the panel
 let wheelPadKey = '';        // BOTH-mode wheel device (session key); '' = auto
 let listening = null;        // { role, kind } while an ASSIGN listen is armed
@@ -946,6 +949,25 @@ if (inputTypeRow) {
     if (!b) return;
     sounds.uiTick();
     applyInputType(b.dataset.input);
+  });
+}
+
+// DRIVE MODE (2026-07-20): a PERSISTED display preference. It paints the pill and
+// tells the HUD which mode to PREVIEW — it never commands the car (no IPC/control
+// path). The car's live telemetry drive mode always wins in the HUD.
+function applyDriveMode(m) {
+  drivingMode = m;
+  if (driveModeRow) for (const b of driveModeRow.children) b.classList.toggle('on', b.dataset.drive === m);
+  setDriveMode(m);
+}
+
+if (driveModeRow) {
+  driveModeRow.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-drive]');
+    if (!b) return;
+    sounds.uiTick();
+    applyDriveMode(b.dataset.drive);
+    save({ drivingMode: b.dataset.drive });
   });
 }
 
@@ -1184,6 +1206,7 @@ function enterSeatfit() {
     return b;
   }));
   renderCameraMode();
+  applyDriveMode(settings?.drivingMode || 'normal'); // persisted — re-seed the pill + HUD preview each entry
   applyChoice();
   applyInputType(inputType);                  // sync panels/mirrors + paint device list + mirror
   padTimer = setInterval(seatfitTick, 250);   // then keep it live (hot-plug/disconnect)
@@ -1548,7 +1571,7 @@ function runLights() {
   setupNav.classList.add('hidden');
   if (stepRail) stepRail.classList.add('hidden'); // rail belongs to the setup steps, not the lights hand-off
   el('gateFootnote').classList.add('hidden');
-  // Start-lights countdown is a ⚙ setting (on by default); off = straight in.
+  // Start-lights countdown is a ⚙ setting (off by default); off = straight in.
   if (settings && settings.startLightsEnabled === false) {
     finishStart('SESSION LIVE', 250);
     return;
@@ -1703,6 +1726,7 @@ async function boot() {
   credential = res.credential || null;
   mode = settings.fpvMode;
   setSoundEnabled(settings.soundEnabled);
+  applyDriveMode(settings.drivingMode); // seed the HUD preview even on the GRID fast-path
   // A completed prior session lands on GARAGE with the fast-path card (Batch 8a /
   // flow chrome, design bundle §3), instead of the old auto-jump + welcome-back
   // toast. showStep('garage') reveals the card via updateFastPath when

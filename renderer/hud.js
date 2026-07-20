@@ -31,6 +31,13 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
 
 // Drive modes, indexed by the car's driveMode field (firmware ChannelDecoder:
 // 0=Training, 1=Race, 2=ERS). Shown only when live telemetry supplies it.
+// Setup DRIVE MODE preference (display only) -> the firmware drive-mode index it
+// PREVIEWS. The car's live telemetry driveMode always overrides this (render()),
+// so this never claims to be the car's actual mode.
+const DRIVE_PREF_INDEX = { normal: 0, sim: 1, 'full-sim': 2 };
+let drivePref = 'normal';
+export function setDriveMode(mode) { drivePref = DRIVE_PREF_INDEX[mode] != null ? mode : 'normal'; }
+
 const DRIVE_MODES = [
   { label: 'TRAINING', cls: 'm-train' },
   { label: 'RACE', cls: 'm-race' },
@@ -392,7 +399,11 @@ function render() {
 
   // Drive mode: car-authoritative only (the HUD has no local mode state -- the
   // mode is chosen upstream in elrs-joystick-control). Blank unless telemetry.
-  const mode = useTelem && typeof telem.driveMode === 'number' ? DRIVE_MODES[telem.driveMode] : null;
+  // The car's reported drive mode wins when live; otherwise the SIM/preview state
+  // shows the setup DRIVE MODE preference (display only, never the car's truth).
+  let mode = null;
+  if (useTelem && typeof telem.driveMode === 'number') mode = DRIVE_MODES[telem.driveMode];
+  else if (state === 'sim') mode = DRIVE_MODES[DRIVE_PREF_INDEX[drivePref]];
   driveModeEl.textContent = mode ? mode.label : '';
   driveModeEl.className = (mode ? `drivemode ${mode.cls}` : 'drivemode') + (stale ? ' stale' : '');
 
@@ -415,7 +426,9 @@ function render() {
   const showErs = useTelem && typeof telem.ersPct === 'number' ? telem.ersPct : S.ers;
   ersEl.style.width = showErs.toFixed(0) + '%';
   ersPctEl.textContent = Math.round(showErs);
-  ersEl.classList.toggle('deploy', (S.boost || S.overtake) && showErs > 0 && state === 'sim');
+  // The energy/ERS deploy animation is a FULL SIM preview flourish only; NORMAL and
+  // SIMULATION previews leave it idle. Live telemetry keeps its own ERS behavior.
+  ersEl.classList.toggle('deploy', (S.boost || S.overtake) && showErs > 0 && state === 'sim' && drivePref === 'full-sim');
   ersEl.classList.toggle('low', showErs < 20);
   ersEl.classList.toggle('stale', stale);
   ersPctEl.classList.toggle('stale', stale);

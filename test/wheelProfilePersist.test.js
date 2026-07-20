@@ -169,15 +169,15 @@ describe('wheel profile persistence — through the REAL settings store', () => 
     }));
   });
 
-  it('a NO-WHEEL session persists EXACTLY the 12 pre-existing keys (no wheel key on disk)', () => {
+  it('a NO-WHEEL session persists EXACTLY the 13 pre-existing keys (no wheel key on disk)', () => {
     const dir = freshDir();
     const store = createSettingsStore({ dir });
     const saved = store.save({ soundEnabled: true }); // a save that never touches the wheel
 
-    // On disk: exactly the 12 baseline keys, no `wheel`.
+    // On disk: exactly the 13 baseline keys, no `wheel`.
     const onDisk = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
     expect(Object.keys(onDisk).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
-    expect(Object.keys(onDisk)).toHaveLength(12);
+    expect(Object.keys(onDisk)).toHaveLength(13);
     expect(onDisk).not.toHaveProperty('wheel');
 
     // And the returned/reloaded logical object has no wheel key either.

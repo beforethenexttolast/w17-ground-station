@@ -118,8 +118,8 @@
       <div class="sub" id="gateSub">Mercedes-AMG Petronas · No.63 · pre-race setup</div>
     </div>
 
-    <!-- Step rail (Batch 8a / flow chrome): a persistent 01 GARAGE · 02 SEAT FIT
-         · 03 PIT WALL · 04 GRID progress rail, replacing the old ghost numerals
+    <!-- Step rail (Batch 8a / flow chrome): a persistent 01 GARAGE · 02 PIT WALL
+         · 03 SEAT FIT · 04 GRID progress rail, replacing the old ghost numerals
          / HUD bleed and giving orientation on every setup screen. Rendered by
          setupFlow.js renderStepRail() from the existing per-mode step state
          (shared/setupSteps.mjs) — pure display, no navigation change. Hidden
@@ -279,6 +279,19 @@
             <button class="pill" data-input="both">BOTH</button>
           </div>
 
+          <!-- DRIVE MODE (2026-07-20): a persisted DISPLAY preference for how the
+               HUD previews throttle/gears/energy. NOT a control command — the car
+               (firmware) owns its drive mode and reports it over telemetry, which
+               always wins in the HUD when live. normal=TRAINING, sim=RACE/gearbox,
+               full-sim=ERS. Styled like INPUT TYPE; persisted via save(). -->
+          <div class="colhead">DRIVE MODE <small>display preference · the car reports its own mode</small></div>
+          <div class="inputtyperow" id="driveModeRow">
+            <button class="pill on" data-drive="normal">NORMAL</button>
+            <button class="pill" data-drive="sim">SIMULATION</button>
+            <button class="pill" data-drive="full-sim">FULL SIM</button>
+          </div>
+          <div class="hint" id="driveModeNote">NORMAL linear throttle · SIMULATION gears · FULL SIM adds energy (ERS).</div>
+
           <!-- GAMEPAD panel — the existing SEAT FIT controls, unchanged; hidden
                only when INPUT TYPE is WHEEL. -->
           <div id="gamepadPanel">
@@ -318,21 +331,6 @@
                WHEEL or BOTH. Viewer-only: it edits the local profile and persists
                it through the existing gs.setSettings path — no new IPC. -->
           <div class="wheelpanel hidden" id="wheelPanel"></div>
-
-          <!-- CAMERA MODE (task §4 / §1A): AVAILABLE/REQUESTED mode vs ACTIVE
-               AUTHORITY, kept strictly apart. Manual selectable; Head Tracking
-               visible but LOCKED (no safe control path yet). Rendered from
-               shared/cameraMode.mjs; the locked card issues no command — there is
-               no mode-request RPC. The AVAILABLE/REQUESTED line is this setup's
-               DEFAULT; ACTIVE AUTHORITY is NOT REPORTED BY MAPPER because this
-               viewer does not observe which source the mapper selected. -->
-          <div class="colhead">CAMERA MODE <small>setup default vs. who actually aims</small></div>
-          <div class="cammodes" id="camModes"></div>
-          <div class="camauthority" id="camAuthority">
-            <div class="camauthrow"><span class="camauthlabel">AVAILABLE / REQUESTED <small>setup default</small></span><b id="camRequested">MANUAL · RIGHT STICK</b></div>
-            <div class="camauthrow"><span class="camauthlabel">ACTIVE AUTHORITY <small>from mapper</small></span><b id="camActive" class="unreported">NOT REPORTED BY MAPPER</b></div>
-          </div>
-          <div class="hint" id="camModeNote">AVAILABLE / REQUESTED is this setup's default, not live authority. The mapper is the camera authority; this viewer only mirrors input and never observes which source the mapper selected, so ACTIVE AUTHORITY is not reported. Head-tracking traffic (W3) is diagnostic log-only and never moves the camera.</div>
         </div>
         <div class="col">
           <!-- GAMEPAD mirror — unchanged; hidden only when INPUT TYPE is WHEEL. -->
@@ -367,6 +365,21 @@
             <div class="barsrc hidden" id="wheelMirrorSrc"><span class="srctag wheel">WHEEL → STR/THR/BRK</span></div>
             <div class="wheelpreview" id="wheelPreview"></div>
           </div>
+
+          <!-- CAMERA MODE (moved to the right column 2026-07-20 to balance the two
+               columns and clear the pinned radio/footnote overlays): AVAILABLE/REQUESTED
+               vs ACTIVE AUTHORITY, kept strictly apart. Manual selectable; Head Tracking
+               visible but LOCKED (no safe control path yet). Rendered from
+               shared/cameraMode.mjs; the locked card issues no command — no mode-request
+               RPC. AVAILABLE/REQUESTED is this setup's DEFAULT; ACTIVE AUTHORITY is NOT
+               REPORTED BY MAPPER because this viewer never observes the mapper's pick. -->
+          <div class="colhead">CAMERA MODE <small>setup default vs. who actually aims</small></div>
+          <div class="cammodes" id="camModes"></div>
+          <div class="camauthority" id="camAuthority">
+            <div class="camauthrow"><span class="camauthlabel">AVAILABLE / REQUESTED <small>setup default</small></span><b id="camRequested">MANUAL · RIGHT STICK</b></div>
+            <div class="camauthrow"><span class="camauthlabel">ACTIVE AUTHORITY <small>from mapper</small></span><b id="camActive" class="unreported">NOT REPORTED BY MAPPER</b></div>
+          </div>
+          <div class="hint" id="camModeNote">The mapper is the camera authority; this viewer only mirrors input and never sees which source it picks, so ACTIVE AUTHORITY stays unreported. Head-tracking (W3) is log-only and never moves the camera.</div>
         </div>
       </div>
     </section>
