@@ -279,18 +279,9 @@
             <button class="pill" data-input="both">BOTH</button>
           </div>
 
-          <!-- DRIVE MODE (2026-07-20): a persisted DISPLAY preference for how the
-               HUD previews throttle/gears/energy. NOT a control command — the car
-               (firmware) owns its drive mode and reports it over telemetry, which
-               always wins in the HUD when live. normal=TRAINING, sim=RACE/gearbox,
-               full-sim=ERS. Styled like INPUT TYPE; persisted via save(). -->
-          <div class="colhead">DRIVE MODE <small>display preference · the car reports its own mode</small></div>
-          <div class="inputtyperow" id="driveModeRow">
-            <button class="pill on" data-drive="normal">NORMAL</button>
-            <button class="pill" data-drive="sim">SIMULATION</button>
-            <button class="pill" data-drive="full-sim">FULL SIM</button>
-          </div>
-          <div class="hint" id="driveModeNote">NORMAL linear throttle · SIMULATION gears · FULL SIM adds energy (ERS).</div>
+          <!-- DRIVE MODE + CAMERA MODE moved out of SEAT FIT into their own SETUP
+               screen (2026-07-20, Option B) so SEAT FIT is purely controller/input.
+               See the data-step="setup" section below. -->
 
           <!-- GAMEPAD panel — the existing SEAT FIT controls, unchanged; hidden
                only when INPUT TYPE is WHEEL. -->
@@ -365,14 +356,42 @@
             <div class="barsrc hidden" id="wheelMirrorSrc"><span class="srctag wheel">WHEEL → STR/THR/BRK</span></div>
             <div class="wheelpreview" id="wheelPreview"></div>
           </div>
+        </div>
+      </div>
+    </section>
 
-          <!-- CAMERA MODE (moved to the right column 2026-07-20 to balance the two
-               columns and clear the pinned radio/footnote overlays): AVAILABLE/REQUESTED
-               vs ACTIVE AUTHORITY, kept strictly apart. Manual selectable; Head Tracking
-               visible but LOCKED (no safe control path yet). Rendered from
-               shared/cameraMode.mjs; the locked card issues no command — no mode-request
-               RPC. AVAILABLE/REQUESTED is this setup's DEFAULT; ACTIVE AUTHORITY is NOT
-               REPORTED BY MAPPER because this viewer never observes the mapper's pick. -->
+    <!-- SETUP · MODE & CAMERA (2026-07-20, Option B): DRIVE MODE + CAMERA MODE
+         split out of SEAT FIT into their own screen, inserted before the GRID, so
+         SEAT FIT stays purely controller/input and these two mode choices sit
+         together as the last configuration before the pre-race checks. Both are
+         display-only: DRIVE MODE is a persisted HUD-preview preference (the car
+         reports its own mode over telemetry, which always wins); CAMERA MODE keeps
+         AVAILABLE/REQUESTED and ACTIVE AUTHORITY strictly apart, with Head Tracking
+         visible but LOCKED. No control/mode-request RPC from this screen. -->
+    <section class="setup-screen wide" data-step="setup">
+      <div class="stepname">SETUP · MODE &amp; CAMERA</div>
+      <div class="cols">
+        <div class="col">
+          <!-- DRIVE MODE (2026-07-20): a persisted DISPLAY preference for how the
+               HUD previews throttle/gears/energy. NOT a control command — the car
+               (firmware) owns its drive mode and reports it over telemetry, which
+               always wins in the HUD when live. normal=TRAINING, sim=RACE/gearbox,
+               full-sim=ERS. Styled like INPUT TYPE; persisted via save(). -->
+          <div class="colhead">DRIVE MODE <small>display preference · the car reports its own mode</small></div>
+          <div class="inputtyperow" id="driveModeRow">
+            <button class="pill on" data-drive="normal">NORMAL</button>
+            <button class="pill" data-drive="sim">SIMULATION</button>
+            <button class="pill" data-drive="full-sim">FULL SIM</button>
+          </div>
+          <div class="hint" id="driveModeNote">NORMAL linear throttle · SIMULATION gears · FULL SIM adds energy (ERS).</div>
+        </div>
+        <div class="col">
+          <!-- CAMERA MODE: AVAILABLE/REQUESTED vs ACTIVE AUTHORITY, kept strictly
+               apart. Manual selectable; Head Tracking visible but LOCKED (no safe
+               control path yet). Rendered from shared/cameraMode.mjs; the locked
+               card issues no command — no mode-request RPC. AVAILABLE/REQUESTED is
+               this setup's DEFAULT; ACTIVE AUTHORITY is NOT REPORTED BY MAPPER
+               because this viewer never observes the mapper's pick. -->
           <div class="colhead">CAMERA MODE <small>setup default vs. who actually aims</small></div>
           <div class="cammodes" id="camModes"></div>
           <div class="camauthority" id="camAuthority">

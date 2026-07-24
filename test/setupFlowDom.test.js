@@ -1006,6 +1006,7 @@ describe('video state -> HUD overlay + GRID lock (audit C1)', () => {
     el('feed').dispatchEvent(new Event('playing'));
     document.querySelector('.modecard[data-mode="solo"]').click(); // -> seatfit
     await tick();
+    el('navNext').click(); await tick(); // -> setup
     el('navNext').click(); // -> grid; enterGrid runs an immediate gridTick
     await tick(); await tick();
     expect(activeStep()).toBe('grid');
@@ -1017,6 +1018,7 @@ describe('video state -> HUD overlay + GRID lock (audit C1)', () => {
     await tick();
     document.querySelector('.modecard[data-mode="solo"]').click(); // -> seatfit
     await tick();
+    el('navNext').click(); await tick(); // -> setup
     el('navNext').click(); // -> grid again
     await tick(); await tick();
     expect(videoRow().classList.contains('ok')).toBe(false);
@@ -1440,11 +1442,19 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
     await tick();
     expect(activeStep()).toBe('seatfit');
   }
+  // CAMERA MODE + DRIVE MODE moved to their own SETUP screen (2026-07-20, Option
+  // B), one step past SEAT FIT — the camera cards/authority lines render there.
+  async function enterSetup(gs, pads = []) {
+    await enterSeatfit(gs, pads);
+    el('navNext').click(); // SEAT FIT -> SETUP
+    await tick();
+    expect(activeStep()).toBe('setup');
+  }
   const camCard = (mode) => el('camModes').querySelector(`[data-mode="${mode}"]`);
   const rows = () => [...el('padList').querySelectorAll('.netrow')];
 
   it('Manual is a selectable button; Head Tracking is a locked, non-button card', async () => {
-    await enterSeatfit(mockGs(), []);
+    await enterSetup(mockGs(), []);
     const cards = [...el('camModes').children];
     expect(cards.map((c) => c.dataset.mode)).toEqual(['manual', 'headtrack']);
     expect(camCard('manual').tagName).toBe('BUTTON');
@@ -1456,7 +1466,7 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
   });
 
   it('AVAILABLE/REQUESTED and ACTIVE AUTHORITY are distinct; active reads NOT REPORTED BY MAPPER', async () => {
-    await enterSeatfit(mockGs(), []);
+    await enterSetup(mockGs(), []);
     expect(el('camRequested').textContent).toBe('MANUAL · RIGHT STICK'); // setup default
     expect(el('camActive').textContent).toBe('NOT REPORTED BY MAPPER');
     expect(el('camActive').classList.contains('unreported')).toBe(true);
@@ -1467,7 +1477,7 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
 
   it('clicking the LOCKED Head Tracking card changes nothing and calls NO ground-station method', async () => {
     const gs = mockGs();
-    await enterSeatfit(gs, []);
+    await enterSetup(gs, []);
     const before = gsCalls(gs);
     camCard('headtrack').click();
     await tick();
@@ -1479,7 +1489,7 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
 
   it('clicking the selectable Manual card is display-only — no ground-station method is called', async () => {
     const gs = mockGs();
-    await enterSeatfit(gs, []);
+    await enterSetup(gs, []);
     const before = gsCalls(gs);
     camCard('manual').click();
     await tick();
@@ -1527,24 +1537,26 @@ describe('SEAT FIT — camera mode + controller (tasks §1/§3/§4/§5)', () => 
     // and the keyboard legend is applicable.
     await enterSeatfit(mockGs(), []);
     const seat = document.querySelector('.setup-screen[data-step="seatfit"]');
-    const text = seat.textContent;
-    const count = (re) => (text.match(re) || []).length;
-    // Exactly ONE "keyboard fallback" statement (the #ctlSource line). The key
-    // legend line adds the word once more, but a legend is not a second copy of
-    // the fallback fact — so total "keyboard" mentions never exceed 2 (was 3:
-    // #ctlSource + the LAYOUT hint + the empty-pad row).
-    expect(count(/keyboard fallback/gi)).toBe(1);
-    expect(count(/keyboard/gi)).toBeLessThanOrEqual(2);
-    // The mapper-authority / W3-log-only wording lives once, in #camModeNote
-    // (was twice: the head-tracking card help repeated it).
-    expect(count(/log-only/gi)).toBe(1);
+    const countIn = (t, re) => (t.match(re) || []).length;
+    // SEAT FIT — exactly ONE "keyboard fallback" statement (the #ctlSource line).
+    // The key legend line adds the word once more, but a legend is not a second
+    // copy of the fallback fact — so total "keyboard" mentions never exceed 2
+    // (was 3: #ctlSource + the LAYOUT hint + the empty-pad row).
+    expect(countIn(seat.textContent, /keyboard fallback/gi)).toBe(1);
+    expect(countIn(seat.textContent, /keyboard/gi)).toBeLessThanOrEqual(2);
     // The empty-pad row no longer restates the fallback.
     expect(el('padList').textContent).toBe('NO CONTROLLER DETECTED');
     // The key legend is present (shown only with no controller) and the pairing
     // guidance moved behind PAIRING NOTES.
     expect(el('keyboardHint').textContent).toMatch(/steer/);
     expect(el('pairingNotes').querySelector('summary').textContent).toBe('PAIRING NOTES');
-    // Safety semantics remain intact (kept from the existing SEAT FIT tests).
+    // Camera-mode wording now lives on the SETUP screen (Option B): advance to it
+    // and prove the mapper-authority / W3-log-only wording lives ONCE (in
+    // #camModeNote, was twice) and the head-tracking safety semantics are intact.
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('setup');
+    const setup = document.querySelector('.setup-screen[data-step="setup"]');
+    expect(countIn(setup.textContent, /log-only/gi)).toBe(1);
     expect(camCard('headtrack').querySelector('.camlock').textContent).toContain('LOCKED');
     expect(el('camActive').textContent).toBe('NOT REPORTED BY MAPPER');
   });
@@ -1797,7 +1809,8 @@ describe('SEAT FIT — wheel device resolution & absence (Batch 2 · findings 2 
     await tick();
     // With only the gamepad, the wheel resolves to no device — SEAT FIT must pass
     // null to the HUD, not fall back to the first (gamepad) slot.
-    el('navNext').click(); await tick();                  // SEAT FIT -> GRID (solo skips PIT WALL)
+    el('navNext').click(); await tick();                  // SEAT FIT -> SETUP (solo skips PIT WALL)
+    el('navNext').click(); await tick();                  // SETUP -> GRID
     expect(activeStep()).toBe('grid');
     el('startAnywayBtn').click();                         // beginStart() → applyInputSource() (sync)
     await vi.waitFor(() => {
@@ -1815,7 +1828,8 @@ describe('SEAT FIT — wheel device resolution & absence (Batch 2 · findings 2 
     await enterSeatfit(gs, [makePad('G29 Wheel', 0)]); // one device, WHEEL mode owns it
     pill('wheel').click();
     await tick();
-    el('navNext').click(); await tick();
+    el('navNext').click(); await tick(); // SEAT FIT -> SETUP
+    el('navNext').click(); await tick(); // SETUP -> GRID
     expect(activeStep()).toBe('grid');
     el('startAnywayBtn').click();
     await vi.waitFor(() => {
@@ -1882,10 +1896,10 @@ describe('SEAT FIT — BOTH-mode per-device source tags (Batch 3 / Decision B)',
 
 // Step rail (Batch 8a / flow chrome). The rail is rendered from the live per-mode
 // step list (shared/setupSteps.mjs) in the FIXED design order/labels
-// (01 GARAGE · 02 SEAT FIT · 03 PIT WALL · 04 GRID). States are honest: done for
-// steps already passed in the ACTUAL path, current for the active step, todo for
-// steps still ahead, skipped for a canonical step absent from the mode's path
-// (desktop mode omits PIT WALL). Display only — no navigation change.
+// (01 GARAGE · 02 PIT WALL · 03 SEAT FIT · 04 SETUP · 05 GRID). States are honest:
+// done for steps already passed in the ACTUAL path, current for the active step,
+// todo for steps still ahead, skipped for a canonical step absent from the mode's
+// path (desktop mode omits PIT WALL). Display only — no navigation change.
 describe('step rail states (Batch 8a / flow chrome)', () => {
   const railStep = (key) => el('stepRail').querySelector(`[data-step="${key}"]`);
   const railState = (key) => {
@@ -1893,13 +1907,13 @@ describe('step rail states (Batch 8a / flow chrome)', () => {
     return ['done', 'current', 'todo', 'skipped'].find((c) => s.classList.contains(c)) || null;
   };
 
-  it('renders all four canonical steps in the fixed design order/labels on every screen', async () => {
+  it('renders all five canonical steps in the fixed design order/labels on every screen', async () => {
     await loadRenderer(mockGs()); // fresh solo user -> GARAGE
     const steps = [...el('stepRail').querySelectorAll('.railstep')];
-    expect(steps.map((s) => s.dataset.step)).toEqual(['garage', 'pitwall', 'seatfit', 'grid']);
-    expect(steps.map((s) => s.querySelector('b').textContent)).toEqual(['01', '02', '03', '04']);
+    expect(steps.map((s) => s.dataset.step)).toEqual(['garage', 'pitwall', 'seatfit', 'setup', 'grid']);
+    expect(steps.map((s) => s.querySelector('b').textContent)).toEqual(['01', '02', '03', '04', '05']);
     expect(steps.map((s) => s.textContent.replace(/^\d+/, '').replace(/SKIPPED.*$/, '').trim()))
-      .toEqual(['GARAGE', 'PIT WALL', 'SEAT FIT', 'GRID']);
+      .toEqual(['GARAGE', 'PIT WALL', 'SEAT FIT', 'SETUP', 'GRID']);
   });
 
   it('desktop/solo mode marks PIT WALL skipped with a SKIPPED · DESKTOP reason chip; the rest track the path', async () => {
@@ -1986,10 +2000,10 @@ describe('GARAGE fast-path card (Batch 8a / flow chrome)', () => {
 });
 
 // Batch 8b — step reorder + skip navigation matrix. The flow is now
-// GARAGE -> SEAT FIT -> PIT WALL -> GRID; desktop/solo mode omits PIT WALL
-// (shared/setupSteps.mjs), so BACK/NEXT traverse the mode's ACTUAL path. CHANGE
-// SETUP always returns to GARAGE, where re-picking a mode re-enters its path —
-// the PIT WALL skip is a mode default, not a lock.
+// GARAGE -> PIT WALL -> SEAT FIT -> SETUP -> GRID; desktop/solo mode omits PIT
+// WALL (shared/setupSteps.mjs), so BACK/NEXT traverse the mode's ACTUAL path.
+// CHANGE SETUP always returns to GARAGE, where re-picking a mode re-enters its
+// path — the PIT WALL skip is a mode default, not a lock.
 describe('setup navigation matrix (Batch 8b)', () => {
   const pickMode = async (m) => {
     document.querySelector(`.modecard[data-mode="${m}"]`).click();
@@ -2001,43 +2015,53 @@ describe('setup navigation matrix (Batch 8b)', () => {
   };
   const whychip = (key) => el('stepRail').querySelector(`[data-step="${key}"] .whychip`);
 
-  it('desktop/solo NEXT walks GARAGE -> SEAT FIT -> GRID, skipping PIT WALL', async () => {
+  it('desktop/solo NEXT walks GARAGE -> SEAT FIT -> SETUP -> GRID, skipping PIT WALL', async () => {
     await loadRenderer(mockGs());
     await pickMode('solo');
     expect(activeStep()).toBe('seatfit');
+    el('navNext').click(); await tick();
+    expect(activeStep()).toBe('setup');
     el('navNext').click(); await tick();
     expect(activeStep()).toBe('grid'); // PIT WALL never entered
     expect(railStateOf('pitwall')).toBe('skipped');
     expect(whychip('pitwall').textContent).toBe('SKIPPED · DESKTOP');
   });
 
-  it('desktop/solo BACK from GRID returns to SEAT FIT then GARAGE (never PIT WALL)', async () => {
+  it('desktop/solo BACK from GRID returns to SETUP, SEAT FIT, then GARAGE (never PIT WALL)', async () => {
     await loadRenderer(mockGs());
     await pickMode('solo');
+    el('navNext').click(); await tick(); // -> setup
     el('navNext').click(); await tick(); // -> grid
     expect(activeStep()).toBe('grid');
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('setup');
     el('navBack').click(); await tick();
     expect(activeStep()).toBe('seatfit'); // BACK skips PIT WALL too
     el('navBack').click(); await tick();
     expect(activeStep()).toBe('garage');
   });
 
-  it('iPhone mode NEXT walks GARAGE -> PIT WALL -> SEAT FIT -> GRID in the new order', async () => {
+  it('iPhone mode NEXT walks GARAGE -> PIT WALL -> SEAT FIT -> SETUP -> GRID in the new order', async () => {
     await loadRenderer(mockGs());
     await pickMode('iphone-hud');
     expect(activeStep()).toBe('pitwall'); // PIT WALL now precedes SEAT FIT
     el('navNext').click(); await tick();
     expect(activeStep()).toBe('seatfit');
     el('navNext').click(); await tick();
+    expect(activeStep()).toBe('setup');
+    el('navNext').click(); await tick();
     expect(activeStep()).toBe('grid');
   });
 
-  it('iPhone mode BACK from GRID walks GRID -> SEAT FIT -> PIT WALL -> GARAGE', async () => {
+  it('iPhone mode BACK from GRID walks GRID -> SETUP -> SEAT FIT -> PIT WALL -> GARAGE', async () => {
     await loadRenderer(mockGs());
     await pickMode('iphone-hud'); // -> pitwall
     el('navNext').click(); await tick(); // -> seatfit
+    el('navNext').click(); await tick(); // -> setup
     el('navNext').click(); await tick(); // -> grid
     expect(activeStep()).toBe('grid');
+    el('navBack').click(); await tick();
+    expect(activeStep()).toBe('setup');
     el('navBack').click(); await tick();
     expect(activeStep()).toBe('seatfit');
     el('navBack').click(); await tick();
@@ -2057,11 +2081,13 @@ describe('setup navigation matrix (Batch 8b)', () => {
   it('CHANGE SETUP from GRID returns to GARAGE and re-enters the same mode path', async () => {
     await loadRenderer(mockGs());
     await pickMode('solo');
+    el('navNext').click(); await tick(); // -> setup
     el('navNext').click(); await tick(); // -> grid (solo)
     expect(activeStep()).toBe('grid');
     el('changeSetup').click(); await tick();
     expect(activeStep()).toBe('garage');
     await pickMode('solo'); // re-pick: same skip path
+    el('navNext').click(); await tick(); // -> setup
     el('navNext').click(); await tick();
     expect(activeStep()).toBe('grid');
   });
@@ -2069,7 +2095,8 @@ describe('setup navigation matrix (Batch 8b)', () => {
   it('the PIT WALL skip is a mode default, not a lock: CHANGE SETUP -> iPhone Cockpit re-enters PIT WALL', async () => {
     await loadRenderer(mockGs());
     await pickMode('solo');
-    el('navNext').click(); await tick(); // solo -> grid, PIT WALL skipped
+    el('navNext').click(); await tick(); // solo -> setup
+    el('navNext').click(); await tick(); // setup -> grid, PIT WALL skipped
     expect(activeStep()).toBe('grid');
     expect(railStateOf('pitwall')).toBe('skipped');
     el('changeSetup').click(); await tick();
@@ -2152,7 +2179,11 @@ describe('controller-driven UI navigation (Batch 9)', () => {
     await tick();
     expect(activeStep()).toBe('seatfit');
 
-    activate(el('navNext'));                                          // SEAT FIT -> GRID (solo skips PIT WALL)
+    activate(el('navNext'));                                          // SEAT FIT -> SETUP (solo skips PIT WALL)
+    await tick();
+    expect(activeStep()).toBe('setup');
+
+    activate(el('navNext'));                                          // SETUP -> GRID
     await tick();
     expect(activeStep()).toBe('grid');
 
@@ -2263,7 +2294,10 @@ describe('controller-driven UI navigation (Batch 9)', () => {
     activate(document.querySelector('.modecard[data-mode="solo"]')); // GARAGE -> SEAT FIT
     await tick();
     expect(activeStep()).toBe('seatfit');
-    activate(el('navNext'));                                          // SEAT FIT -> GRID (solo skips PIT WALL)
+    activate(el('navNext'));                                          // SEAT FIT -> SETUP (solo skips PIT WALL)
+    await tick();
+    expect(activeStep()).toBe('setup');
+    activate(el('navNext'));                                          // SETUP -> GRID
     await tick();
     expect(activeStep()).toBe('grid');
     expect(el('startAnywayBtn').classList.contains('hidden')).toBe(false); // checks incomplete

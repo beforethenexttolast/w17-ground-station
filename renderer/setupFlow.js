@@ -50,7 +50,8 @@ const RAIL_STEPS = [
   { key: 'garage', num: '01', label: 'GARAGE' },
   { key: 'pitwall', num: '02', label: 'PIT WALL' },
   { key: 'seatfit', num: '03', label: 'SEAT FIT' },
-  { key: 'grid', num: '04', label: 'GRID' },
+  { key: 'setup', num: '04', label: 'SETUP' },
+  { key: 'grid', num: '05', label: 'GRID' },
 ];
 function skipReason(key) {
   // Only PIT WALL is skippable today, and only because desktop/solo mode omits
@@ -117,7 +118,7 @@ async function save(patch) {
 }
 
 // ---------- step switching ----------
-const enterHooks = { pitwall: enterPitwall, seatfit: enterSeatfit, grid: enterGrid };
+const enterHooks = { pitwall: enterPitwall, seatfit: enterSeatfit, setup: enterSetup, grid: enterGrid };
 const leaveHooks = { pitwall: leavePitwall, seatfit: leaveSeatfit, grid: leaveGrid };
 
 // Render the step rail from the live per-mode step list. done/current/todo come
@@ -1188,6 +1189,7 @@ function setWheelBar(key, value) {
 }
 
 function enterSeatfit() {
+  radio('SEAT FIT: CONTROLLER MAPPING');
   persistedPadId = settings?.controller?.id || '';
   chosenPadKey = '';
   chosenPreset = settings?.controller?.preset || DEFAULT_PRESET;
@@ -1205,11 +1207,23 @@ function enterSeatfit() {
     b.addEventListener('click', () => { chosenPreset = key; presetManual = true; applyChoice(); sounds.uiTick(); });
     return b;
   }));
-  renderCameraMode();
-  applyDriveMode(settings?.drivingMode || 'normal'); // persisted — re-seed the pill + HUD preview each entry
   applyChoice();
   applyInputType(inputType);                  // sync panels/mirrors + paint device list + mirror
   padTimer = setInterval(seatfitTick, 250);   // then keep it live (hot-plug/disconnect)
+}
+
+// ---------- SETUP · MODE & CAMERA ----------
+// DRIVE MODE + CAMERA MODE were split out of SEAT FIT into their own screen
+// (2026-07-20, Option B). Both are display-only re-seeds, done on each entry:
+// drive mode re-paints its persisted pill + the HUD preview (the car's live
+// telemetry mode always wins in the HUD); camera mode re-renders the pure
+// cameraMode.mjs view (Manual selectable, Head Tracking LOCKED). No control /
+// mode-request RPC — the click handlers only re-render locally / persist the
+// drive-mode preference, exactly as before the move.
+function enterSetup() {
+  radio('SETUP: DRIVE & CAMERA MODE');
+  applyDriveMode(settings?.drivingMode || 'normal'); // persisted — re-seed the pill + HUD preview each entry
+  renderCameraMode();
 }
 
 // CAMERA MODE section (task §4). Rendered from the pure model: Manual is the only
