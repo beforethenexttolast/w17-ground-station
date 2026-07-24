@@ -408,6 +408,12 @@ body{background:#000;color:var(--silver);
      seen with an unusual auth error. The full text lives in .errdetail. */
   max-width:min(46ch,80vw);overflow-wrap:anywhere;line-height:1.4}
 .netstatus.live{color:var(--teal)}
+/* IPHONE LINK / PIT WALL (item 4): the CHECK-result line reserves a row (min-
+   height) so a result appearing can't shove the note below it — but that reserve
+   left ~37px of dead space above the note before any check runs. Collapse the
+   reserve ONLY while the line is empty; it snaps back the instant a PINGING…/
+   REACHABLE result lands, so nothing shifts during the state that mattered. */
+#addrStatus:empty{min-height:0}
 /* 2E: expandable, self-contained technical detail. Bounded width + capped
    scroll height + wrapping, so however long/rambling a localized Windows error
    is, it can never cover buttons, rows, or the status line. Collapsed by
