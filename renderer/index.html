@@ -28,10 +28,6 @@
           <div class="team">Mercedes-AMG Petronas</div>
         </div>
       </div>
-      <div class="revwrap">
-        <div class="revlabel">REVS · SHIFT</div>
-        <div class="rev panel" id="rev"></div>
-      </div>
       <!-- Session clock + one consolidated status stack under it (Batch 8a /
            flow chrome): the scattered link/gamepad/W3/replay/head-intent chips
            now live in a single right-aligned .statusstack below the clock panel
@@ -56,6 +52,14 @@
           <div class="hichip hidden" id="headIntentChip" title=""></div>
         </div>
       </div>
+    </div>
+
+    <!-- Rev/shift strip: a direct child of .hud (not the ⚙-inset .top row) so it
+         centers on the true viewport — dead-centre above the GEAR block — instead
+         of drifting with the RUSSELL-plate / clock-stack widths. -->
+    <div class="revwrap">
+      <div class="revlabel">REVS · SHIFT</div>
+      <div class="rev panel" id="rev"></div>
     </div>
 
     <div class="bottom">
@@ -94,13 +98,17 @@
       </div>
 
       <div class="right">
+        <!-- Battery voltage sits at the TOP of the right stack, above the
+             boost/overtake/DRS indicators (2026-07-20). -->
+        <div class="battrow panel" id="battRow">
+          <div class="ershead"><b>BATT</b><span class="num"><span id="battV">--</span> V</span></div>
+        </div>
+        <!-- boost · overtake · DRS on a single line (design bundle §11 /
+             05-hud.html). The row wraps only if the viewport is too narrow. -->
         <div class="pillrow">
           <div class="pill boost" id="boost">Boost</div>
           <div class="pill ot" id="ot">Overtake</div>
-        </div>
-        <div class="pillrow"><div class="pill drs" id="drs">DRS</div></div>
-        <div class="battrow panel" id="battRow">
-          <div class="ershead"><b>BATT</b><span class="num"><span id="battV">--</span> V</span></div>
+          <div class="pill drs" id="drs">DRS</div>
         </div>
         <div class="ersbox panel">
           <div class="ershead"><b>ERS</b><span class="num"><span id="ersPct">100</span>%</span></div>

@@ -53,7 +53,13 @@ body{background:#000;color:var(--silver);
   clip-path:polygon(8% 0,100% 0,92% 100%,0 100%);}
 .driver .name{font-weight:800;letter-spacing:.12em;font-size:clamp(13px,1.7vw,20px);text-transform:uppercase}
 .driver .team{color:var(--teal);letter-spacing:.26em;font-size:clamp(8px,1vw,11px);text-transform:uppercase;font-weight:700}
-.revwrap{align-self:center;display:flex;flex-direction:column;align-items:center;gap:.4em}
+/* Rev/shift strip, screen-centred. It is a direct child of .hud (full viewport),
+   absolutely centred at left:50% so it sits dead-centre above the GEAR block and
+   never drifts with the RUSSELL-plate / clock-stack widths or the ⚙ inset on
+   .top. top:var(--gap) keeps it level with the driver plate + clock (same top
+   margin); align-items:center centres REVS · SHIFT over its own dot strip. */
+.revwrap{position:absolute;left:50%;top:var(--gap);transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:.4em}
 .revlabel{color:var(--muted);letter-spacing:.4em;font-size:clamp(7px,.9vw,10px);text-transform:uppercase}
 .rev{display:flex;gap:clamp(3px,.5vw,7px);padding:.5em .7em}
 .rev i{width:clamp(9px,1.2vw,15px);height:clamp(9px,1.2vw,15px);border-radius:50%;
