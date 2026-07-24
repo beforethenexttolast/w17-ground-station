@@ -1584,7 +1584,6 @@ function runLights() {
   for (const s of screens) s.classList.remove('active');
   setupNav.classList.add('hidden');
   if (stepRail) stepRail.classList.add('hidden'); // rail belongs to the setup steps, not the lights hand-off
-  el('gateFootnote').classList.add('hidden');
   // Start-lights countdown is a ⚙ setting (off by default); off = straight in.
   if (settings && settings.startLightsEnabled === false) {
     finishStart('SESSION LIVE', 250);
@@ -1712,7 +1711,6 @@ el('setRerun').addEventListener('click', () => {
   // Gate back up ⇒ the HUD preview toggle is covered again — re-hide it so it
   // leaves the Tab/pad focus order (Batch 9 triage #4; hud.js un-hides on start).
   document.querySelector('.demoToggle').classList.add('hidden');
-  el('gateFootnote').classList.remove('hidden');
   showStep('garage');
 });
 

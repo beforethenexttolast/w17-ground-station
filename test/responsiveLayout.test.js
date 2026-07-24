@@ -43,12 +43,12 @@ describe('responsive layout — setup overlay scrolls, never clips (Phase 3)', (
     expect(gate).toMatch(/padding:[^;]*clamp\(\s*var\(--gate-toast-reserve\)/);
   });
 
-  it('the radio + footnote overlays are position:fixed viewport overlays, not scroll-flow children (Batch 2 §3)', () => {
+  it('the radio overlay is a position:fixed viewport overlay, not a scroll-flow child (Batch 2 §3)', () => {
     // As position:absolute children of the scrollable .gate, a tall SEAT FIT that
     // scrolled would carry these toasts up into the content band. position:fixed
     // pins them to the viewport so they stay clear of the scrolling content.
+    // (The viewer-only footnote overlay was removed 2026-07-20.)
     expect(rule('.radioLog')).toMatch(/position:\s*fixed/);
-    expect(rule('.keys.footnote')).toMatch(/position:\s*fixed/);
   });
 });
 

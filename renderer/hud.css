@@ -229,8 +229,6 @@ body{background:#000;color:var(--silver);
   max-width:100%;white-space:normal;overflow-wrap:break-word;
   clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);transition:filter .12s,transform .12s;}
 .startbtn:hover{filter:brightness(1.15);transform:translateY(-1px)}
-.keys{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.08em;line-height:1.8;max-width:46ch}
-.keys strong{color:var(--silver);letter-spacing:.18em}
 .demoToggle{position:fixed;bottom:.6em;left:50%;transform:translateX(-50%);z-index:9;pointer-events:auto}
 .demoToggle button{font-family:inherit;cursor:pointer;background:rgba(16,22,24,.7);border:1px solid var(--panel-edge);
   color:var(--muted);letter-spacing:.2em;text-transform:uppercase;font-size:11px;font-weight:700;padding:.4em 1em;
@@ -448,13 +446,6 @@ body{background:#000;color:var(--silver);
 .startbtn.override.hidden{display:none}
 .setup-nav{display:flex;gap:clamp(1em,2.5vw,2.2em);margin-top:.2em}
 .setup-nav.hidden{display:none}
-.keys.hidden{display:none}
-/* one-line disclaimer pinned above the demo toggle, out of the step flow — a
-   VIEWPORT overlay (position:fixed), so a scrolling gate never drags it into the
-   content band (task Batch 2 §3). */
-.keys.footnote{position:fixed;left:50%;bottom:2.6em;transform:translateX(-50%);
-  max-width:90ch;line-height:1.4;white-space:nowrap}
-@media (max-width:900px){.keys.footnote{white-space:normal;max-width:60ch}}
 
 /* SEAT FIT layout + live-input preview (renderer/padPreview.js — display only) */
 .padpreview{width:100%;max-width:min(420px,100%)}
