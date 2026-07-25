@@ -264,6 +264,21 @@ body{background:#000;color:var(--silver);
    collapses to one column when only ~34ch fits. */
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,34ch),56ch));
   gap:clamp(1.2em,3vw,3em);align-items:start;justify-content:center;text-align:left;width:100%}
+/* SETUP opts OUT of the split (owner decision, 2026-07-25). Measured on the real
+   renderer at 1470×956 / 1280×800 / 1366×768 / 1024×640: CAMERA MODE (right) ran
+   2.98–3.30 : 1 taller than DRIVE MODE (left) at EVERY size — at 1024×640 the
+   left column ended at 41.8% of the viewport while the right ran to 71.6%,
+   leaving ~191px of dead left column. One centred track keeps the same readable
+   56ch cap the split columns already hit (the track measured 408.6px before and
+   after), so the two sections stack at their existing width and the grid's own
+   row-gap supplies the rhythm between them. Accepted cost: the gate now scrolls
+   30/72/95px at 1280×800 / 1366×768 / 1024×640 — that overflow is the fixed
+   radio band's RESERVE, not content (nav bottom stays at 95.8% worst-case and
+   nothing intersects the band), and .gate already scrolls by design.
+   DESIGN_NOTES.md §14(b) put CAMERA MODE in a right column to balance SEAT FIT;
+   SEAT FIT is NOT the problem (LIVE MIRROR fills its right column, which is the
+   TALLER one at 1.31–1.38 : 1) — do not "fix" it by copying this. */
+.cols.stack{grid-template-columns:min(100%,56ch)}
 .col{display:flex;flex-direction:column;gap:.7em;align-items:flex-start;min-width:0;width:100%}
 .cols .netpane{align-items:flex-start}
 .colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(10px,1vw,13px);text-transform:uppercase}

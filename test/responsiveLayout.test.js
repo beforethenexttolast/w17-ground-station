@@ -300,6 +300,78 @@ describe('HUD + setup layout rules from e01eb9f / e09369b', () => {
   });
 });
 
+// SETUP opts OUT of the two-column split (owner decision, 2026-07-25). Measured
+// on the real renderer at the four audit sizes: CAMERA MODE ran 2.98–3.30 : 1
+// taller than DRIVE MODE, and at 1024×640 the left column ended at 41.8% while the
+// right ran to 71.6% — ~191px of dead left column. Stacking costs vertical space
+// (the gate now scrolls 30/72/95px at 1280×800 / 1366×768 / 1024×640) which the
+// owner accepted: .gate already scrolls by design, no content is clipped, and the
+// overflow is the fixed radio band's RESERVE, not content — nav bottom stays at
+// 95.8% of the viewport worst-case and nothing intersects the band.
+describe('SETUP is one centred column, not a split (owner decision 2026-07-25)', () => {
+  const setupSection = () => doc.querySelector('section.setup-screen[data-step="setup"]');
+
+  it('the SETUP grid is forced to ONE track, capped readable and never wider than its container', () => {
+    // min(100%,56ch) — NOT minmax(0,56ch): the track must yield to a narrow
+    // container instead of overflowing it, and NOT repeat(auto-fit,…), which is
+    // exactly the two-column behaviour being opted out of.
+    const stack = rule('.cols.stack');
+    expect(stack).toMatch(/grid-template-columns:\s*min\(\s*100%\s*,\s*56ch\s*\)/);
+    expect(stack).not.toMatch(/auto-fit|auto-fill/);
+    expect(stack).not.toMatch(/minmax\(\s*0/); // would overflow a sub-56ch container
+    // 56ch matches the cap the split columns already hit, so stacking does not
+    // also re-wrap the prose (measured: track stayed 408.6px before and after).
+    expect(rule('.cols')).toMatch(/56ch/);
+  });
+
+  it('the SETUP section CARRIES .cols.stack and has DROPPED .wide (markup, not just CSS)', () => {
+    const sec = setupSection();
+    expect(sec, 'section[data-step="setup"] must exist in index.html').not.toBeNull();
+    const grid = sec.querySelector('.cols');
+    expect(grid, 'SETUP must still use the .cols grid').not.toBeNull();
+    expect(grid.classList.contains('stack'), 'SETUP .cols must carry .stack').toBe(true);
+    // A lone 56ch track no longer earns the 1340px wide section.
+    expect(sec.classList.contains('wide'), 'SETUP must NOT be .wide any more').toBe(false);
+  });
+
+  it('SEAT FIT keeps its split — it is NOT the screen with the imbalance', () => {
+    // DESIGN_NOTES.md §14(b) put CAMERA MODE in a right column to balance SEAT
+    // FIT, and the original premise was INVERTED: SEAT FIT's right column is not
+    // empty (LIVE MIRROR fills it) and it is the TALLER column at 1.31–1.38 : 1.
+    // Stacking SEAT FIT too would be the wrong fix, so pin that it stays split.
+    const seatfit = doc.querySelector('section.setup-screen[data-step="seatfit"]');
+    expect(seatfit, 'section[data-step="seatfit"] must exist').not.toBeNull();
+    const grid = seatfit.querySelector('.cols');
+    expect(grid).not.toBeNull();
+    expect(grid.classList.contains('stack'), 'SEAT FIT must stay two-column').toBe(false);
+    expect(grid.classList.contains('seatcols')).toBe(true);
+  });
+
+  it('stacking did not orphan the DRIVE MODE handler or the CAMERA MODE id lookups', () => {
+    // The two JS contracts a markup move could silently break: the click handler
+    // is DELEGATED on #driveModeRow and bound once at module load, and
+    // renderCameraMode() resolves #camModes / #camAuthority BY ID. Both must
+    // still live inside the SETUP section, in DRIVE-then-CAMERA order.
+    const sec = setupSection();
+    const driveRow = sec.querySelector('#driveModeRow');
+    const camModes = sec.querySelector('#camModes');
+    const camAuth = sec.querySelector('#camAuthority');
+    expect(driveRow, '#driveModeRow must still be inside the SETUP section').not.toBeNull();
+    expect(camModes, '#camModes must still be inside the SETUP section').not.toBeNull();
+    expect(camAuth, '#camAuthority must still be inside the SETUP section').not.toBeNull();
+    // ids the JS looks up must be unique document-wide, else getElementById wins
+    // the wrong one after a copy/paste move.
+    for (const id of ['driveModeRow', 'camModes', 'camAuthority']) {
+      expect(doc.querySelectorAll(`#${id}`).length, `#${id} must be unique`).toBe(1);
+    }
+    // The delegated handler reads e.target.dataset.drive, so the pills must be
+    // DESCENDANTS of the delegating row (not siblings moved out beside it).
+    expect(driveRow.querySelectorAll('.pill[data-drive]').length).toBe(3);
+    // Document order: DRIVE MODE stacks ABOVE CAMERA MODE.
+    expect(driveRow.compareDocumentPosition(camModes) & 4 /* FOLLOWING */).toBeTruthy();
+  });
+});
+
 describe('responsive layout — readable at the smallest target (Phase 3)', () => {
   it('body/help/status/step text keep a readable clamp floor', () => {
     expect(clampMin(rule('.hint'))).toBeGreaterThanOrEqual(11);

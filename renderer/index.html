@@ -399,9 +399,18 @@
          reports its own mode over telemetry, which always wins); CAMERA MODE keeps
          AVAILABLE/REQUESTED and ACTIVE AUTHORITY strictly apart, with Head Tracking
          visible but LOCKED. No control/mode-request RPC from this screen. -->
-    <section class="setup-screen wide" data-step="setup">
+    <section class="setup-screen" data-step="setup">
       <div class="stepname">SETUP · MODE &amp; CAMERA</div>
-      <div class="cols">
+      <!-- ONE centred column (owner decision, 2026-07-25), not the two-column
+           split this screen shipped with in 42319ad: DRIVE MODE is ~1/3 the
+           height of CAMERA MODE at every target size, so the split left a large
+           dead left column. `.cols stack` forces a single 56ch track — the same
+           width the split columns already capped at — and `wide` is dropped
+           because a lone 56ch track no longer earns the 1340px section. The two
+           `.col` children keep their own markup/ids, so the #driveModeRow
+           delegated handler and renderCameraMode()'s #camModes / #camAuthority
+           lookups are untouched. -->
+      <div class="cols stack">
         <div class="col">
           <!-- DRIVE MODE (2026-07-20): a persisted DISPLAY preference for how the
                HUD previews throttle/gears/energy. NOT a control command — the car
