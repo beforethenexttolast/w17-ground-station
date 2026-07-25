@@ -11,6 +11,8 @@
     "test:watch": "vitest",
     "proto:check": "node scripts/check-canonical-proto.js",
     "proto:sync": "node scripts/check-canonical-proto.js --write",
+    "feel:check": "node scripts/check-firmware-feel.js",
+    "feel:sync": "node scripts/check-firmware-feel.js --write",
     "smoke:electron": "node scripts/electron-smoke.js",
     "app:rebuild": "electron-rebuild -f -w serialport",
     "build": "npm run app:rebuild && electron-builder --win",

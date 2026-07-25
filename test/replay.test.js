@@ -74,9 +74,15 @@ describe('ReplaySource', () => {
   });
 });
 
-describe('feel constants match the firmware ErsConfig numbers', () => {
+describe('feel constants are the values the replay demo was tuned against', () => {
   it('are the agreed shared values', () => {
-    // Guards against drift from w17-control-fw/lib/ers/ErsSystem.hpp.
+    // HONEST SCOPE (corrected 2026-07-25): this asserts the constants against
+    // literals, so it pins the numbers THIS FILE's replay expectations were tuned
+    // against — it does NOT guard against firmware drift, which it cannot: it
+    // never reads a firmware header. It used to claim it did.
+    // The real cross-repo guard is test/feelConstantsDrift.test.js (hermetic, vs
+    // shared/canonical/firmware_feel.json) plus `npm run feel:check` (the snapshot
+    // vs the live w17-control-fw headers). Both are needed; neither substitutes.
     expect(ERS_DEPLOY_PCT_PER_SEC).toBe(26);
     expect(ERS_HARVEST_PCT_PER_SEC).toBe(11);
     expect(ERS_BOOST_MULTIPLIER).toBeCloseTo(1.18, 5);

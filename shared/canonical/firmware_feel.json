@@ -1,0 +1,20 @@
+{
+    "_comment": "GENERATED — do not hand-edit. Canonical snapshot of the w17-control-fw feel values that shared/feelConstants.js must match. Refresh with `npm run feel:sync` after `npm run feel:check` confirms (or deliberately adopts) a firmware change. See scripts/firmwareFeelSnapshot.js.",
+    "source": "w17-control-fw",
+    "headers": [
+        "lib/ers/include/ers/ErsSystem.hpp",
+        "lib/gearbox/include/gearbox/Gearbox.hpp"
+    ],
+    "members": {
+        "deployRatePermille": 260,
+        "harvestBrakeRatePermille": 110,
+        "boostBonusPermille": 180,
+        "numGears": 4
+    },
+    "feel": {
+        "ERS_DEPLOY_PCT_PER_SEC": 26,
+        "ERS_HARVEST_PCT_PER_SEC": 11,
+        "ERS_BOOST_MULTIPLIER": 1.18,
+        "GEARS": 4
+    }
+}

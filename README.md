@@ -36,7 +36,19 @@ npm run build               # package a Windows .exe (electron-builder; unsigned
                             #   default -- code-signing is opt-in, see docs/CODESIGNING.md)
 npm run proto:check         # verify the head-intent proto mirror matches ../w17-mapper
                             #   (dev-only; not part of the hermetic test suite)
+npm run feel:check          # verify the ERS/gearbox feel constants still match
+                            #   ../w17-control-fw's headers (dev-only, cross-repo;
+                            #   --strict makes an absent checkout fail instead of skip.
+                            #   Exit 1 = drifted, 2 = could not check, matching
+                            #   control-fw's own tools/link2_copy_check.sh)
 ```
+
+Both cross-repo checks pair with a **hermetic** test that runs in every CI against a
+checked-in snapshot, so the snapshot is the single point of coupling and the suite never
+needs a sibling checkout: `test/protoDrift.test.js` for the mapper contract and
+`test/feelConstantsDrift.test.js` for the firmware feel values. Adopt an intended
+upstream change with `npm run proto:sync` / `npm run feel:sync`, then make the hermetic
+half green again.
 
 (Two different "demos": the floating **▶ HUD preview · simulated** button on the setup
 gate just plays simulated inputs/physics into the HUD, while `npm run demo` feeds the
