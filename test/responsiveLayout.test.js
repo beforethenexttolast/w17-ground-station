@@ -372,6 +372,61 @@ describe('SETUP is one centred column, not a split (owner decision 2026-07-25)',
   });
 });
 
+// #gamepadPanel had NO vertical rhythm (pre-existing, NOT caused by 42319ad).
+// Measured on the real renderer at 1366×768: display:block with no gap put all six
+// row boundaries at EXACTLY 0px, so `NO CONTROLLER · KEYBOARD FALLBACK` and
+// `LAYOUT` read as colliding while every sibling in the same .col breathed at
+// 11.2px. After the fix all six read 11.2px — the column's own gap.
+describe('#gamepadPanel takes the column gap, not zero and not a magic number (2026-07-25)', () => {
+  it('is a flex COLUMN with a gap (display:block gave every row boundary 0px)', () => {
+    const gp = rule('#gamepadPanel');
+    expect(gp).toMatch(/display:\s*flex/);
+    expect(gp).toMatch(/flex-direction:\s*column/);
+    expect(gp).toMatch(/gap:/);
+    expect(gp).not.toMatch(/display:\s*block/);
+  });
+
+  it('sources that gap from the SAME token .col uses — no re-guessed literal', () => {
+    // The whole point: the nested panel inherits the column's spacing, so the two
+    // provably cannot drift. A literal here (even a correct .7em) would be the
+    // magic number this fix exists to avoid.
+    expect(rule('#gamepadPanel')).toMatch(/gap:\s*var\(--col-gap\)/);
+    expect(rule('.col')).toMatch(/gap:\s*var\(--col-gap\)/);
+    expect(rule('#gamepadPanel')).not.toMatch(/gap:\s*[\d.]+(?:em|px|rem)/); // no literal
+    // …and the token is really defined, non-zero (a missing var would collapse the
+    // gap back to 0 and this whole fix would silently vacate).
+    const decl = rule(':root').match(/--col-gap:\s*([^;]+);/);
+    expect(decl, '--col-gap must be defined on :root').toBeTruthy();
+    expect(decl[1].trim()).toMatch(/^[\d.]+(?:em|rem|px)$/);
+    expect(parseFloat(decl[1])).toBeGreaterThan(0);
+  });
+
+  it('still hides on INPUT TYPE = WHEEL — the .hidden rule outranks the new display', () => {
+    // #gamepadPanel.hidden is id+class (1 id, 1 class) vs #gamepadPanel (1 id), so
+    // display:none wins regardless of order. Pin that the hiding rule still exists
+    // and still names this panel, else WHEEL mode would show both panels.
+    expect(css).toMatch(/#gamepadPanel\.hidden[^{]*\{[^}]*display:\s*none/);
+  });
+
+  it('the six rows are DIRECT children — a wrapper div would silently vacate the gap', () => {
+    // `gap` only spaces direct flex children, so this is the markup half of the
+    // contract: nest these in an inner <div> and the CSS above still passes while
+    // the rows collapse back to 0px.
+    const gp = doc.getElementById('gamepadPanel');
+    expect(gp, '#gamepadPanel must exist in index.html').not.toBeNull();
+    for (const id of ['padList', 'ctlStatus', 'presetRow', 'keyboardHint']) {
+      const child = doc.getElementById(id);
+      expect(child, `#${id} must exist`).not.toBeNull();
+      expect(child.parentElement, `#${id} must be a DIRECT child of #gamepadPanel`).toBe(gp);
+    }
+    // The DEVICE and LAYOUT headings are direct children too — LAYOUT is the row
+    // that visually collided with #ctlSource.
+    const heads = [...gp.children].filter((c) => c.classList.contains('colhead'));
+    expect(heads.length).toBe(2);
+    expect(heads.map((h) => h.textContent.trim().split(/\s+/)[0])).toEqual(['DEVICE', 'LAYOUT']);
+  });
+});
+
 describe('responsive layout — readable at the smallest target (Phase 3)', () => {
   it('body/help/status/step text keep a readable clamp floor', () => {
     expect(clampMin(rule('.hint'))).toBeGreaterThanOrEqual(11);

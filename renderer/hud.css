@@ -4,6 +4,10 @@
   --silver:#E4EAEC; --muted:#7E898E; --red:#FF2D2D; --green:#00E676;
   --violet:#B98BFF; --amber:#FFB200;
   --gap:clamp(8px,1.4vw,18px);
+  /* Vertical rhythm BETWEEN stacked rows inside one setup column (.col). Named so
+     a nested panel can inherit the column's own spacing instead of re-guessing it
+     with a magic number — see #gamepadPanel. */
+  --col-gap:.7em;
   --mono:"SF Mono",ui-monospace,"Consolas","Roboto Mono",monospace;
   /* Toast-band geometry — the .gate bottom padding is DERIVED from these (see
      .gate below) so it provably clears the pinned team-radio stack at max scroll,
@@ -279,7 +283,7 @@ body{background:#000;color:var(--silver);
    SEAT FIT is NOT the problem (LIVE MIRROR fills its right column, which is the
    TALLER one at 1.31–1.38 : 1) — do not "fix" it by copying this. */
 .cols.stack{grid-template-columns:min(100%,56ch)}
-.col{display:flex;flex-direction:column;gap:.7em;align-items:flex-start;min-width:0;width:100%}
+.col{display:flex;flex-direction:column;gap:var(--col-gap);align-items:flex-start;min-width:0;width:100%}
 .cols .netpane{align-items:flex-start}
 .colhead{color:var(--teal);letter-spacing:.3em;font-weight:800;font-size:clamp(10px,1vw,13px);text-transform:uppercase}
 .colhead small{color:var(--muted);letter-spacing:.08em;font-weight:400;text-transform:none;margin-left:.6em}
@@ -552,6 +556,15 @@ button.cammode:hover{border-color:var(--teal)}
    is a per-session choice (never persisted); switching just shows/hides the two
    panels and the two right-column mirrors. */
 .inputtyperow{display:flex;gap:.5em;flex-wrap:wrap}
+/* PRE-EXISTING defect, not caused by 42319ad (2026-07-25): #gamepadPanel was
+   display:block with NO gap, so its six rows (DEVICE -> padList -> ctlStatus ->
+   LAYOUT -> presetRow -> keyboardHint) butted together at exactly 0px while every
+   other row in the same .col breathed at var(--col-gap) — `NO CONTROLLER ·
+   KEYBOARD FALLBACK` and `LAYOUT` read as colliding (measured: zero spacing, no
+   true overlap). It is a nested panel inside a .col, so it takes the COLUMN's own
+   gap token rather than a fresh magic number. #gamepadPanel.hidden below is
+   id+class, so it still outranks this display and keeps hiding the panel. */
+#gamepadPanel{display:flex;flex-direction:column;gap:var(--col-gap)}
 #gamepadPanel.hidden,#gamepadMirror.hidden,#wheelPanel.hidden,#wheelMirror.hidden{display:none}
 
 /* WHEEL assign/calibrate panel (left column). Rows wrap so the ASSIGN /
