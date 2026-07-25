@@ -45,6 +45,16 @@
                effective telemetry source is replay, so screenshots self-identify.
                Separate from the PIT WALL SIMULATED WIFI tag and the W3 chip. -->
           <div class="replaychip hidden" id="replayChip">TELEMETRY · REPLAY</div>
+          <!-- ARM / FAILSAFE provenance (audit R01, owner decision 2026-07-25).
+               The car has NO ground-bound carrier for these: link2 carries armed +
+               failsafe but only to board #2, and the handset only ever sees M%u.
+               `armed`/`failsafe` are therefore DEMO-ONLY fields (shared/telemetry.js)
+               that only shared/replaySource.js ever sets — so the indicators stay
+               simulated and this chip says so, in the same muted "unreported"
+               vocabulary as ACTIVE AUTHORITY's NOT REPORTED BY MAPPER. Always
+               visible: the claim is permanently true, not a transient state.
+               Text is set by hud.js renderArmChip(); this is the honest default. -->
+          <div class="armchip" id="armChip">ARM / FAILSAFE · NOT REPORTED BY CAR</div>
           <div class="w3chip hidden" id="w3Chip">HEAD-TRACK LOG · NO CONTROL</div>
           <!-- Mapper head-intent diagnostics (CB8 slice 3B): display-only mirror
                of the mapper's read-only gRPC stream. Hidden until the consumer is

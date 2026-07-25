@@ -25,6 +25,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
   w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'), headIntentChipEl = el('headIntentChip'),
+  armChipEl = el('armChip'),
   inputSrcTagEl = el('inputSrcTag'),
   gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote'), feedNoteText = el('feedNoteText');
@@ -188,7 +189,40 @@ export function setW3Chip(active) { w3ChipEl.classList.toggle('hidden', !active)
 // replay/synthetic, so a screenshot can never be mistaken for live car data.
 // Driven by the effective source only — independent of the SIMULATED WIFI tag
 // (a different subsystem) and of the W3 log-only chip (a different concern).
-export function setReplayChip(active) { replayChipEl.classList.toggle('hidden', !active); }
+export function setReplayChip(active) {
+  replayChipEl.classList.toggle('hidden', !active);
+  replaySource = !!active;
+  renderArmChip();
+}
+
+// ARM / FAILSAFE provenance (audit R01, owner decision 2026-07-25). `armed` and
+// `failsafe` are DEMO-ONLY fields: the car has no ground-bound carrier for them
+// (link2 carries both, but only to board #2; the handset only ever sees `M%u`),
+// the real CRSF backchannel carries no such field, and only
+// shared/replaySource.js ever sets them. The owner's decision is that these
+// indicators STAY SIMULATED BUT MUST SAY SO — adding A/F to the FLIGHTMODE string
+// was rejected because "G4 M2 E100 A1F0" exactly fills the 15-char budget, R13
+// (whether a real ELRS/handset relays a custom status string at all) is unproven,
+// and parseFlightMode's per-field fallback is only tested on the clean-ASCII path,
+// so a mid-token truncation could surface a WRONG armed state. An honestly
+// labelled simulated indicator beats a possibly-wrong real one. Revisit only after
+// R13 is proven on hardware.
+//
+// The label follows the muted-unreported convention this app already uses for
+// ACTIVE AUTHORITY (shared/cameraMode.mjs ACTIVE_AUTHORITY_UNREPORTED_LABEL):
+// muted, worded, and never hidden — the claim is permanently true, so hiding it
+// would be the same silence this closes. Display only.
+export const ARM_UNREPORTED_LABEL = 'ARM / FAILSAFE · NOT REPORTED BY CAR';
+export const ARM_SIMULATED_LABEL = 'ARM / FAILSAFE · SIMULATED';
+let replaySource = false;
+function renderArmChip() {
+  if (!armChipEl) return;
+  // Under replay the fields DO carry values that reach the display (a demo
+  // failsafe fires the LINK LOST alarm), so name them simulated rather than
+  // unreported — the value exists, it just isn't the car's.
+  armChipEl.textContent = replaySource ? ARM_SIMULATED_LABEL : ARM_UNREPORTED_LABEL;
+}
+renderArmChip();
 // Mapper head-intent diagnostics chip (CB8 slice 3B): render the mapper's
 // read-only authoritative snapshot pushed one-way from main. DISPLAY-ONLY — the
 // pure view (shared/headIntentView.mjs) only maps the mapper's fields to chip
@@ -438,7 +472,19 @@ function render() {
   battVEl.classList.toggle('stale', stale);
 
   if (state === 'link-lost') {
-    linkEl.textContent = 'LINK LOST'; linkEl.className = 'link lost';
+    // PROVENANCE (audit R01, 2026-07-25): 'link-lost' has two triggers with very
+    // different meanings, and the operator must be able to tell them apart.
+    //   linkQualityPct === 0 -> REAL: the ground TX module still feeds us
+    //     LINK_STATISTICS and it says the radio link to the car is gone.
+    //   failsafe === true    -> SIMULATED: a demo-only field. Nothing but
+    //     shared/replaySource.js ever sets it, so `failsafe === true` is itself
+    //     proof of a synthetic trigger — no source plumbing needed to know.
+    // Without the suffix a replayed failsafe episode raised a real-looking alarm.
+    // shared/linkState.mjs is deliberately untouched: the four states it returns
+    // are unchanged, this only labels which trigger produced this one.
+    const simulatedTrigger = !!telem && telem.failsafe === true;
+    linkEl.textContent = simulatedTrigger ? 'LINK LOST · SIMULATED' : 'LINK LOST';
+    linkEl.className = 'link lost';
   } else if (state === 'telemetry-lost') {
     linkEl.textContent = 'TELEMETRY LOST'; linkEl.className = 'link lost';
   } else if (state === 'live') {

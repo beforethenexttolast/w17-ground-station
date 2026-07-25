@@ -98,6 +98,15 @@ body{background:#000;color:var(--silver);
   border:1px solid var(--violet);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
   text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .replaychip.hidden{display:none}
+/* ARM / FAILSAFE provenance chip (audit R01, 2026-07-25). Deliberately MUTED —
+   never teal (live), amber (alarm) or violet (replay): it is not a value and must
+   not be mistakable for one. Same vocabulary and colour token as ACTIVE
+   AUTHORITY's `NOT REPORTED BY MAPPER` (.camauthrow b.unreported), which is the
+   established way this app says "we do not observe this". Same chip geometry as
+   the W3/replay markers so the stack stays one visual system. */
+.armchip{display:inline-block;margin-top:.4em;padding:.15em .5em;color:var(--muted);
+  border:1px solid var(--panel-edge);font-size:clamp(8px,.9vw,10px);letter-spacing:.14em;
+  text-transform:uppercase;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 /* Mapper head-intent diagnostics chip (CB8 slice 3B): display-only mirror of the
    mapper's authoritative state. Always reads "· NO CONTROL" — there is no
    active-control state. Tone follows the mapper's state (teal live, amber warn,

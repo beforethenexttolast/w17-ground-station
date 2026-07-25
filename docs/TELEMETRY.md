@@ -12,7 +12,7 @@ to deliver the **car-side truths** the ground can't already infer from the gamep
 | `gear` | number | 1-based, car-authoritative (optional — HUD mirrors it locally otherwise) |
 | `ersPct` | number | ERS store, car-authoritative (optional — HUD simulates otherwise) |
 | `driveMode` | number | 0=TRAINING 1=RACE 2=ERS (optional); firmware calls 1/2 "gearbox"/"gearbox+ERS" |
-| `armed` / `failsafe` | bool | **demo-only — NOT transmitted by the car.** Only the replay/demo source sets them; the real CRSF backchannel carries no such field. The HUD derives link loss from `linkQualityPct` + staleness instead (see below). |
+| `armed` / `failsafe` | bool | **demo-only — NOT transmitted by the car.** Only the replay/demo source sets them; the real CRSF backchannel carries no such field. The car computes both, but `link2` carries them only to board #2 — there is no ground-bound carrier, and the handset only ever sees `M%u`. The HUD derives link loss from `linkQualityPct` + staleness instead (see below), and **labels the indicators as simulated** (see below). |
 
 All fields optional: the HUD overlays whatever is present and simulates the rest.
 
@@ -26,6 +26,31 @@ The HUD shows one of four states, derived ground-side (`shared/linkState.mjs`):
 | live | fresh telemetry, LQ > 0 | "LQ n%", real values |
 | **LINK LOST** | fresh telemetry with `linkQualityPct == 0` (the ground TX module keeps reporting LINK_STATISTICS after the radio link to the car drops) | red/amber alarm |
 | **TELEMETRY LOST** | the source *was* live, then went silent >1 s (serial unplugged, forwarder died) | alarm; last real values held **dimmed** — the HUD never silently resumes simulated numbers once a source has been live |
+
+### Simulated armed/failsafe are LABELLED as such (owner decision 2026-07-25)
+
+Being demo-only was recorded in the code comments but invisible on screen, so a replayed
+failsafe episode raised an alarm indistinguishable from a real radio drop. The HUD now states
+the provenance, in the same muted "we do not observe this" vocabulary as CAMERA MODE's
+`NOT REPORTED BY MAPPER`:
+
+| indicator | no replay source | replay source active |
+|---|---|---|
+| `#armChip` (always visible) | `ARM / FAILSAFE · NOT REPORTED BY CAR` | `ARM / FAILSAFE · SIMULATED` |
+| LINK LOST from `linkQualityPct == 0` | `LINK LOST` (real) | — |
+| LINK LOST from `failsafe == true` | — | `LINK LOST · SIMULATED` |
+
+`failsafe == true` is itself proof of a synthetic trigger (nothing but `shared/replaySource.js`
+sets it), so no source plumbing is needed to tell the two apart. `shared/linkState.mjs` is
+deliberately unchanged — the four states are the same; only the trigger is now named. Pinned by
+`test/armFailsafeLabel.test.js`.
+
+**Rejected alternative:** carrying A/F in the FLIGHTMODE status string. `"G4 M2 E100 A1F0"` is
+15 chars and *exactly* fills the budget; R13 (whether a real ELRS/handset relays a custom
+FLIGHTMODE status string at all) is unproven; and `parseFlightMode`'s per-field fallback is
+tested only on the clean-ASCII path, so a mid-token truncation could surface a **wrong** armed
+state. An honestly-labelled simulated indicator beats a possibly-wrong real one. Revisit only
+after R13 is proven on hardware.
 
 ## The chosen path: CRSF over the ELRS backchannel (real speed + gear/mode/ERS + battery + LQ)
 
