@@ -75,8 +75,10 @@ export function detectPresetFromId(id) {
 
 // SEAT FIT live highlight: which mirrored BUTTON roles are currently pressed
 // on this pad, through the chosen preset map. Read-only display support —
-// buttons only, deliberately: the camera/right-stick axes are excluded, the
-// same pan/tilt boundary the preview itself pins (renderer/padPreview.js).
+// buttons only, deliberately: the camera/right-stick axes never enter this
+// press-mirror seam. The preview does draw those axes (since 2026-07-16), but
+// on a separate `data-stick` hook fed straight from the axes, never `data-role`
+// (renderer/padPreview.js), so the two seams stay disjoint.
 const BUTTON_ROLES = Object.freeze({
     throttle: 'throttleBtn',
     brake: 'brakeBtn',

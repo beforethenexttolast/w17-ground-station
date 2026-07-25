@@ -46,6 +46,11 @@ checkpoints/status live in `../CURRENT_STATUS.md`, never here.
   (`docs/windows_bridge_contract.md`).
 - Any contract change must be deliberate and **mirrored on both sides** (this repo and
   `iPhone_rc`), not made unilaterally here.
+- **Camera-aim depiction (relaxed 2026-07-16, reviewed):** the UI **may** draw right-stick
+  input — it must never label it as measured camera aim. Stick position is `STICK INPUT`;
+  `camera aim` / `measured` / `gimbal` wording stays banned, and stick dots ride
+  `data-stick`, never the `data-role` press-mirror seam. Rules:
+  `docs/camera_aim_display_semantics.md` §2.1; pinned by `test/padPreview.test.js`.
 
 ## Validation guidance
 
