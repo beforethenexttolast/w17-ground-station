@@ -59,6 +59,18 @@ apart from one working session). Process-level only; content partitions cleanly.
 
 ## 3. Findings (ranked; triage with the user — fixes are follow-up work, none applied)
 
+> **CLOSURE ANNOTATION, added 2026-07-25 (not a rewrite).** When this section was
+> written on 2026-07-17 nothing had been fixed, and that sentence above was true. All
+> nine findings are now closed in code. Each finding below keeps its ORIGINAL 2026-07-17
+> text and verdict verbatim — the value of this document is that it records what was true
+> when written — with a `**RESOLVED**` line appended naming the commit and the site.
+> Resolution commits: **`a04b07c`** (finding 1) · **`5141912`** (findings 2, 3, 4) ·
+> **`ec1baef`** (findings 5, 6, 7) · **`e57f587`** (the §10 observation's doc record) ·
+> `readAxis`/`clampAxis` dedupe **waived in-code**, not fixed. One follow-on defect,
+> **`085e1d1`**, was surfaced by verifying `ec1baef`'s closure — recorded at the end of
+> this section, because it is evidence about the *method*: the class-only assertions that
+> let it through were the kind of vacuous pin this audit's own tests could have had.
+
 **Confirmed defects**
 1. **HIGH — wheel profile never persists.** `normalizeSettings`
    (`shared/settings.js:59-96`) rebuilds a fixed shape with no `wheel` key and
@@ -71,29 +83,71 @@ apart from one working session). Process-level only; content partitions cleanly.
    acceptance "restart ⇒ saved profile reloaded" fails on the real app. *Fix direction
    (follow-up): admit a validated `wheel.profile` subtree in `normalizeSettings` (CJS —
    mind `wheelProfile.mjs` is ESM) + one integration test through the real store.*
+   - **RESOLVED 2026-07-18 — `a04b07c`** (Decision A). `normalizeSettings`
+     (`shared/settings.js:191`) now admits a validated `wheel.profile` subtree via a
+     **conditional spread** rather than a literal `wheel: undefined`: a no-wheel session
+     then keeps EXACTLY the 12 pre-existing keys on disk, which is what `settings.test.js`'s
+     persisted-shape pins depend on (a present `wheel: undefined` is not deep-strict-equal
+     to an absent key). Only the profile persists — the active input TYPE is still never
+     written, so a session always boots GAMEPAD and invariant 5 (§4) is unchanged. The fix
+     direction above was followed as written, including the integration test through the
+     REAL store rather than a mocked `gs.setSettings`: `test/wheelProfilePersist.test.js`.
 2. **MED — wheel mirror reads the wrong device when the wheel is absent at START.**
    `applyInputSource` (`renderer/setupFlow.js:892`) falls back to `wheelKey ''` when
    `resolveWheelPad` returns null; `wheelPad()` (`renderer/hud.js:139`) then resolves the
    FIRST pad — the gamepad — through the wheel calibration (idle centred axis reads
    THR≈50% under an INPUT · WHEEL tag). Display-only, but wrong and mislabeled.
+   - **RESOLVED 2026-07-18 — `5141912`** (Decision C, §7 item 2's second option taken).
+     An absent wheel is now passed as an explicit `null` key, not `''`, so `wheelPad()`
+     resolves NO device instead of the first slot, and the HUD says so: the source tag
+     reads **`INPUT · WHEEL (NO DEVICE)`** (`renderer/hud.js:143`). The honest label was
+     chosen over silently resolving a substitute — nothing now reads a gamepad's centred
+     axis through wheel calibration under a WHEEL tag.
 3. **LOW — WHEEL (non-BOTH) mode always follows the first pad slot**
    (`renderer/setupFlow.js:872`): with a gamepad in slot 0, ASSIGN/SET REST/FULL listen
    to the gamepad. Plan-conformant (selector promised only for BOTH) — usability gap;
    workaround: BOTH mode or unplug.
+   - **RESOLVED 2026-07-18 — `5141912`** (Decision C). WHEEL (non-BOTH) mode gained its own
+     DEVICE selector, so ASSIGN / SET REST / SET FULL listen to the operator's chosen wheel
+     rather than whatever sits in slot 0. The plan only promised the selector for BOTH; this
+     closes the usability gap the finding named instead of leaving the workaround.
 4. **LOW — keyboard driving mirror dead in a WHEEL/BOTH session with no pads**
    (`renderer/hud.js:261` + wheel override): keyboard STR/THR/BRK are overwritten with
    neutral and the button block is skipped; pre-wheel HUD mirrored keys in that state.
+   - **RESOLVED 2026-07-18 — `5141912`** (Decision C). The wheel override is now gated on a
+     `wheelActive` condition: with no wheel device actually resolved, it no longer overwrites
+     STR/THR/BRK with neutral or skip the button block, so the keyboard driving mirror works
+     again in a WHEEL/BOTH session with no pads — the pre-wheel behaviour the finding
+     compared against.
 5. **LOW — ⚙ reachable via pad during the start-lights countdown**
    (`renderer/setupFlow.js:1724`): `settingsOnly()` is false while the gate is visible;
    only `back()` carries the `lightsRunning` guard, so button 9 (or d-pad + confirm on ⚙)
    opens settings over the lights.
+   - **RESOLVED 2026-07-18 — `ec1baef`** (§7 item 4's first guard). `lightsRunning` now guards
+     BOTH entry points, not just `back()`: `settingsOnly()` returns true while the lights run,
+     and `toggleSettings()` carries its own early return because the settings toggle is
+     evaluated ahead of the `settingsOnly` gate in `pollOnce`. Sites are
+     `renderer/setupFlow.js:1817-1820` (line numbers as of `12896fb`; the symbols are
+     `settingsOnly` / `toggleSettings` / `back` in the `uiNav.configure` call).
 6. **LOW — fast-path card steals focus on every GARAGE entry**
    (`renderer/setupFlow.js:166`): CHANGE SETUP / BACK-to-garage also focus STRAIGHT TO
    THE GRID (live-verified); an accidental Enter bounces straight back to GRID. The
    approved deviation wording covered the boot landing only.
+   - **RESOLVED 2026-07-18 — `ec1baef`** (§7 item 4's second guard). Focus is now BOOT-ONLY:
+     `boot()` calls `fastPathBtn.focus()` once, and `updateFastPath()` only toggles the card's
+     visibility, so CHANGE SETUP / BACK-to-garage leave focus where the operator put it. The
+     rule is stated in-code at `renderer/setupFlow.js:161` and pinned by a `setupFlowDom`
+     test that returns to GARAGE and asserts focus stayed on CHANGE SETUP. (The 2026-07-25
+     GARAGE viewer-only notice was deliberately built with no focusable child so it cannot
+     re-open this finding — `test/viewerOnlyNotice.test.js` asserts the boot focus too.)
 7. **LOW (docs) — Batch 9 deferrals were documented nowhere in-repo** — only in the
    external plan file. §6 of this note now records them; a comment at
    `renderer/uiNav.js:38/203` would be the durable in-code marker.
+   - **RESOLVED 2026-07-18 — `ec1baef`** (§7 item 4's third guard). The in-code markers exist:
+     `renderer/uiNav.js:39` records the select/range value-stepping deferral (naming
+     `#adapterSelect`, `#setTelemetrySource`, `#wheelDeadzone`) and `:91` records the
+     per-frame pad-snapshot allocation. Both say explicitly that they are the durable
+     in-repo record, not only the external plan file — which is what the finding asked for.
 
 **Observations (no action required to close the audit)**
 - **Design bundle §10 vs BOTH mode:** delivered BOTH = plan's spec (stacked full mirrors
@@ -107,12 +161,22 @@ apart from one working session). Process-level only; content partitions cleanly.
     stacked full-panel BOTH-mode layout is now the canonical design (superseding the 02c
     mockup), and the CALIBRATED-chip + EDIT MAPPING summarization is recorded as an
     optional future density refinement only (no measured overflow). No app change pending.
+  - *(This RESOLVED note was itself committed as **`e57f587`**, 2026-07-19 — the doc record of
+    Decision B. The code half is `ec1baef` as stated above; its follow-on defect `085e1d1` is
+    recorded at the end of this section.)*
 - Wheel-only sessions: `pad()` falls back to the wheel, so the violet camera dot mirrors
   the wheel device's axes 2/3 labeled STICK INPUT · PAD (pinned by `hudWheel` test —
   intended; docs §6.2's "a wheel has no aim stick" doesn't cover the wheel-as-only-pad
   case). Docs nuance only.
 - Batch 6 rider (d) left open: `wheelProfile` local `readAxis`/`clampAxis` vs
   `inputPresets.axisValues` local clamp — dedupe never done, no defer note.
+  - **CLOSED 2026-07-18 as WAIVED, not fixed** (§7 item 4's fourth option, "close *or*
+    formally waive"). The dedupe was deliberately declined and the missing defer note is now
+    the waiver itself, in-code at `shared/wheelProfile.mjs:88`: `readAxis`/`clampAxis` read
+    through THIS module's own `finite`/`clampAxis` primitives (shared with `cal`/`pedalValue`
+    below), so deduping would mean a cross-module import or a new shared file — extra coupling
+    and another `noControlPath` discovery surface for a two-line clamp. Recorded here as
+    waived so it is not re-raised as an open rider.
 - Deferred cleanups quantified (the triage's own list): `uiNav.pollOnce` allocates a pad
   snapshot per rAF frame; `dedupeGamepads` runs 2×/frame in wheel sessions + once per
   250 ms tick; `setupFlow.snapPad` ≈ `uiNav.snapshotPad`; the
@@ -124,6 +188,27 @@ apart from one working session). Process-level only; content partitions cleanly.
   pinned overlays (summary chip/footnote) transiently cross content at scrollTop 0 on
   scrollable screens — inherent to fixed overlays, clears at max scroll (measured),
   pre-existing pattern.
+  - *(2026-07-25 note: the pinned viewer-only footnote named here was later DELETED for
+    exactly this reason — `0950298` — and the statement it carried was restored in-flow, in
+    the ⚙ panel plus once-per-session on GARAGE, by `769003b`. The summary chip is unchanged.)*
+
+**Follow-on defect surfaced by verifying closure (added 2026-07-25)**
+
+- **`085e1d1` — BOTH-mode source tags leaked into single-mirror modes.** Verifying `ec1baef`'s
+  closure (the Decision B tags above) found `srctag pad` / `srctag wheel` rendering in
+  GAMEPAD-only and WHEEL-only modes, not just BOTH. The tags ship as `.barsrc hidden` and
+  `applyInputType` toggles `hidden`, but `hud.css` has **no generic `.hidden` rule** — every
+  hide rule in this repo is element-scoped — so `.barsrc{display:flex}` won the cascade and the
+  `hidden` class was visually inert. Live-confirmed at 1280×800 and 1366×768. Fixed by adding
+  `.barsrc.hidden{display:none}`.
+- **Why this is recorded in the audit and not just in git:** it is evidence about the *method*,
+  not just a bug. The `setupFlowDom` assertions covering those tags checked only that the
+  `hidden` CLASS was toggled, and jsdom applies no linked stylesheet — so they **passed
+  vacuously** while the tags were plainly visible. Any assertion in this repo that names a
+  class without pinning the declaration that makes the class do something can fail the same
+  way. `085e1d1` added the resolved-CSS pin; the 2026-07-25 additions to
+  `test/responsiveLayout.test.js` (four previously unasserted layout rules) and
+  `test/viewerOnlyNotice.test.js` were both written to that standard for the same reason.
 
 ## 4. Invariant verdicts (one line each)
 
@@ -203,6 +288,12 @@ rider (**left-open**); allocation/dedup cleanups (**deferred**, quantified above
 - **Allocation/dedup cleanups** deferred by the triage — quantified in §3 observations.
 
 ## 7. Recommended follow-ups (none applied in this audit)
+
+> **2026-07-25:** the heading stays accurate — none of these were applied *in* the audit. All
+> four have since been done, in the order listed: 1 → `a04b07c`, 2 → `5141912`, 3 → `ec1baef`
+> (code) + `e57f587` (doc record), 4 → `ec1baef` for all four of its sub-items, with the
+> `readAxis` rider taken as the "formally waive" branch. See the per-finding **RESOLVED** lines
+> in §3.
 
 1. Fix finding 1 (store-side `wheel` support + a real-store integration test) — the only
    change needed for the wheel feature to keep its persistence promise.
