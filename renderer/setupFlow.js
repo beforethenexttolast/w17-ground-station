@@ -126,9 +126,11 @@ const leaveHooks = { pitwall: leavePitwall, seatfit: leaveSeatfit, grid: leaveGr
 // from the step's position in the ACTUAL path (never a lie about "done"); a
 // canonical step absent from the path is `skipped` with a reason chip. The rail
 // shows the FIXED design order/labels, which now matches the nav order for every
-// mode (2026-07-20 reorder: stepsFor is GARAGE -> PIT WALL -> SEAT FIT -> GRID so
-// the iPhone/network joins before the controller/camera-mode step) — display
-// only, no navigation logic lives here.
+// mode (2026-07-20 reorder: stepsFor is GARAGE -> PIT WALL -> SEAT FIT -> SETUP
+// -> GRID so the iPhone/network joins before the controller step; the 42319ad
+// SETUP split then moved drive/camera mode out of SEAT FIT onto their own step,
+// making the rail 01..05 with SETUP at 04 and GRID at 05) — display only, no
+// navigation logic lives here.
 function renderStepRail() {
   if (!stepRail) return;
   const path = stepsFor(mode);
