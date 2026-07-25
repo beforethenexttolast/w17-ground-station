@@ -40,6 +40,7 @@ const navBack = el('navBack'), navNext = el('navNext'), setupNav = el('setupNav'
 const lightsEl = el('lights');
 const stepRail = el('stepRail');
 const fastPath = el('fastPath'), fastPathBtn = el('fastPathBtn'), fastPathSummary = el('fastPathSummary');
+const viewerNote = el('viewerOnlyNote');
 
 // Step rail (Batch 8a / flow chrome): the FIXED canonical display order + labels
 // (design bundle §1). Numbers/labels never change; only each step's STATE is
@@ -168,6 +169,24 @@ function updateFastPath() {
   if (show) fastPathSummary.textContent = fastPathSummaryText(settings);
 }
 
+// Viewer-only disclaimer on GARAGE, ONCE PER APP SESSION (2026-07-25). GARAGE is
+// re-entered often — CHANGE SETUP, RE-RUN SETUP and BACK-to-garage all land here —
+// and re-showing the notice every time would recreate the nuisance that got the
+// pinned #gateFootnote overlay deleted (0950298). A MODULE-LEVEL flag, deliberately
+// NOT a settings.json key: it must reset with the renderer, because a new run
+// should state what the app is again. (It also keeps the persisted settings shape
+// untouched — a new key would have to pass normalizeSettings and would break the
+// 12-key pins in settings.test.js, a real contract change for a UI note.)
+// The notice carries no dismiss control, so this adds no focusable to GARAGE and
+// cannot disturb boot()'s fast-path focus or uiNav's document-order walk.
+let viewerNoteShown = false;
+function updateViewerNote() {
+  if (!viewerNote) return;
+  const show = step === 'garage' && !viewerNoteShown;
+  viewerNote.classList.toggle('hidden', !show);
+  if (show) viewerNoteShown = true; // shown once; every later GARAGE entry hides it
+}
+
 const FASTPATH_MODE = { solo: 'DESKTOP FPV', 'iphone-hud': 'IPHONE COCKPIT' };
 function fastPathSummaryText(s) {
   const modeLabel = FASTPATH_MODE[s?.fpvMode] || FASTPATH_MODE.solo;
@@ -187,6 +206,7 @@ function showStep(next) {
   setupNav.classList.toggle('hidden', step === 'garage');
   renderStepRail();
   updateFastPath();
+  updateViewerNote();
   if (enterHooks[step]) enterHooks[step]();
 }
 

@@ -349,6 +349,16 @@ body{background:#000;color:var(--silver);
 .fastpath span{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.1em;text-transform:uppercase}
 .fastpath .minibtn{color:var(--green);border-color:rgba(0,230,118,.5)}
 .modecards{display:flex;gap:clamp(1em,2vw,1.8em);flex-wrap:wrap;justify-content:center;width:100%}
+/* Viewer-only disclaimer on GARAGE, once per app session (2026-07-25). IN-FLOW,
+   NOT position:fixed — the replaced #gateFootnote overlay (0950298) crossed
+   content at scrollTop 0 and reserved viewport height permanently. A teal left
+   rule marks it as an app-identity statement, not an alarm (amber) or a live
+   value. .viewernote.hidden is element-scoped on purpose: hud.css has no generic
+   `.hidden` rule, so without it the class would be visually inert — the exact
+   defect 085e1d1 fixed on .barsrc. */
+.viewernote{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.08em;line-height:1.5;
+  max-width:70ch;text-align:left;border-left:2px solid var(--teal);padding-left:.8em}
+.viewernote.hidden{display:none}
 .modecard{font-family:inherit;cursor:pointer;background:var(--panel);border:1px solid var(--panel-edge);
   color:var(--silver);padding:clamp(1.1em,2vw,1.6em) clamp(1.6em,2.4vw,2.4em);text-align:left;
   flex:1 1 20em;min-width:min(20em,100%);max-width:32em;
@@ -607,6 +617,11 @@ button.cammode:hover{border-color:var(--teal)}
 .envbadge.hidden{display:none}
 .settings input:disabled,.settings select:disabled,.settings input:read-only{opacity:.65}
 .settings input:read-only{cursor:default}
+/* PERMANENT home of the viewer-only disclaimer (2026-07-25): a muted footer note
+   in the ⚙ panel, separated from the controls by a hairline. Not fixed, not
+   interactive — the panel itself is the overlay. */
+.setnote{color:var(--muted);font-size:clamp(9px,1.05vw,11px);letter-spacing:.08em;line-height:1.5;
+  border-top:1px solid var(--panel-edge);padding-top:.7em;max-width:38ch}
 
 @media (prefers-reduced-motion:reduce){.rev.redline i,.dot,.ersfill.deploy{animation:none}
   .gate{transition:none}.modecard,.startbtn{transition:none}}

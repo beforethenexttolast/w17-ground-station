@@ -163,6 +163,19 @@
         <button class="modecard" data-mode="solo"><b>DESKTOP FPV</b><span>full HUD on this screen · laptop only</span><span class="needs">NEEDS · controller or keyboard</span></button>
         <button class="modecard" data-mode="iphone-hud"><b>IPHONE COCKPIT</b><span>live HUD on the iPhone · FPV/VR view later</span><span class="needs">NEEDS · iPhone HUD app · shared Wi-Fi or hotspot</span></button>
       </div>
+      <!-- Viewer-only disclaimer, ONCE PER APP SESSION (2026-07-25). The
+           permanent home is the ⚙ panel; this is the once-per-run surface where
+           the operator actually reads it, on the landing screen. Deliberately:
+           - IN NORMAL FLOW, last child of GARAGE — not the position:fixed overlay
+             the old #gateFootnote was (0950298), which wasted vertical space and
+             transiently crossed content at scrollTop 0;
+           - NO dismiss control — it is already self-limiting (setupFlow.js
+             updateViewerNote), and a button here would insert a new focusable
+             into GARAGE's document order, which is exactly what the fast-path
+             card's boot-only focus (setupFlow.js boot()) must not have shifted.
+           Same literal as the ⚙ panel copy below; both are pinned by
+           test/viewerOnlyNotice.test.js. -->
+      <div class="viewernote hidden" id="viewerOnlyNote">Viewer only — elrs-joystick-control drives the car; this window mirrors inputs and overlays telemetry.</div>
     </section>
 
     <section class="setup-screen wide" data-step="pitwall">
@@ -458,6 +471,13 @@
       </div>
       <button class="minibtn" id="setRerun">RE-RUN SETUP</button>
       <div class="netstatus" id="setStatus"></div>
+      <!-- PERMANENT home of the viewer-only disclaimer (2026-07-25). The ⚙ opens
+           on every setup screen AND on the live HUD, so this is the one place the
+           statement is always available and never in the way. Static text, no
+           tabbable control, no position:fixed. Last child so it sits below the
+           controls rather than inside them. Same literal as GARAGE's
+           #viewerOnlyNote — both pinned by test/viewerOnlyNotice.test.js. -->
+      <div class="setnote" id="viewerOnlySetNote">Viewer only — elrs-joystick-control drives the car; this window mirrors inputs and overlays telemetry.</div>
     </div>
   </div>
 
