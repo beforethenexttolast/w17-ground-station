@@ -676,15 +676,31 @@ vars: persisted settings (`settings.json` in Electron userData; "iPhone Cockpit"
 persisted value `iphone-hud` — + a user-confirmed IPv4) resolve through `shared/settings.js`. Precedence: **a set
 `W17_IPHONE_BRIDGE` (any value, including `0`) wins over settings**; unset falls
 through. Packet shape, port defaults, and cadence semantics are unchanged — this is
-configuration sourcing only, not a contract change. Address discovery remains manual:
-the setup UI may *suggest* the last W3 sender's IP (transport metadata from the
-log-only receiver, user-confirmed, never auto-applied). Zero-config mDNS discovery is
-now **canonically specified** (contract "Discovery" section above:
-`_w17hud._udp.local.`, advisory/user-confirmed hints only; adopted canonically
-2026-07-10, mirrored here at rev `84532ed`). The Windows-side implementation is
-**not built yet** — the original proposal
-(`docs/proposals/iphone_mdns_discovery.md`) can proceed as ordinary reviewed work
-against the canonical Discovery section.
+configuration sourcing only, not a contract change. The address is never applied
+without the operator: the setup UI may *suggest* one, and a suggestion is only ever
+filled into the field by an explicit click, then checked with the GRID ping.
+
+Two providers feed that suggestion:
+
+1. **Last W3 sender** — transport metadata from the log-only receiver (sender IP only,
+   never packet contents), fresh for 30 s.
+2. **mDNS discovery (`_w17hud._udp.local.`)** — canonically specified in the contract
+   "Discovery" section above (adopted 2026-07-10, mirrored here at rev `84532ed`) and
+   **implemented on Windows 2026-07-25** (CB4): `shared/dnsWire.js` (wire codec),
+   `shared/hudDiscovery.js` (contract policy), `main/HudDiscovery.js` (transport).
+   No dependency was added — the query is hand-rolled over `node:dgram`.
+
+Discovery details, all advisory: a HUD is offered only if TXT `v=1`, `role` is absent
+or `hud`, and `tport` matches the SRV port; entries age out after 30 s (the phone
+withdraws its advertisement when it backgrounds and the goodbye may be missed); at
+most 8 are ever offered; an advertisement whose address differs from the datagram's
+sender is declined and logged. The query is **demand-driven** — the socket opens and
+the query goes out only while the setup flow polls `setup:addr-hint`, i.e. while
+PIT WALL is the active step — so the app never browses the network in the background.
+It queries from an ephemeral port with the unicast-response (QU) bit rather than
+binding 5353, which Windows' own responder may already hold. **Real-device
+verification is PENDING** (no iPhone on hand); the path is proven only against
+hermetic byte fixtures.
 
 Port `5602` is the iPhone → Windows head-tracking receiver (contract §3), now
 **implemented on Windows and LOG-ONLY** (W3; see the "W3: head-tracking receiver"

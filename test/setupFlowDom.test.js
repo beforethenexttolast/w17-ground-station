@@ -1310,6 +1310,71 @@ describe('renderer boot/config integration (audit D2)', () => {
       vi.useRealTimers();
     }
   });
+
+  // CB4: a HUD that advertised itself over mDNS becomes a SUGGESTION on the
+  // same chip the traffic hint uses. The rule the contract sets is that
+  // discovery is advisory — so the assertions below are as much about what the
+  // UI does NOT do (fill the field on its own) as what it shows.
+  describe('discovered-HUD suggestion (CB4)', () => {
+    const enterPitwall = async (gs) => {
+      await loadRenderer(gs);
+      document.querySelector('.modecard[data-mode="iphone-hud"]').click();
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+    };
+
+    it('offers a discovered HUD by name, and fills the field ONLY when clicked', async () => {
+      const gs = mockGs();
+      gs.getAddrHint = vi.fn(async () => ({
+        huds: [{ addr: '192.168.4.9', port: 5601, dev: 'Test iPhone', feat: ['w2', 'w3'], ageMs: 20 }],
+      }));
+      await enterPitwall(gs);
+      const suggest = el('addrSuggest');
+      expect(suggest.classList.contains('hidden')).toBe(false);
+      expect(suggest.textContent).toBe('USE 192.168.4.9 · Test iPhone · found on network');
+      // Nothing was applied by merely discovering it: the field stays empty
+      // until a human acts. (Entering the step itself persists the mode choice,
+      // so the baseline is "no FURTHER save", not "never saved".)
+      expect(el('iphoneAddr').value).toBe('');
+      const savesBefore = gs.setSettings.mock.calls.length;
+      const appliesBefore = gs.applySession.mock.calls.length;
+      suggest.click();
+      expect(el('iphoneAddr').value).toBe('192.168.4.9');
+      // Even after the click it is only a filled field: no save, no session
+      // apply, no telemetry sent anywhere — the operator still runs CHECK.
+      expect(gs.setSettings.mock.calls.length).toBe(savesBefore);
+      expect(gs.applySession.mock.calls.length).toBe(appliesBefore);
+    });
+
+    it('prefers an observed sender over an advertisement', async () => {
+      const gs = mockGs();
+      gs.getAddrHint = vi.fn(async () => ({
+        addr: '192.168.4.7', ageMs: 500,
+        huds: [{ addr: '192.168.4.9', dev: 'Test iPhone' }],
+      }));
+      await enterPitwall(gs);
+      expect(el('addrSuggest').textContent).toBe('USE 192.168.4.7 · from HUD traffic');
+    });
+
+    it('shows nothing when discovery found nothing', async () => {
+      const gs = mockGs();
+      gs.getAddrHint = vi.fn(async () => ({ huds: [] }));
+      await enterPitwall(gs);
+      expect(el('addrSuggest').classList.contains('hidden')).toBe(true);
+    });
+
+    it('renders a hostile device label as inert TEXT, never as markup', async () => {
+      const gs = mockGs();
+      gs.getAddrHint = vi.fn(async () => ({
+        huds: [{ addr: '192.168.4.9', dev: '<img src=x onerror=alert(1)>' }],
+      }));
+      await enterPitwall(gs);
+      const suggest = el('addrSuggest');
+      expect(suggest.querySelector('img')).toBeNull();
+      expect(suggest.children).toHaveLength(0);
+      expect(suggest.textContent).toContain('<img src=x onerror=al');  // bounded + literal
+    });
+  });
 });
 
 describe('hotspot credential — transient join key + honest storage status (audit E1)', () => {

@@ -29,6 +29,7 @@ const { createQuitPolicy } = require('./quitPolicy.js');
 const { ElrsLauncher } = require('./elrsLauncher.js');
 const { HostProbe } = require('./hostProbe.js');
 const { createRemoteAddrHint } = require('./remoteAddrHint.js');
+const { createHudDiscovery } = require('./HudDiscovery.js');
 const feel = require('../shared/feelConstants.js');
 const {
   PUSH_CHANNELS,
@@ -84,6 +85,11 @@ const hostProbe = new HostProbe();
 // Last accepted W3 datagram's SENDER IP (transport metadata only) — feeds the
 // setup screen's address suggestion; the user always confirms it by hand.
 const addrHint = createRemoteAddrHint();
+// Second address PROVIDER for the same field: iPhone HUDs that advertise
+// themselves over mDNS (contract "Discovery"). Advisory hints only — the
+// operator confirms every address by hand, exactly as with the traffic hint
+// above. Demand-driven: it queries only while the setup flow polls it.
+const hudDiscovery = createHudDiscovery({ log });
 
 // iPhone -> Windows head-tracking receiver (contract section 3): LOG-ONLY.
 // It is a dead end by construction -- nothing consumes its data; it logs and
@@ -231,6 +237,7 @@ app.whenReady().then(async () => {
       hotspotLifecycle,
       adapterMonitor,
       addrHint,
+      hudDiscovery,
       hostProbe,
       elrs,
     },
@@ -276,6 +283,7 @@ const teardown = createTeardown({
     ['head-tracking receiver', () => w3Receiver.apply(null)],
     ['head-intent diagnostics', () => headIntentClient.apply(null)],
     ['adapter monitor', () => { if (adapterMonitor) adapterMonitor.stop(); }],
+    ['hud discovery', () => hudDiscovery.stop()],
     ['session runtime', () => { if (runtime) runtime.stopAll(); }],
     ['mediamtx', () => { if (mediamtx) mediamtx.stop(); }],
   ],

@@ -383,6 +383,7 @@ function makeServices(t, overrides = {}) {
         hotspotLifecycle: { start: vi.fn(), stop: vi.fn(), snapshot: vi.fn(), probe: vi.fn(), verify: vi.fn(async () => ({ ok: true })) },
         adapterMonitor: { snapshot: vi.fn(() => ({ seq: 3, ok: true, ifaces: [{ name: 'Wi-Fi' }], error: null, added: [], removed: [] })), refresh: vi.fn(), onChange: vi.fn(() => () => {}) },
         addrHint: { get: vi.fn(() => null), note: () => {} },
+        hudDiscovery: { poll: vi.fn(() => []), stop: vi.fn() },
         hostProbe: { probe: vi.fn() },
         elrs: { detectRunning: vi.fn(), launchDetached: vi.fn() },
         ...overrides,
@@ -500,17 +501,48 @@ describe('registerIpcHandlers — delegation and renderer-visible answers (audit
         } finally { t.cleanup(); }
     });
 
-    it('setup helpers delegate: probe-host gets the addr, addr-hint returns the store answer', async () => {
+    it('setup helpers delegate: probe-host gets the addr, addr-hint merges BOTH address providers', async () => {
         const t = makeApplier();
         try {
             const ipc = fakeIpcMain();
+            const hud = { addr: '10.0.0.9', port: 5601, dev: 'Test iPhone', feat: ['w2'], ageMs: 40 };
             const services = makeServices(t, {
                 addrHint: { get: vi.fn(() => ({ addr: '10.0.0.7', ageMs: 120 })), note: () => {} },
+                hudDiscovery: { poll: vi.fn(() => [hud]), stop: vi.fn() },
             });
             registerIpcHandlers({ ipcMain: ipc, services });
             await ipc.invoke('setup:probe-host', '10.0.0.7');
             expect(services.hostProbe.probe).toHaveBeenCalledWith('10.0.0.7');
-            expect(await ipc.invoke('setup:addr-hint')).toEqual({ addr: '10.0.0.7', ageMs: 120 });
+            // The traffic hint and the discovered HUDs ride the ONE existing
+            // channel — CB4 added no preload/IPC surface (test/ipcSurface.test.js
+            // still pins exactly 24 methods).
+            expect(await ipc.invoke('setup:addr-hint')).toEqual({ addr: '10.0.0.7', ageMs: 120, huds: [hud] });
+            // Polling the hint is what drives discovery: nothing browses the
+            // network unless the setup flow is asking.
+            expect(services.hudDiscovery.poll).toHaveBeenCalledTimes(1);
+        } finally { t.cleanup(); }
+    });
+
+    it('addr-hint answers with a bare huds list when there is no traffic hint at all', async () => {
+        const t = makeApplier();
+        try {
+            const ipc = fakeIpcMain();
+            registerIpcHandlers({ ipcMain: ipc, services: makeServices(t) });
+            expect(await ipc.invoke('setup:addr-hint')).toEqual({ huds: [] });
+        } finally { t.cleanup(); }
+    });
+
+    it('SIM mode never polls discovery — a simulated network step emits no real multicast', async () => {
+        const t = makeApplier();
+        try {
+            const ipc = fakeIpcMain();
+            const services = makeServices(t, {
+                sim: true,
+                hudDiscovery: { poll: vi.fn(() => [{ addr: '10.0.0.9' }]), stop: vi.fn() },
+            });
+            registerIpcHandlers({ ipcMain: ipc, services });
+            expect(await ipc.invoke('setup:addr-hint')).toEqual({ huds: [] });
+            expect(services.hudDiscovery.poll).not.toHaveBeenCalled();
         } finally { t.cleanup(); }
     });
 

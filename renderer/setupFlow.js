@@ -9,7 +9,7 @@
 import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource, setDriveMode } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
-import { isValidIpv4, suggestionFromHint } from '../shared/addressProviders.mjs';
+import { isValidIpv4, pickAddressSuggestion } from '../shared/addressProviders.mjs';
 import { adapterRowState, scanStatusText, hotspotPaneState, joinPlan, networkBadge, classifyJoinError } from '../shared/wifiView.mjs';
 import { probeStatusLine, PATH_ONLY_NOTE } from '../shared/reachability.mjs';
 import { summaryLine } from '../shared/setupSummary.mjs';
@@ -810,13 +810,19 @@ el('guideVerify').addEventListener('click', async () => {
 async function pollAddrHint() {
   if (!gs) return;
   // Background 2 s poll: a rejection just means "no suggestion this tick".
+  // This poll is ALSO what drives mDNS discovery in main (it queries only while
+  // asked), so leaving PIT WALL stops the network lookup with it.
   const hint = await ipc(gs.getAddrHint(), null, 'setup:addr-hint');
-  const addr = suggestionFromHint(hint);
+  // One chip, whichever provider has something: observed traffic first (a
+  // packet really arrived from there), then a HUD that advertised itself.
+  // Either way it is an OFFER — clicking fills the field, and the operator
+  // still runs CHECK. Nothing is ever applied without that click.
+  const pick = pickAddressSuggestion(hint);
   const current = addrInput.value.trim();
-  if (addr && addr !== current) {
-    addrSuggest.textContent = `USE ${addr} · from HUD traffic`;
+  if (pick && pick.addr !== current) {
+    addrSuggest.textContent = `USE ${pick.addr} · ${pick.why}`;
     addrSuggest.classList.remove('hidden');
-    addrSuggest.onclick = () => { addrInput.value = addr; addrSuggest.classList.add('hidden'); sounds.uiTick(); };
+    addrSuggest.onclick = () => { addrInput.value = pick.addr; addrSuggest.classList.add('hidden'); sounds.uiTick(); };
   } else {
     addrSuggest.classList.add('hidden');
   }

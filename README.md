@@ -94,7 +94,9 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    adapters as well as networks, so plugging the dongle in mid-step just works.
    The client-isolation warning is a one-line hint (full text on hover) — pick a network
    that allows device-to-device traffic. Enter/confirm the iPhone's IP (validated; a
-   suggestion chip appears when the log-only head-track listener is hearing the phone).
+   suggestion chip appears when the log-only head-track listener is hearing the phone,
+   or when the HUD announces itself over Bonjour/mDNS on this step). A suggestion is
+   only ever *offered* — clicking fills the field, nothing is applied automatically.
    On macOS/Linux this step is guide-mode: instructions + verify.
 3. **SEAT FIT** — connected gamepads are detected automatically (first pad tagged *auto*)
    with a manual override; the layout preset (DualShock / Xbox / generic) is auto-suggested
@@ -124,8 +126,10 @@ never persisted at all. The ⚙ menu is a modal
 (backdrop click / Escape closes) holding radio-sound (off by default), the start-lights
 countdown toggle (on by default; off = straight into the HUD), the log-only head-track
 toggle, the elrs-joystick-control path (launch-only: this app starts it detached and can
-never stop it), and telemetry source/COM port. `docs/proposals/iphone_mdns_discovery.md` sketches zero-config
-iPhone discovery (needs the iPhone-side, Codex-owned change first).
+never stop it), and telemetry source/COM port. Zero-config iPhone discovery
+(`_w17hud._udp.local.`) is implemented — see `docs/proposals/iphone_mdns_discovery.md`
+"As built". It queries only while PIT WALL is the active step, adds no dependency, and
+produces user-confirmed hints only; real-device verification is still pending.
 
 The OS-touching pieces (netsh scan/join, both hotspot backends, elrs detection) are
 unit-tested against canned command output but **not yet validated on the Windows

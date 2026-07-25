@@ -171,6 +171,7 @@ function registerIpcHandlers({ ipcMain, services }) {
     const {
         whepUrl, platform, feel, runtime, settingsStore, sessionApplier,
         w3Active, wifi, sim, hotspotLifecycle, adapterMonitor, addrHint, hostProbe, elrs,
+        hudDiscovery,
     } = services;
 
     const handle = new Map();
@@ -261,7 +262,18 @@ function registerIpcHandlers({ ipcMain, services }) {
         : { seq: 0, ok: null, ifaces: [], error: null, added: [], removed: [] }));
 
     // --- Setup helpers: address suggestion + reachability ---
-    reg('setup:addr-hint', () => addrHint.get());
+    // Both address PROVIDERS answer on this one channel: the last-W3-sender
+    // hint (addr/ageMs) and any HUDs discovered over mDNS (huds[]). Both are
+    // advisory suggestions the operator confirms by hand — no new IPC surface,
+    // because this channel already IS "what could the iPhone's address be?".
+    // Polling it is also what drives discovery: the renderer only polls while
+    // PIT WALL is the active step, so the app never browses in the background.
+    // `sim` holds discovery off entirely: W17_WIFI_SIM presents a canned network
+    // step, and a simulated step must not put real multicast on a real LAN.
+    reg('setup:addr-hint', () => ({
+        ...(addrHint.get() || {}),
+        huds: (hudDiscovery && !sim) ? hudDiscovery.poll() : [],
+    }));
     reg('setup:probe-host', (_event, addr) => hostProbe.probe(addr));
 
     // --- GRID: elrs-joystick-control (launch-only; this app NEVER stops it) ---
