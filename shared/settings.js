@@ -201,6 +201,34 @@ function normalizeVideo(raw) {
     return { profile: VIDEO_PROFILE_IDS.includes(r.profile) ? r.profile : DEFAULT_VIDEO_PROFILE };
 }
 
+// --- race-day preparation (CJS-local mirror of shared/racePrep.mjs) ---
+//
+// Same construction as the wheel/lowBattery mirrors above, for the same
+// reason: the real validator, `normalizeRacePrepSettings`, lives in ESM
+// (shared/racePrep.mjs — the ⚙ RACE DAY fields and the GARAGE race-day card
+// load it) and CANNOT be require()'d synchronously here. This LOCAL MIRROR is
+// kept honest by the corpus-based parity test in test/racePrepPersist.test.js
+// — normalizeRacePrep(x) must deep-equal normalizeRacePrepSettings(x) over a
+// hostile corpus, so a drift between the two fails the suite.
+//
+// `racePrep` stays OUT of settingsStore's nested-merge list (the lowBattery
+// rule): callers that save this subtree always write ALL THREE fields, or a
+// partial patch would silently reset the missing ones to defaults. It is also
+// deliberately NOT resolved in resolveEffective below: the race-day
+// orchestrator reads the persisted store directly at start time (the elrs
+// pattern), so there is no env override and no effective-config entry for it.
+const DEFAULT_RACE_PREP = Object.freeze({ mapperPath: '', profilePath: '', autoBridge: true });
+
+// Mirror of normalizeRacePrepSettings (shared/racePrep.mjs). Never throws.
+function normalizeRacePrep(raw) {
+    const r = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+    return {
+        mapperPath: str(r.mapperPath, DEFAULT_RACE_PREP.mapperPath),
+        profilePath: str(r.profilePath, DEFAULT_RACE_PREP.profilePath),
+        autoBridge: bool(r.autoBridge, DEFAULT_RACE_PREP.autoBridge),
+    };
+}
+
 // Accepts anything (missing file, garbage JSON, old versions) and returns a
 // complete settings object. Unknown keys are dropped; bad values fall back to
 // defaults field-by-field so one corrupt entry never nukes the rest.
@@ -274,6 +302,15 @@ function normalizeSettings(raw) {
         // isolated from sibling-wave additions at the top level.
         ...(raw.video && typeof raw.video === 'object' && !Array.isArray(raw.video)
             ? { video: normalizeVideo(raw.video) }
+            : {}),
+        // Race-day preparation (one-action race day), admitted ONLY when the
+        // subtree is actually present — the same conditional spread as `wheel`
+        // and `lowBattery` above, for the same reason: a session that never
+        // configured race day keeps exactly the 13 baseline keys on disk, and
+        // every consumer falls back to DEFAULT_RACE_PREP via the normalizer.
+        // Arrays are rejected here (an array is not a config).
+        ...(raw.racePrep && typeof raw.racePrep === 'object' && !Array.isArray(raw.racePrep)
+            ? { racePrep: normalizeRacePrep(raw.racePrep) }
             : {}),
     };
 }
@@ -363,5 +400,6 @@ module.exports = {
     normalizeWheelProfile,
     normalizeLowBattery,
     normalizeVideo,
+    normalizeRacePrep,
     resolveEffective,
 };
