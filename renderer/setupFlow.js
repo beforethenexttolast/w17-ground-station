@@ -305,17 +305,33 @@ async function videoProfileChanged(id) {
   // Nothing actually changed (failed save — already radioed by save() — or the
   // gs-less bench preview): no restart story to tell, nothing to apply.
   if (effectiveId === before) return;
-  radio(`VIDEO STYLE: ${videoProfileFor(effectiveId).label} — VIDEO FEED RESTARTING`);
+  const label = videoProfileFor(effectiveId).label;
   if (gs) {
     const applied = await ipc(gs.applySession(), null, 'session:apply');
     if (!applied) {
-      setStatus.textContent = 'APPLY FAILED — change the setting again to retry';
+      // Review finding 1: the player must follow PERSISTED truth even when
+      // the apply rejects — any later successful session apply (GRID entry,
+      // a ⚙ toggle) re-keys mediamtx from that same persisted truth, so
+      // without this the feed would restart into the new profile at an
+      // unrelated later moment while the player still ran the old knobs.
+      // With it, the halves converge automatically on the next apply.
+      applyVideoProfile(effectiveId);
+      // Review finding 2: honest on BOTH surfaces — the ⚙ status line is
+      // invisible during a GARAGE-pill switch, so the radio carries it too —
+      // and no dead-end retry hint: convergence is automatic; re-switching
+      // (the other style and back) only makes it happen sooner.
+      radio(`VIDEO STYLE: ${label} SAVED — FULL SWITCH AT NEXT START`);
+      setStatus.textContent = `VIDEO STYLE: ${label} saved — the video could not restart now; `
+        + 'it finishes switching at the next start (pick the other style and back to retry)';
       return;
     }
-    setStatus.textContent = `VIDEO STYLE: ${videoProfileFor(effectiveId).label} — ${VIDEO_PROFILE_RESTART_NOTE}`;
+    setStatus.textContent = `VIDEO STYLE: ${label} — ${VIDEO_PROFILE_RESTART_NOTE}`;
   }
-  // The renderer half: reconnect WHEP with the new player knobs (idempotent
-  // inside hud.js when the id did not actually change).
+  // Success only past this point — the restart story is told AFTER the apply
+  // that makes it true (review finding 2). The renderer half reconnects WHEP
+  // with the new player knobs (idempotent inside hud.js when the id did not
+  // actually change).
+  radio(`VIDEO STYLE: ${label} — VIDEO FEED RESTARTING`);
   applyVideoProfile(effectiveId);
 }
 

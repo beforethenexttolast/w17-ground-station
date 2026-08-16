@@ -1122,12 +1122,79 @@ describe('video profile switch points (vision decision 7)', () => {
     expect(pill('showpiece').classList.contains('on')).toBe(true);
   });
 
-  it('a rejected session apply after the save shows the retry message instead of pretending', async () => {
+  it('a rejected session apply is honest on BOTH surfaces: saved + delayed switch, never a false RESTARTING', async () => {
     const gs = videoGs({ applySession: vi.fn(async () => { throw new Error('boom'); }) });
     await loadRenderer(gs);
     pill('showpiece').click();
-    await tick();
-    expect(el('setStatus').textContent).toMatch(/APPLY FAILED/);
+    await tick(); await tick();
+    // GARAGE-visible surface (the ⚙ status line is hidden during a pill
+    // switch): what happened (saved) and when it finishes (next start) —
+    // and NOT the success story, which only a successful apply may tell.
+    expect(radioText()).toContain('CINEMA LOOK');
+    expect(radioText()).toContain('SAVED');
+    expect(radioText()).not.toContain('VIDEO FEED RESTARTING');
+    // ⚙ status: the same story plus the actionable retry (re-clicking the on
+    // pill is guarded inert, so the hint names a move that actually works).
+    expect(el('setStatus').textContent).toContain('saved');
+    expect(el('setStatus').textContent).toMatch(/pick the other style/i);
+    // The pills keep showing the persisted truth — disk is the authority.
+    expect(pill('showpiece').classList.contains('on')).toBe(true);
+  });
+
+  it('finding 1: a rejected apply still moves the PLAYER to the persisted profile (knobs follow disk)', async () => {
+    // Real WHEP path under jsdom — a fake RTCPeerConnection + fetch let
+    // hud.js genuinely connect, so the reconnect-with-new-knobs is observed
+    // END TO END at the receiver instead of inferred from internals. Without
+    // the fix, a later unrelated session:apply would re-key mediamtx into the
+    // new profile while the player silently kept these old knobs.
+    const pcs = [];
+    class FakePC {
+      constructor() { this.connectionState = 'new'; this.ontrack = null; this.onconnectionstatechange = null; pcs.push(this); }
+      addTransceiver() {}
+      async createOffer() { return { sdp: 'v=0 offer' }; }
+      async setLocalDescription() {}
+      async setRemoteDescription() {}
+      close() { this.connectionState = 'closed'; }
+    }
+    global.RTCPeerConnection = FakePC;
+    const realFetch = global.fetch;
+    global.fetch = vi.fn(async () => ({ ok: true, text: async () => 'v=0 answer' }));
+    try {
+      const settings = defaultSettings();
+      const gs = mockGs({
+        getConfig: vi.fn(async () => ({
+          whepUrl: 'http://127.0.0.1:8889/cam/whep', w3Active: false, feel: null, telemetrySource: 'none',
+        })),
+        getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+        setSettings: vi.fn(async (patch) => Object.assign(settings, patch)),
+        applySession: vi.fn(async () => { throw new Error('boom'); }),
+      });
+      await loadRenderer(gs);
+      await tick();
+      // jsdom's HTMLMediaElement.play is not implemented — shadow it so the
+      // ontrack handler's play().catch() stays inert.
+      el('feed').play = () => Promise.resolve();
+      expect(pcs.length).toBe(1);
+      // First connection carries DRIVE: hint 0, jitter buffer UNTOUCHED.
+      const r1 = { playoutDelayHint: undefined, jitterBufferTarget: 123 };
+      pcs[0].ontrack({ receiver: r1, streams: [{}] });
+      expect(r1.playoutDelayHint).toBe(0);
+      expect(r1.jitterBufferTarget).toBe(123);
+      pill('showpiece').click();
+      await tick(); await tick();
+      // The apply REJECTED, yet the player reconnected on the persisted
+      // profile — the next successful apply re-keys mediamtx from the same
+      // truth, so the two halves of the chain can never drift apart.
+      expect(gs.applySession).toHaveBeenCalledTimes(1);
+      expect(pcs.length).toBe(2);
+      const r2 = { playoutDelayHint: undefined, jitterBufferTarget: 123 };
+      pcs[1].ontrack({ receiver: r2, streams: [{}] });
+      expect(r2.playoutDelayHint).toBe(0.3);
+      expect(r2.jitterBufferTarget).toBe(300);
+    } finally {
+      delete global.RTCPeerConnection;
+      global.fetch = realFetch;
+    }
   });
 });
 
