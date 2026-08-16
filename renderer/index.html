@@ -553,6 +553,18 @@
       <div class="setrow"><label>VIDEO STYLE</label>
         <span class="setctl"><select id="setVideoProfile" aria-label="video style"></select></span>
       </div>
+      <!-- One-action race day (2026-08-17 wave): owner/technician fields, set
+           once during gift-kit install — where the drive program lives, which
+           saved controller profile it loads, and whether race day also
+           switches the phone link on. The giftee only ever presses the one
+           GARAGE button. Saved as the WHOLE {racePrep} subtree via the normal
+           save() path (the saveWheel rule — never a partial patch); garbage
+           repairs to defaults (shared/racePrep.mjs). -->
+      <div class="setrow"><label>RACE DAY</label>
+        <span class="setctl"><input id="setMapperPath" spellcheck="false" placeholder="C:\...\elrs-joystick-control.exe" aria-label="race day drive program location" /><small>drive program</small></span>
+        <span class="setctl"><input id="setProfilePath" spellcheck="false" placeholder="C:\...\configs\w17-ds4.json" aria-label="race day saved controller profile" /><small>saved profile</small></span>
+      </div>
+      <label class="setrow"><input type="checkbox" id="setAutoBridge" /> PHONE LINK ON RACE DAY <small>switch the phone telemetry on with the rest (iPhone sessions)</small></label>
       <button class="minibtn" id="setRerun">RE-RUN SETUP</button>
       <div class="netstatus" id="setStatus"></div>
       <!-- PERMANENT home of the viewer-only disclaimer (2026-07-25). The ⚙ opens

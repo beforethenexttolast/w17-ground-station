@@ -31,6 +31,7 @@ import { normalizeLowBatterySettings } from '../shared/lowBattery.mjs';
 import {
   videoProfileFor, normalizeVideoSettings, VIDEO_PROFILE_IDS, VIDEO_PROFILE_RESTART_NOTE,
 } from '../shared/videoProfiles.mjs';
+import { normalizeRacePrepSettings } from '../shared/racePrep.mjs';
 import { raceDayStepLines, raceDayHeadline, raceDayControls } from '../shared/raceDayView.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
@@ -1878,6 +1879,20 @@ function lowBattEffective() {
   return normalizeLowBatterySettings(settings && settings.lowBattery);
 }
 
+// Effective race-day fields: the persisted subtree when present, the defaults
+// otherwise (conditional on disk, exactly like lowBattery above). ⚙ always
+// shows what race day will actually use, including after a garbage repair.
+function racePrepEffective() {
+  return normalizeRacePrepSettings(settings && settings.racePrep);
+}
+
+function paintRacePrep() {
+  const rp = racePrepEffective();
+  el('setMapperPath').value = rp.mapperPath;
+  el('setProfilePath').value = rp.profilePath;
+  el('setAutoBridge').checked = rp.autoBridge;
+}
+
 function populateSettingsMenu() {
   if (!settings) return;
   el('setSound').checked = settings.soundEnabled;
@@ -1889,6 +1904,7 @@ function populateSettingsMenu() {
   // VIDEO STYLE mirrors the persisted profile (absent subtree -> DRIVE); no
   // env lock exists for it by design (shared/settings.js resolveEffective).
   if (setVideoProfile) setVideoProfile.value = videoProfileEffective();
+  paintRacePrep();
   // Env-locked controls show the EFFECTIVE value (never the ignored persisted
   // one) and are non-editable; unlocked controls behave exactly as before.
   const w3Locked = applyEnvLock(el('setW3'), el('setW3Env'), 'w3');
@@ -1946,6 +1962,24 @@ async function lowBatteryChanged() {
 }
 el('setLowBattWarn').addEventListener('change', lowBatteryChanged);
 el('setLowBattCrit').addEventListener('change', lowBatteryChanged);
+// RACE DAY fields. Always saves the WHOLE {mapperPath, profilePath, autoBridge}
+// subtree (the saveWheel rule — racePrep is not in settingsStore's nested-merge
+// list, so a partial patch would reset the missing fields; pinned by
+// test/racePrepPersist.test.js). Repaints from what actually persisted so the
+// ⚙ never shows a value race day is not using.
+async function racePrepChanged() {
+  await save({
+    racePrep: {
+      mapperPath: el('setMapperPath').value.trim(),
+      profilePath: el('setProfilePath').value.trim(),
+      autoBridge: el('setAutoBridge').checked,
+    },
+  });
+  paintRacePrep();
+}
+el('setMapperPath').addEventListener('change', racePrepChanged);
+el('setProfilePath').addEventListener('change', racePrepChanged);
+el('setAutoBridge').addEventListener('change', racePrepChanged);
 async function telemetryChanged() {
   // Partial-lock safe (audit C3/Q8): persist ONLY the fields env is NOT
   // overriding. Saving a locked field would write its displayed EFFECTIVE

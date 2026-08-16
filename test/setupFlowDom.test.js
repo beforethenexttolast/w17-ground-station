@@ -435,6 +435,42 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     expect(el('fastPath').classList.contains('hidden')).toBe(true);
     expect(gs.raceDayStatus).not.toHaveBeenCalled(); // no seed without the card
   });
+
+  it('⚙ RACE DAY fields save the WHOLE racePrep subtree and repaint from what persisted', async () => {
+    // The mock store round-trips through the REAL normalizer path shape: it
+    // returns what a real save would (the whole subtree, all three fields).
+    let persisted = null;
+    const settings = { ...defaultSettings(), setupCompleted: true };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async (patch) => {
+        persisted = patch;
+        return { ...settings, ...patch };
+      }),
+    });
+    await loadRenderer(gs);
+    el('settingsBtn').click(); // open ⚙
+    // Defaults painted from the ABSENT subtree (conditional on disk).
+    expect(el('setMapperPath').value).toBe('');
+    expect(el('setProfilePath').value).toBe('');
+    expect(el('setAutoBridge').checked).toBe(true);
+
+    el('setMapperPath').value = '  C:\\W17\\mapper.exe  ';
+    el('setMapperPath').dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    // ALL THREE fields ride every save (the saveWheel rule), trimmed.
+    expect(persisted).toEqual({
+      racePrep: { mapperPath: 'C:\\W17\\mapper.exe', profilePath: '', autoBridge: true },
+    });
+    // The field repainted from what the store answered (trimmed value).
+    expect(el('setMapperPath').value).toBe('C:\\W17\\mapper.exe');
+
+    el('setAutoBridge').checked = false;
+    el('setAutoBridge').dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    expect(persisted.racePrep.autoBridge).toBe(false);
+    expect(persisted.racePrep.mapperPath).toBe('C:\\W17\\mapper.exe'); // carried, not reset
+  });
 });
 
 // Deterministic previews of the ADAPTER card states (audit M2/A3, Q7 option 2):
