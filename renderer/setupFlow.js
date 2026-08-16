@@ -6,7 +6,7 @@
 // glue over the pure step/checklist/address modules in shared/. It never
 // touches control — the START buttons only dismiss a viewer overlay.
 
-import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource, setDriveMode, setLowBatteryThresholds } from './hud.js';
+import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource, setDriveMode, setLowBatteryThresholds, applyVideoProfile } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, pickAddressSuggestion } from '../shared/addressProviders.mjs';
@@ -28,6 +28,9 @@ import {
   WHEEL_BUTTON_ROLES, WHEEL_BUTTON_LABELS, MAX_DEADZONE,
 } from '../shared/wheelProfile.mjs';
 import { normalizeLowBatterySettings } from '../shared/lowBattery.mjs';
+import {
+  videoProfileFor, normalizeVideoSettings, VIDEO_PROFILE_IDS, VIDEO_PROFILE_RESTART_NOTE,
+} from '../shared/videoProfiles.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
 
@@ -210,6 +213,10 @@ function showStep(next) {
   renderStepRail();
   updateFastPath();
   updateViewerNote();
+  // Keep the GARAGE VIDEO STYLE pills current on every (re)entry — cheap, and
+  // the row only renders on GARAGE anyway. (Defined below in the GARAGE
+  // section; showStep never runs before module eval completes.)
+  paintVideoProfile(videoProfileEffective());
   if (enterHooks[step]) enterHooks[step]();
 }
 
@@ -237,6 +244,93 @@ for (const card of document.querySelectorAll('.modecard')) {
     radio(mode === 'solo' ? 'GARAGE: DESKTOP FPV SESSION' : 'GARAGE: IPHONE COCKPIT SESSION');
     showStep(nextStep('garage', mode));
   });
+}
+
+// ---------- GARAGE · VIDEO STYLE (vision decision 7) ----------
+// The drive/showpiece profile switch, twice: the GARAGE pills (giftee-facing)
+// and the ⚙ VIDEO STYLE select (mid-session). BOTH render their wording from
+// shared/videoProfiles.mjs — one source, no fork — and BOTH run the same
+// switch routine: persist the WHOLE {video:{profile}} subtree (the saveWheel
+// rule — `video` stays OUT of settingsStore's nested-merge list), re-apply the
+// session so main re-keys the mediamtx supervisor, then reconnect the WHEP
+// player with the new knobs. The feed restart is stated honestly on every
+// surface (VIDEO_PROFILE_RESTART_NOTE) because a profile switch is never
+// seamless: mediamtx respawns with new MTX_* env and the player rebuilds its
+// jitter buffer.
+const videoProfileRow = el('videoProfileRow');
+const videoProfileNote = el('videoProfileNote');
+const setVideoProfile = el('setVideoProfile');
+
+// Fill the pills and the ⚙ options from the shared definitions (module-eval
+// time, before any step shows).
+if (videoProfileRow) {
+  for (const b of videoProfileRow.children) {
+    const p = videoProfileFor(b.dataset.videoProfile);
+    b.textContent = `${p.label} · ${p.tagline.toUpperCase()}`;
+    b.title = p.blurb;
+  }
+}
+if (setVideoProfile) {
+  setVideoProfile.replaceChildren(...VIDEO_PROFILE_IDS.map((id) => {
+    const p = videoProfileFor(id);
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = `${p.label.toLowerCase()} — ${p.tagline}`;
+    return o;
+  }));
+}
+
+// Effective profile: the persisted subtree when present, DRIVE otherwise (the
+// subtree is conditional on disk — see shared/settings.js), repaired the same
+// way every consumer repairs it.
+function videoProfileEffective() {
+  return normalizeVideoSettings(settings && settings.video).profile;
+}
+
+function paintVideoProfile(id) {
+  const p = videoProfileFor(id);
+  if (videoProfileRow) {
+    for (const b of videoProfileRow.children) b.classList.toggle('on', b.dataset.videoProfile === p.id);
+  }
+  if (videoProfileNote) videoProfileNote.textContent = `${p.blurb} · ${VIDEO_PROFILE_RESTART_NOTE}`;
+}
+
+async function videoProfileChanged(id) {
+  const requested = videoProfileFor(id).id; // garbage repairs to DRIVE before anything persists
+  const before = videoProfileEffective();
+  await save({ video: { profile: requested } });
+  const effectiveId = videoProfileEffective(); // what actually persisted (save can fail)
+  paintVideoProfile(effectiveId);
+  if (setVideoProfile) setVideoProfile.value = effectiveId;
+  // Nothing actually changed (failed save — already radioed by save() — or the
+  // gs-less bench preview): no restart story to tell, nothing to apply.
+  if (effectiveId === before) return;
+  radio(`VIDEO STYLE: ${videoProfileFor(effectiveId).label} — VIDEO FEED RESTARTING`);
+  if (gs) {
+    const applied = await ipc(gs.applySession(), null, 'session:apply');
+    if (!applied) {
+      setStatus.textContent = 'APPLY FAILED — change the setting again to retry';
+      return;
+    }
+    setStatus.textContent = `VIDEO STYLE: ${videoProfileFor(effectiveId).label} — ${VIDEO_PROFILE_RESTART_NOTE}`;
+  }
+  // The renderer half: reconnect WHEP with the new player knobs (idempotent
+  // inside hud.js when the id did not actually change).
+  applyVideoProfile(effectiveId);
+}
+
+if (videoProfileRow) {
+  videoProfileRow.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-video-profile]');
+    // Re-clicking the active profile must not restart a healthy feed — the
+    // restart note is only ever true of a real switch.
+    if (!b || b.classList.contains('on')) return;
+    sounds.uiTick();
+    videoProfileChanged(b.dataset.videoProfile);
+  });
+}
+if (setVideoProfile) {
+  setVideoProfile.addEventListener('change', () => videoProfileChanged(setVideoProfile.value));
 }
 
 // ---------- PIT WALL ----------
@@ -1692,6 +1786,9 @@ function populateSettingsMenu() {
   const lb = lowBattEffective();
   el('setLowBattWarn').value = String(lb.warnV);
   el('setLowBattCrit').value = String(lb.criticalV);
+  // VIDEO STYLE mirrors the persisted profile (absent subtree -> DRIVE); no
+  // env lock exists for it by design (shared/settings.js resolveEffective).
+  if (setVideoProfile) setVideoProfile.value = videoProfileEffective();
   // Env-locked controls show the EFFECTIVE value (never the ignored persisted
   // one) and are non-editable; unlocked controls behave exactly as before.
   const w3Locked = applyEnvLock(el('setW3'), el('setW3Env'), 'w3');

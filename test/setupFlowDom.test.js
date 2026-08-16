@@ -1025,6 +1025,112 @@ describe('video state -> HUD overlay + GRID lock (audit C1)', () => {
   });
 });
 
+// Vision decision 7: the two video-profile switch points — the GARAGE VIDEO
+// STYLE pills (giftee-facing) and the ⚙ VIDEO STYLE select (mid-session).
+// Both render their wording from shared/videoProfiles.mjs (one source), both
+// persist the WHOLE {video:{profile}} subtree, both re-apply the session, and
+// both state the honest feed restart.
+describe('video profile switch points (vision decision 7)', () => {
+  // The real store round-trips the subtree (test/videoProfilePersist.test.js);
+  // here the MOCK must merge the patch too, or the repaint-from-what-persisted
+  // logic would never see the change (the a04b07c lesson: a non-round-tripping
+  // setSettings mock hides exactly this class of bug).
+  function videoGs({ seedVideo = null, applySession } = {}) {
+    const settings = defaultSettings();
+    if (seedVideo) settings.video = seedVideo;
+    return mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async (patch) => Object.assign(settings, patch)),
+      applySession: applySession
+        ?? vi.fn(async () => ({ telemetry: 'none', w3: false, video: 'drive' })),
+    });
+  }
+  const pill = (id) => document.querySelector(`#videoProfileRow [data-video-profile="${id}"]`);
+  const radioText = () => el('radioLog').firstChild?.textContent ?? '';
+
+  it('GARAGE renders the row from the shared module: DRIVE on by default, honest restart note', async () => {
+    await loadRenderer(videoGs());
+    const { VIDEO_PROFILES, VIDEO_PROFILE_RESTART_NOTE } = await import('../shared/videoProfiles.mjs');
+    expect(activeStep()).toBe('garage');
+    // Wording comes from the module, not duplicated markup.
+    expect(pill('drive').textContent)
+      .toBe(`${VIDEO_PROFILES.drive.label} · ${VIDEO_PROFILES.drive.tagline.toUpperCase()}`);
+    expect(pill('showpiece').textContent)
+      .toBe(`${VIDEO_PROFILES.showpiece.label} · ${VIDEO_PROFILES.showpiece.tagline.toUpperCase()}`);
+    // Fresh settings (no video subtree) -> DRIVE selected.
+    expect(pill('drive').classList.contains('on')).toBe(true);
+    expect(pill('showpiece').classList.contains('on')).toBe(false);
+    // The note explains the selected profile and never hides the restart.
+    expect(el('videoProfileNote').textContent).toContain(VIDEO_PROFILES.drive.blurb);
+    expect(el('videoProfileNote').textContent).toContain(VIDEO_PROFILE_RESTART_NOTE);
+  });
+
+  it('clicking CINEMA LOOK saves the WHOLE subtree, re-applies the session, repaints, and radios the restart', async () => {
+    const gs = videoGs();
+    await loadRenderer(gs);
+    pill('showpiece').click();
+    await tick();
+    // Whole-subtree save (the saveWheel rule — video is not nested-merged).
+    expect(gs.setSettings).toHaveBeenCalledWith({ video: { profile: 'showpiece' } });
+    expect(gs.applySession).toHaveBeenCalledTimes(1);
+    // Save first, then apply (main re-keys mediamtx from what PERSISTED).
+    expect(Math.min(...gs.setSettings.mock.invocationCallOrder))
+      .toBeLessThan(Math.min(...gs.applySession.mock.invocationCallOrder));
+    expect(pill('showpiece').classList.contains('on')).toBe(true);
+    expect(pill('drive').classList.contains('on')).toBe(false);
+    expect(radioText()).toContain('CINEMA LOOK');
+    expect(radioText()).toMatch(/restart/i);
+  });
+
+  it('re-clicking the active profile is inert — no save, no apply, no false restart message', async () => {
+    const gs = videoGs();
+    await loadRenderer(gs);
+    pill('drive').click(); // already on
+    await tick();
+    expect(gs.setSettings).not.toHaveBeenCalled();
+    expect(gs.applySession).not.toHaveBeenCalled();
+    expect(radioText()).not.toMatch(/VIDEO STYLE/);
+  });
+
+  it('a persisted showpiece profile boots with CINEMA LOOK selected on GARAGE and in ⚙', async () => {
+    await loadRenderer(videoGs({ seedVideo: { profile: 'showpiece' } }));
+    expect(pill('showpiece').classList.contains('on')).toBe(true);
+    el('settingsBtn').click(); // open ⚙ -> populateSettingsMenu
+    expect(el('setVideoProfile').value).toBe('showpiece');
+  });
+
+  it('⚙ VIDEO STYLE mirrors the module wording and a change persists + applies with the honest status', async () => {
+    const gs = videoGs();
+    await loadRenderer(gs);
+    const { VIDEO_PROFILES, VIDEO_PROFILE_RESTART_NOTE } = await import('../shared/videoProfiles.mjs');
+    el('settingsBtn').click();
+    const select = el('setVideoProfile');
+    expect([...select.options].map((o) => o.value)).toEqual(['drive', 'showpiece']);
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      `${VIDEO_PROFILES.drive.label.toLowerCase()} — ${VIDEO_PROFILES.drive.tagline}`,
+      `${VIDEO_PROFILES.showpiece.label.toLowerCase()} — ${VIDEO_PROFILES.showpiece.tagline}`,
+    ]);
+    expect(select.value).toBe('drive'); // absent subtree -> DRIVE
+    select.value = 'showpiece';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    expect(gs.setSettings).toHaveBeenCalledWith({ video: { profile: 'showpiece' } });
+    expect(gs.applySession).toHaveBeenCalledTimes(1);
+    expect(el('setStatus').textContent).toContain('CINEMA LOOK');
+    expect(el('setStatus').textContent).toContain(VIDEO_PROFILE_RESTART_NOTE);
+    // The GARAGE pills follow the same persisted truth.
+    expect(pill('showpiece').classList.contains('on')).toBe(true);
+  });
+
+  it('a rejected session apply after the save shows the retry message instead of pretending', async () => {
+    const gs = videoGs({ applySession: vi.fn(async () => { throw new Error('boom'); }) });
+    await loadRenderer(gs);
+    pill('showpiece').click();
+    await tick();
+    expect(el('setStatus').textContent).toMatch(/APPLY FAILED/);
+  });
+});
+
 // C2 (audit D1/Q4): a compact persistent TELEMETRY · REPLAY chip in the HUD
 // session panel whenever the EFFECTIVE telemetry source is replay/synthetic —
 // separate from the PIT WALL SIMULATED WIFI tag and the W3 log-only chip.

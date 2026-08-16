@@ -185,6 +185,24 @@
         <button class="modecard" data-mode="solo"><b>DESKTOP FPV</b><span>full HUD on this screen · laptop only</span><span class="needs">NEEDS · controller or keyboard</span></button>
         <button class="modecard" data-mode="iphone-hud"><b>IPHONE COCKPIT</b><span>live HUD on the iPhone · FPV/VR view later</span><span class="needs">NEEDS · iPhone HUD app · shared Wi-Fi or hotspot</span></button>
       </div>
+      <!-- VIDEO STYLE (vision decision 7): the GARAGE-level switch between the
+           two video profiles — plain giftee wording (labels/blurbs come from
+           shared/videoProfiles.mjs via setupFlow.js so the ⚙ row can never say
+           something different). Persisted as the whole {video:{profile}}
+           subtree; the hint states honestly that a switch restarts the feed.
+           Sits BEFORE #viewerOnlyNote so the disclaimer stays the last child
+           (its placement contract, see the note below). -->
+      <div class="videostyle" id="videoStyleRow">
+        <div class="colhead">VIDEO STYLE <small>how the camera picture behaves</small></div>
+        <!-- Labels/blurbs are filled by setupFlow.js from shared/videoProfiles.mjs
+             at module eval — deliberately NOT duplicated here, so the wording has
+             exactly one source. -->
+        <div class="inputtyperow" id="videoProfileRow">
+          <button class="pill" data-video-profile="drive"></button>
+          <button class="pill" data-video-profile="showpiece"></button>
+        </div>
+        <div class="hint" id="videoProfileNote"></div>
+      </div>
       <!-- Viewer-only disclaimer, ONCE PER APP SESSION (2026-07-25). The
            permanent home is the ⚙ panel; this is the once-per-run surface where
            the operator actually reads it, on the landing screen. Deliberately:
@@ -508,6 +526,14 @@
       <div class="setrow"><label>LOW BATTERY</label>
         <span class="setctl"><input id="setLowBattWarn" class="vnum" type="number" step="0.1" min="1" max="60" aria-label="low battery warn volts" /><small>warn V</small></span>
         <span class="setctl"><input id="setLowBattCrit" class="vnum" type="number" step="0.1" min="1" max="60" aria-label="low battery critical volts" /><small>critical V</small></span>
+      </div>
+      <!-- VIDEO STYLE (vision decision 7): ⚙ twin of the GARAGE selector —
+           reachable mid-session, same persisted {video:{profile}} subtree,
+           same shared wording (options filled by setupFlow.js from
+           shared/videoProfiles.mjs). The status line under the menu states the
+           honest restart when it changes. -->
+      <div class="setrow"><label>VIDEO STYLE</label>
+        <span class="setctl"><select id="setVideoProfile" aria-label="video style"></select></span>
       </div>
       <button class="minibtn" id="setRerun">RE-RUN SETUP</button>
       <div class="netstatus" id="setStatus"></div>

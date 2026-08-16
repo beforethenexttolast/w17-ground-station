@@ -405,6 +405,13 @@ body{background:#000;color:var(--silver);
 .fastpath span{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.1em;text-transform:uppercase}
 .fastpath .minibtn{color:var(--green);border-color:rgba(0,230,118,.5)}
 .modecards{display:flex;gap:clamp(1em,2vw,1.8em);flex-wrap:wrap;justify-content:center;width:100%}
+/* VIDEO STYLE selector on GARAGE (vision decision 7): the giftee-facing
+   drive/showpiece switch. Centered like the mode cards; the pills reuse the
+   standard pill look and need the same interactive opt-ins .nettabs declares
+   (hud.css pills are display-only by default). */
+.videostyle{display:flex;flex-direction:column;align-items:center;gap:.55em;margin-top:.4em}
+.videostyle .pill{cursor:pointer;font-family:inherit;pointer-events:auto}
+.videostyle .hint{text-align:center}
 /* Viewer-only disclaimer on GARAGE, once per app session (2026-07-25). IN-FLOW,
    NOT position:fixed — the replaced #gateFootnote overlay (0950298) crossed
    content at scrollTop 0 and reserved viewport height permanently. A teal left
