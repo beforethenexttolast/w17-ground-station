@@ -141,6 +141,40 @@ function normalizeWheelProfile(raw) {
     };
 }
 
+// --- low-battery thresholds (CJS-local mirror of shared/lowBattery.mjs) ---
+//
+// Same construction as the wheel mirror above, for the same reason: the real
+// validator, `normalizeLowBatterySettings`, lives in shared/lowBattery.mjs
+// (ESM, renderer-loadable — hud.js derives the banner level from it every
+// frame) and CANNOT be require()'d synchronously here. This LOCAL MIRROR is
+// kept honest by the corpus-based parity test in test/lowBatteryPersist.test.js
+// — normalizeLowBattery(x) must deep-equal normalizeLowBatterySettings(x) over
+// a hostile corpus, so a drift between the two fails the suite.
+//
+// Thresholds are PACK volts (2S defaults: warn 3.5 V/cell = 7.0 V, critical
+// 3.3 V/cell = 6.6 V). The band rejects unit mistakes; an inverted pair is
+// repaired by lowering critical to warn (the conservative direction). Callers
+// that save this subtree always write BOTH fields (the saveWheel() rule):
+// `lowBattery` stays OUT of settingsStore's nested-merge list, so a partial
+// patch would otherwise silently reset the missing field to its default.
+const DEFAULT_LOW_BATTERY = Object.freeze({ warnV: 7, criticalV: 6.6 });
+const LOW_BATTERY_MIN_V = 1;
+const LOW_BATTERY_MAX_V = 60;
+
+const lbNum = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= LOW_BATTERY_MIN_V && n <= LOW_BATTERY_MAX_V ? n : null;
+};
+
+// Mirror of normalizeLowBatterySettings (shared/lowBattery.mjs). Never throws.
+function normalizeLowBattery(raw) {
+    const r = (raw && typeof raw === 'object') ? raw : {};
+    const warnV = lbNum(r.warnV) ?? DEFAULT_LOW_BATTERY.warnV;
+    let criticalV = lbNum(r.criticalV) ?? DEFAULT_LOW_BATTERY.criticalV;
+    if (criticalV > warnV) criticalV = warnV;
+    return { warnV, criticalV };
+}
+
 // Accepts anything (missing file, garbage JSON, old versions) and returns a
 // complete settings object. Unknown keys are dropped; bad values fall back to
 // defaults field-by-field so one corrupt entry never nukes the rest.
@@ -190,6 +224,18 @@ function normalizeSettings(raw) {
         // deliberately never written (renderer decision #2 — always boots GAMEPAD).
         ...(raw.wheel && raw.wheel.profile
             ? { wheel: { profile: normalizeWheelProfile(raw.wheel.profile) } }
+            : {}),
+        // Low-battery banner thresholds, admitted ONLY when the subtree is
+        // actually present — the same conditional spread as `wheel` above, for
+        // the same reason: normalizeSettings rebuilds a fixed shape, so a key
+        // it does not admit is silently dropped on every save (audit Finding 1
+        // class), while an unconditional key would change the on-disk shape of
+        // every existing install (the exactly-13-keys pins). A session that
+        // never touched the thresholds keeps exactly the 13 baseline keys and
+        // the renderer falls back to DEFAULT_LOW_BATTERY. Arrays are rejected
+        // here (an array is not a config), not inside the normalizer.
+        ...(raw.lowBattery && typeof raw.lowBattery === 'object' && !Array.isArray(raw.lowBattery)
+            ? { lowBattery: normalizeLowBattery(raw.lowBattery) }
             : {}),
     };
 }
@@ -269,5 +315,6 @@ module.exports = {
     DRIVING_MODES,
     normalizeSettings,
     normalizeWheelProfile,
+    normalizeLowBattery,
     resolveEffective,
 };

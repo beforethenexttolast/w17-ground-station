@@ -72,6 +72,18 @@
       <div class="rev panel" id="rev"></div>
     </div>
 
+    <!-- Unmissable low-battery banner (vision operator model): derived by
+         hud.js in the RENDERER from the telemetry it already receives — no new
+         preload/IPC key. Hidden until a live battery reading crosses the warn
+         threshold; hud.js sets the text (shared/lowBattery.mjs
+         LOW_BATTERY_LABELS) and the warn/critical class. A direct child of
+         .hud, screen-centred like .revwrap, at 30vh so it can NEVER sit over
+         the .statusstack failsafe/armed indicators (top-right, ends well above
+         30vh at the 1024×640 floor) or the rev strip; pointer-events stays
+         none so it can never block the ⚙ or any control. role=alert so a
+         screen reader announces the state change. -->
+    <div class="lowbatt hidden" id="lowBattBanner" role="alert"></div>
+
     <div class="bottom">
       <div class="left">
         <div class="speedbox panel">
@@ -487,6 +499,15 @@
       <div class="setrow"><label>TELEMETRY</label>
         <span class="setctl"><select id="setTelemetrySource"><option value="none">none</option><option value="replay">replay</option><option value="crsf-serial">crsf-serial</option></select><span class="envbadge hidden" id="setTelemetrySourceEnv" tabindex="0" role="note">ENV</span></span>
         <span class="setctl"><input id="setTelemetryPort" spellcheck="false" placeholder="COM5" /><span class="envbadge hidden" id="setTelemetryPortEnv" tabindex="0" role="note">ENV</span></span>
+      </div>
+      <!-- Low-battery banner thresholds (pack volts). Defaults suit the W17's
+           2S LiPo (warn 3.5 V/cell = 7.0 V, critical 3.3 V/cell = 6.6 V); the
+           owner tunes them here, the giftee never needs to. Persisted as the
+           whole {lowBattery:{warnV,criticalV}} subtree via the normal save()
+           path; garbage repairs to the defaults (shared/lowBattery.mjs). -->
+      <div class="setrow"><label>LOW BATTERY</label>
+        <span class="setctl"><input id="setLowBattWarn" class="vnum" type="number" step="0.1" min="1" max="60" aria-label="low battery warn volts" /><small>warn V</small></span>
+        <span class="setctl"><input id="setLowBattCrit" class="vnum" type="number" step="0.1" min="1" max="60" aria-label="low battery critical volts" /><small>critical V</small></span>
       </div>
       <button class="minibtn" id="setRerun">RE-RUN SETUP</button>
       <div class="netstatus" id="setStatus"></div>

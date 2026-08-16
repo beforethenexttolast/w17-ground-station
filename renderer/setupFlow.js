@@ -6,7 +6,7 @@
 // glue over the pure step/checklist/address modules in shared/. It never
 // touches control — the START buttons only dismiss a viewer overlay.
 
-import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource, setDriveMode } from './hud.js';
+import { startRide, hudStatus, setControllerChoice, setW3Chip, setReplayChip, setInputSource, setDriveMode, setLowBatteryThresholds } from './hud.js';
 import { stepsFor, nextStep, prevStep, LIGHTS } from '../shared/setupSteps.mjs';
 import { buildChecklist, applyProbes, canStart } from '../shared/checklist.mjs';
 import { isValidIpv4, pickAddressSuggestion } from '../shared/addressProviders.mjs';
@@ -27,6 +27,7 @@ import {
   normalizeWheelSettings, wheelValues, pressedWheelRoles, detectInputChange,
   WHEEL_BUTTON_ROLES, WHEEL_BUTTON_LABELS, MAX_DEADZONE,
 } from '../shared/wheelProfile.mjs';
+import { normalizeLowBatterySettings } from '../shared/lowBattery.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
 
@@ -1675,11 +1676,22 @@ function applyEnvLock(control, badge, key, { readonly = false } = {}) {
   return lock.locked;
 }
 
+// Effective low-battery thresholds: the persisted subtree when present, the
+// 2S defaults otherwise (the subtree is conditional on disk — see
+// shared/settings.js). Normalizing here keeps the ⚙ fields always showing the
+// values the banner actually uses, including after a garbage edit repaired.
+function lowBattEffective() {
+  return normalizeLowBatterySettings(settings && settings.lowBattery);
+}
+
 function populateSettingsMenu() {
   if (!settings) return;
   el('setSound').checked = settings.soundEnabled;
   el('setLights').checked = settings.startLightsEnabled;
   el('setElrsPath').value = settings.elrsPath;
+  const lb = lowBattEffective();
+  el('setLowBattWarn').value = String(lb.warnV);
+  el('setLowBattCrit').value = String(lb.criticalV);
   // Env-locked controls show the EFFECTIVE value (never the ignored persisted
   // one) and are non-editable; unlocked controls behave exactly as before.
   const w3Locked = applyEnvLock(el('setW3'), el('setW3Env'), 'w3');
@@ -1714,6 +1726,29 @@ el('setW3').addEventListener('change', async (e) => {
   setW3Chip(!!applied.w3);
 });
 el('setElrsPath').addEventListener('change', async (e) => { await save({ elrsPath: e.target.value.trim() }); });
+// LOW BATTERY thresholds. Always saves the WHOLE {warnV, criticalV} subtree
+// (the saveWheel() rule — lowBattery is not in settingsStore's nested-merge
+// list, so a partial patch would reset the missing field). A blanked/garbage
+// field keeps its current value; out-of-band or inverted pairs repair in
+// normalizeLowBatterySettings, and the fields repaint with what actually
+// persisted so the ⚙ never shows a value the banner is not using.
+async function lowBatteryChanged() {
+  const cur = lowBattEffective();
+  const w = Number.parseFloat(el('setLowBattWarn').value);
+  const c = Number.parseFloat(el('setLowBattCrit').value);
+  await save({
+    lowBattery: normalizeLowBatterySettings({
+      warnV: Number.isFinite(w) ? w : cur.warnV,
+      criticalV: Number.isFinite(c) ? c : cur.criticalV,
+    }),
+  });
+  const lb = lowBattEffective();
+  el('setLowBattWarn').value = String(lb.warnV);
+  el('setLowBattCrit').value = String(lb.criticalV);
+  setLowBatteryThresholds(lb); // live HUD picks the change up immediately
+}
+el('setLowBattWarn').addEventListener('change', lowBatteryChanged);
+el('setLowBattCrit').addEventListener('change', lowBatteryChanged);
 async function telemetryChanged() {
   // Partial-lock safe (audit C3/Q8): persist ONLY the fields env is NOT
   // overriding. Saving a locked field would write its displayed EFFECTIVE

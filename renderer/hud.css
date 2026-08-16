@@ -194,6 +194,34 @@ body{background:#000;color:var(--silver);
 .ersfill.low{background:linear-gradient(90deg,#7a0f0f,var(--red))}
 @keyframes ersglow{to{filter:brightness(1.5)}}
 
+/* Unmissable low-battery banner (vision operator model). Geometry, MEASURED
+   on the real renderer at the 1024×640 floor: screen-centred at top:30vh
+   (=192px), below the rev strip (bottom 61px) and below the .statusstack's
+   usual depth (bottom 158px with the default chip set) — and even if every
+   optional chip shows and the stack runs deeper, the two can still never
+   meet, because the 56ch cap holds the banner's right edge at ≤768px while
+   the stack column starts at ≥779px with its widest chip (ARM / FAILSAFE ·
+   NOT REPORTED BY CAR). Clear of the gear numeral (top ≈64vh) and the
+   dead-centre .feed-note. It must never overlap or block the failsafe/armed
+   indicators: the geometry above is the not-overlap half, and
+   pointer-events:none is the not-block half (it can never eat a click meant
+   for the ⚙ or a control underneath). Tones follow the app's alarm
+   vocabulary: warn = amber, critical = red and pulsing (the more severe
+   state must read as such at a glance). The generic .stale rule dims it like
+   every other held-last-value display while telemetry is lost — the level
+   keeps showing (a dead stream never un-warns a low pack) but never at full
+   alarm brightness, per the honesty convention. */
+.lowbatt{position:absolute;left:50%;top:30vh;transform:translateX(-50%);max-width:min(56ch,80vw);
+  text-align:center;padding:.5em 1.4em;font-style:italic;font-weight:800;letter-spacing:.14em;
+  text-transform:uppercase;font-size:clamp(15px,2.2vw,26px);pointer-events:none;
+  background:var(--panel);backdrop-filter:blur(3px);
+  clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);}
+.lowbatt.hidden{display:none} /* element-scoped: hud.css has no generic .hidden rule (pinned) */
+.lowbatt.warn{color:var(--amber);border:1px solid var(--amber);box-shadow:0 0 18px rgba(255,178,0,.35)}
+.lowbatt.critical{color:var(--red);border:1px solid var(--red);box-shadow:0 0 26px rgba(255,45,45,.5);
+  animation:lowbattpulse 1s ease-in-out infinite}
+@keyframes lowbattpulse{50%{box-shadow:0 0 44px rgba(255,45,45,.9);filter:brightness(1.3)}}
+
 /* The setup overlay fills the window and, when its content is taller than the
    viewport (small laptops / the taller SEAT FIT), SCROLLS instead of clipping:
    `safe center` centres when it fits and falls back to top-alignment when it
@@ -654,11 +682,14 @@ button.cammode:hover{border-color:var(--teal)}
 .envbadge.hidden{display:none}
 .settings input:disabled,.settings select:disabled,.settings input:read-only{opacity:.65}
 .settings input:read-only{cursor:default}
+/* Small numeric fields (LOW BATTERY volts): the generic 14ch input floor would
+   push the two-field row past the panel width for what is a 4-char value. */
+.settings input.vnum{min-width:7ch;width:8ch}
 /* PERMANENT home of the viewer-only disclaimer (2026-07-25): a muted footer note
    in the ⚙ panel, separated from the controls by a hairline. Not fixed, not
    interactive — the panel itself is the overlay. */
 .setnote{color:var(--muted);font-size:clamp(9px,1.05vw,11px);letter-spacing:.08em;line-height:1.5;
   border-top:1px solid var(--panel-edge);padding-top:.7em;max-width:38ch}
 
-@media (prefers-reduced-motion:reduce){.rev.redline i,.dot,.ersfill.deploy{animation:none}
+@media (prefers-reduced-motion:reduce){.rev.redline i,.dot,.ersfill.deploy,.lowbatt.critical{animation:none}
   .gate{transition:none}.modecard,.startbtn{transition:none}}

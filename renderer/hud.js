@@ -16,6 +16,7 @@ import { wheelValues, pressedWheelRoles } from '../shared/wheelProfile.mjs';
 import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
 import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
 import { headIntentView } from '../shared/headIntentView.mjs';
+import { normalizeLowBatterySettings, lowBatteryLevel, LOW_BATTERY_LABELS } from '../shared/lowBattery.mjs';
 import * as uiNav from './uiNav.js';
 
 const el = (id) => document.getElementById(id);
@@ -25,7 +26,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   drsEl = el('drs'), boostEl = el('boost'), otEl = el('ot'), camDotEl = el('camdot'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
   w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'), headIntentChipEl = el('headIntentChip'),
-  armChipEl = el('armChip'),
+  armChipEl = el('armChip'), lowBattEl = el('lowBattBanner'),
   inputSrcTagEl = el('inputSrcTag'),
   gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote'), feedNoteText = el('feedNoteText');
@@ -235,6 +236,20 @@ export function renderHeadIntent(snapshot) {
   headIntentChipEl.textContent = view.visible ? view.chip : '';
   headIntentChipEl.title = view.visible ? (view.detail || '') : '';
 }
+// Low-battery banner (vision operator model: unmissable low battery; UX
+// carries the whole burden because the warn-never-auto-cut invariant stands).
+// Derived HERE, in the renderer, from the telemetry the HUD already receives —
+// deliberately no new preload/IPC key and no main-process involvement. The
+// thresholds are a persisted setting (⚙ LOW BATTERY row / settings.json,
+// shared/lowBattery.mjs defaults for the 2S pack); the level carries one frame
+// of memory (lowBattLevel) so the hysteresis in lowBatteryLevel() can hold a
+// state across the sag/recover flutter of a real pack. Display only.
+let lowBattThresholds = normalizeLowBatterySettings(); // defaults until settings load
+let lowBattLevel = 'ok';
+export function setLowBatteryThresholds(raw) {
+  lowBattThresholds = normalizeLowBatterySettings(raw);
+}
+
 // hudStatus: the GRID checklist's local probes — read-only display state.
 // `videoPlaying` is the confident-green derivation of the video-state model
 // (audit C1): true ONLY while frames are actually flowing.
@@ -468,8 +483,27 @@ function render() {
   ersPctEl.classList.toggle('stale', stale);
 
   // Battery + link: only meaningful from telemetry.
-  battVEl.textContent = useTelem && typeof telem.batteryV === 'number' ? telem.batteryV.toFixed(1) : '--';
+  const battLive = useTelem && typeof telem.batteryV === 'number';
+  battVEl.textContent = battLive ? telem.batteryV.toFixed(1) : '--';
   battVEl.classList.toggle('stale', stale);
+
+  // Unmissable low-battery banner. Fed ONLY by a real battery reading: with no
+  // telemetry ever seen (sim) there is nothing to warn about and the banner
+  // stays hidden ('ok'). During TELEMETRY LOST the last reading holds — telem
+  // still carries it — so an already-raised warning stays up (a dead stream
+  // never un-warns a low pack), dimmed by the same .stale rule as every other
+  // held value. The level feeds back as prevLevel: that single variable is the
+  // hysteresis memory that stops the banner flickering while a sagging pack
+  // hovers at a threshold.
+  lowBattLevel = battLive
+    ? lowBatteryLevel({ batteryV: telem.batteryV, prevLevel: lowBattLevel, thresholds: lowBattThresholds })
+    : 'ok';
+  if (lowBattEl) {
+    lowBattEl.textContent = lowBattLevel === 'ok' ? '' : LOW_BATTERY_LABELS[lowBattLevel];
+    lowBattEl.className = lowBattLevel === 'ok'
+      ? 'lowbatt hidden'
+      : `lowbatt ${lowBattLevel}${stale ? ' stale' : ''}`;
+  }
 
   if (state === 'link-lost') {
     // PROVENANCE (audit R01, 2026-07-25): 'link-lost' has two triggers with very
@@ -580,6 +614,9 @@ async function init() {
     try {
       const { settings } = await window.groundStation.getSettings();
       if (settings && settings.controller) setControllerChoice(settings.controller);
+      // Persisted low-battery thresholds (absent subtree -> 2S defaults). The
+      // ⚙ LOW BATTERY row updates them at runtime via setLowBatteryThresholds.
+      if (settings) setLowBatteryThresholds(settings.lowBattery);
     } catch (err) {
       console.error('[hud] settings load failed:', err && err.message ? err.message : err);
     }
