@@ -70,9 +70,27 @@ function mockGs(overrides = {}) {
     probeHost: vi.fn(async () => ({ ok: false, error: 'no reply' })),
     elrsStatus: vi.fn(async () => ({ configured: false, detected: false })),
     elrsLaunch: vi.fn(async () => ({ ok: true })),
+    // One-action race day (2026-08-17 wave): idle orchestrator by default.
+    raceDayStart: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+    raceDayStop: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+    raceDayStatus: vi.fn(async () => raceDayIdleSnap()),
+    onRaceDayState: vi.fn(() => () => {}),
     onTelemetry: vi.fn(() => () => {}),
     sendCommandMirror: vi.fn(),
     ...overrides,
+  };
+}
+
+function raceDayIdleSnap() {
+  return {
+    seq: 0,
+    running: false,
+    steps: [
+      { id: 'hotspot', status: 'idle', kind: null },
+      { id: 'mapper', status: 'idle', kind: null },
+      { id: 'bridge', status: 'idle', kind: null },
+    ],
+    mapper: { running: false, pid: null, exitCode: null, stoppedByUs: false, logTail: [] },
   };
 }
 
@@ -294,6 +312,128 @@ describe('operational IPC rejections (audit N1)', () => {
     expect(activeStep()).toBe('grid');
     expect(el('setupSummary').textContent).toContain('SESSION APPLY FAILED');
     expect(el('checkList').children.length).toBeGreaterThan(0); // checklist still renders
+  });
+});
+
+// One-action race day on the GARAGE fast-path card (2026-08-17 wave): the real
+// renderer against pushed orchestrator snapshots — the card mirrors main truth,
+// speaks the plain-language view strings, and the invokes stay payload-free.
+describe('race-day card on GARAGE (one-action race day)', () => {
+  const rdSnap = (steps, { seq = 1, running = false, mapperRunning = false } = {}) => ({
+    seq,
+    running,
+    steps,
+    mapper: { running: mapperRunning, pid: mapperRunning ? 7 : null, exitCode: null, stoppedByUs: false, logTail: [] },
+  });
+
+  async function loadReturningUser(overrides = {}) {
+    let push;
+    const settings = { ...defaultSettings(), setupCompleted: true };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      onRaceDayState: vi.fn((cb) => { push = cb; return () => {}; }),
+      ...overrides,
+    });
+    await loadRenderer(gs);
+    expect(activeStep()).toBe('garage');
+    return { gs, push: (s) => push(s) };
+  }
+
+  it('a returning user gets the one-press action; idle card keeps the step lines collapsed', async () => {
+    const { gs } = await loadReturningUser();
+    expect(el('fastPath').classList.contains('hidden')).toBe(false);
+    expect(el('raceDayBtn').disabled).toBe(false);
+    expect(el('raceDaySteps').classList.contains('hidden')).toBe(true);
+    expect(el('raceDayStopBtn').classList.contains('hidden')).toBe(true);
+    expect(el('raceDayHeadline').classList.contains('hidden')).toBe(true);
+    // The card seeded itself from the authority on GARAGE entry.
+    expect(gs.raceDayStatus).toHaveBeenCalled();
+  });
+
+  it('pressing RACE DAY invokes start payload-free; pushed snapshots drive live per-step lines', async () => {
+    const { gs, push } = await loadReturningUser();
+    el('raceDayBtn').click();
+    await tick();
+    expect(gs.raceDayStart).toHaveBeenCalledTimes(1);
+    expect(gs.raceDayStart).toHaveBeenCalledWith();
+
+    // Main pushes: bring-up in flight, hotspot switching on.
+    push(rdSnap([
+      { id: 'hotspot', status: 'running', kind: 'starting' },
+      { id: 'mapper', status: 'pending', kind: null },
+      { id: 'bridge', status: 'pending', kind: null },
+    ], { seq: 2, running: true }));
+    await tick();
+    expect(el('raceDayBtn').disabled).toBe(true); // no double-press while running
+    expect(el('raceDayHeadline').textContent).toBe('BRINGING EVERYTHING UP…');
+    const rows = [...el('raceDaySteps').children];
+    expect(rows).toHaveLength(3);
+    expect(rows[0].querySelector('b').textContent).toBe('CAR WI-FI');
+    expect(rows[0].querySelector('span').textContent).toBe('switching on…');
+    expect(rows[1].querySelector('span').textContent).toBe('waiting…');
+
+    // Everything up: green headline, STOP appears (managed drive program alive).
+    push(rdSnap([
+      { id: 'hotspot', status: 'ok', kind: 'verified' },
+      { id: 'mapper', status: 'ok', kind: 'running' },
+      { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+    ], { seq: 3, mapperRunning: true }));
+    await tick();
+    expect(el('raceDayBtn').disabled).toBe(false);
+    expect(el('raceDayHeadline').textContent).toBe('EVERYTHING IS UP — STRAIGHT TO THE GRID when ready');
+    expect(el('raceDayStopBtn').classList.contains('hidden')).toBe(false);
+    const done = [...el('raceDaySteps').children];
+    expect(done[0].className).toBe('rdrow ok');
+    expect(done[2].querySelector('span').textContent).toBe('desktop session — the phone is not used');
+  });
+
+  it('a failed step renders the honest plain-language line; STOP stays hidden with nothing to stop', async () => {
+    const { push } = await loadReturningUser();
+    push(rdSnap([
+      { id: 'hotspot', status: 'ok', kind: 'verified' },
+      { id: 'mapper', status: 'fail', kind: 'not-configured' },
+      { id: 'bridge', status: 'pending', kind: null },
+    ], { seq: 2 }));
+    await tick();
+    expect(el('raceDayHeadline').textContent).toBe('SOMETHING NEEDS ATTENTION — see below');
+    const rows = [...el('raceDaySteps').children];
+    expect(rows[1].className).toBe('rdrow fail');
+    expect(rows[1].querySelector('span').textContent)
+      .toBe('its location is not set — set it once in ⚙ (RACE DAY)');
+    expect(el('raceDayStopBtn').classList.contains('hidden')).toBe(true);
+    expect(el('raceDayBtn').disabled).toBe(false); // the retry press stays available
+  });
+
+  it('STOP invokes payload-free and an out-of-order (stale-seq) push is dropped', async () => {
+    const { gs, push } = await loadReturningUser();
+    push(rdSnap([
+      { id: 'hotspot', status: 'skipped', kind: 'own-wifi' },
+      { id: 'mapper', status: 'ok', kind: 'running' },
+      { id: 'bridge', status: 'skipped', kind: 'off-by-choice' },
+    ], { seq: 5, mapperRunning: true }));
+    await tick();
+    el('raceDayStopBtn').click();
+    await tick();
+    expect(gs.raceDayStop).toHaveBeenCalledTimes(1);
+    expect(gs.raceDayStop).toHaveBeenCalledWith();
+
+    // A stale push (older seq) must not overwrite the newer card state.
+    push(rdSnap([
+      { id: 'hotspot', status: 'running', kind: 'starting' },
+      { id: 'mapper', status: 'pending', kind: null },
+      { id: 'bridge', status: 'pending', kind: null },
+    ], { seq: 2, running: true }));
+    await tick();
+    expect(el('raceDayBtn').disabled).toBe(false); // still the seq-5 state
+    expect([...el('raceDaySteps').children][1].querySelector('span').textContent).toBe('running');
+  });
+
+  it('a fresh user has no race-day surface at all (the card itself is hidden)', async () => {
+    const gs = mockGs();
+    await loadRenderer(gs);
+    expect(activeStep()).toBe('garage');
+    expect(el('fastPath').classList.contains('hidden')).toBe(true);
+    expect(gs.raceDayStatus).not.toHaveBeenCalled(); // no seed without the card
   });
 });
 

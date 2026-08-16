@@ -29,12 +29,15 @@ const { resolveEffective } = require('../shared/settings.js');
 // mapper's read-only head-intent diagnostics snapshot for display (CB8 slice 3B)
 // — a ONE-WAY display channel with no renderer -> mapper reply path.
 // `adapterState` carries the adapter monitor's change snapshots (2B) — also
-// one-way display data.
+// one-way display data. `raceDayState` carries the race-day orchestrator's
+// per-step snapshots (2026-08-17 wave) — one-way display data again; the
+// renderer's only ways BACK are the three raceday:* lifecycle invokes below.
 const PUSH_CHANNELS = Object.freeze({
     telemetry: 'telemetry',
     hotspotState: 'hotspot-state',
     headIntent: 'head-intent-diagnostics',
     adapterState: 'adapter-state',
+    raceDayState: 'race-day-state',
 });
 
 // Setup-flow platform services (thin IO; all soft-fail with reasons). With
@@ -177,7 +180,7 @@ function registerIpcHandlers({ ipcMain, services }) {
     const {
         whepUrl, platform, feel, runtime, settingsStore, sessionApplier,
         w3Active, wifi, sim, hotspotLifecycle, adapterMonitor, addrHint, hostProbe, elrs,
-        hudDiscovery,
+        hudDiscovery, raceDay,
     } = services;
 
     const handle = new Map();
@@ -286,6 +289,16 @@ function registerIpcHandlers({ ipcMain, services }) {
     reg('elrs:status', () => elrs.detectRunning(settingsStore.load().elrsPath));
     reg('elrs:launch', () => elrs.launchDetached(settingsStore.load().elrsPath));
 
+    // --- GARAGE: one-action race day (2026-08-17 wave) ---
+    // All three delegate to the orchestrator authority; the renderer mirrors
+    // its pushed 'race-day-state' snapshots exactly like the hotspot pane
+    // mirrors the lifecycle. Lifecycle verbs ONLY — there is deliberately no
+    // channel that could carry data TO the managed mapper (the orchestrator's
+    // own argv whitelist + noControlPath pins keep it that way).
+    reg('raceday:start', () => raceDay.start());
+    reg('raceday:stop', () => raceDay.stop());
+    reg('raceday:status', () => raceDay.snapshot());
+
     // Read-only display mirror from the renderer (throttle/brake/steering/camera
     // as drawn on the HUD) -- forwarded outward to the iPhone bridge only. This
     // is one-way: nothing is sent back, and no control state is touched.
@@ -313,6 +326,14 @@ function wireHotspotPush({ lifecycle, broadcast }) {
 function wireAdapterPush({ monitor, broadcast }) {
     if (!monitor) return () => {};
     return monitor.onChange((snap) => broadcast(PUSH_CHANNELS.adapterState, snap));
+}
+
+// Forward every race-day orchestrator snapshot to the renderer push channel
+// (2026-08-17 wave) — the same one-way display shape as the two pushes above.
+// The GARAGE card renders these; nothing rides back on this channel.
+function wireRaceDayPush({ orchestrator, broadcast }) {
+    if (!orchestrator) return () => {};
+    return orchestrator.onChange((snap) => broadcast(PUSH_CHANNELS.raceDayState, snap));
 }
 
 // Reconciles a LIVE hotspot against live adapter changes (2C/2D, Windows
@@ -455,6 +476,7 @@ module.exports = {
     registerIpcHandlers,
     wireHotspotPush,
     wireAdapterPush,
+    wireRaceDayPush,
     createAdapterCoordinator,
     createWindowOptions,
     resolveFullscreen,

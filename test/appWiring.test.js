@@ -422,6 +422,11 @@ function makeServices(t, overrides = {}) {
         hudDiscovery: { poll: vi.fn(() => []), stop: vi.fn() },
         hostProbe: { probe: vi.fn() },
         elrs: { detectRunning: vi.fn(), launchDetached: vi.fn() },
+        raceDay: {
+            start: vi.fn(async () => ({ ok: true, snapshot: { seq: 1, running: false, steps: [] } })),
+            stop: vi.fn(() => ({ ok: true, snapshot: { seq: 2, running: false, steps: [] } })),
+            snapshot: vi.fn(() => ({ seq: 0, running: false, steps: [], mapper: { running: false } })),
+        },
         ...overrides,
     };
 }
@@ -537,6 +542,25 @@ describe('registerIpcHandlers — delegation and renderer-visible answers (audit
         } finally { t.cleanup(); }
     });
 
+    it('raceday channels delegate 1:1 to the orchestrator, payload-free (2026-08-17 wave)', async () => {
+        const t = makeApplier();
+        try {
+            const ipc = fakeIpcMain();
+            const services = makeServices(t);
+            registerIpcHandlers({ ipcMain: ipc, services });
+            await ipc.invoke('raceday:start');
+            await ipc.invoke('raceday:stop');
+            await ipc.invoke('raceday:status');
+            // Called with NO arguments — the renderer cannot pass anything
+            // toward the managed mapper on these channels; the orchestrator
+            // reads persisted settings itself.
+            for (const fn of [services.raceDay.start, services.raceDay.stop, services.raceDay.snapshot]) {
+                expect(fn).toHaveBeenCalledTimes(1);
+                expect(fn).toHaveBeenCalledWith();
+            }
+        } finally { t.cleanup(); }
+    });
+
     it('setup helpers delegate: probe-host gets the addr, addr-hint merges BOTH address providers', async () => {
         const t = makeApplier();
         try {
@@ -551,7 +575,8 @@ describe('registerIpcHandlers — delegation and renderer-visible answers (audit
             expect(services.hostProbe.probe).toHaveBeenCalledWith('10.0.0.7');
             // The traffic hint and the discovered HUDs ride the ONE existing
             // channel — CB4 added no preload/IPC surface (test/ipcSurface.test.js
-            // still pins exactly 24 methods).
+            // pinned exactly 24 methods at the time; 28 since the 2026-08-17
+            // race-day wave, which changed the pin deliberately).
             expect(await ipc.invoke('setup:addr-hint')).toEqual({ addr: '10.0.0.7', ageMs: 120, huds: [hud] });
             // Polling the hint is what drives discovery: nothing browses the
             // network unless the setup flow is asking.
@@ -657,6 +682,7 @@ describe('wireHotspotPush — authoritative snapshots to the renderer channel (a
             hotspotState: 'hotspot-state',
             headIntent: 'head-intent-diagnostics',
             adapterState: 'adapter-state',
+            raceDayState: 'race-day-state', // 2026-08-17 race-day wave (deliberate)
         });
     });
 });

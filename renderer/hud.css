@@ -404,6 +404,29 @@ body{background:#000;color:var(--silver);
 .fastpath b{letter-spacing:.18em;font-size:clamp(11px,1.2vw,13px);text-transform:uppercase;font-weight:800}
 .fastpath span{color:var(--muted);font-size:clamp(9px,1vw,11px);letter-spacing:.1em;text-transform:uppercase}
 .fastpath .minibtn{color:var(--green);border-color:rgba(0,230,118,.5)}
+/* One-action race day (2026-08-17 wave): the card's full-width last row —
+   button(s) + headline, then one plain-language line per step. Step text is
+   deliberately NOT the card's uppercase micro-type: these are sentences a
+   non-hobbyist reads (the GRID checkhint treatment), so transform/spacing
+   reset. Tones: ok green · fail red · run amber · muted grey. Element-scoped
+   .hidden rules as everywhere in this sheet (no generic .hidden — pinned). */
+.raceday{width:100%;display:flex;flex-direction:column;gap:.5em;border-top:1px solid #233033;padding-top:.6em}
+.racedayctl{display:flex;align-items:center;gap:.8em;flex-wrap:wrap}
+.racedayheadline{font-weight:800;letter-spacing:.14em;font-size:clamp(9px,1vw,11px)}
+.racedayheadline.hidden{display:none}
+.racedayheadline.ok{color:var(--green)}
+.racedayheadline.fail{color:var(--red)}
+.racedayheadline.run{color:var(--amber)}
+.raceday .minibtn.hidden{display:none}
+.racedaysteps{display:flex;flex-direction:column;gap:.3em}
+.racedaysteps.hidden{display:none}
+.rdrow{display:flex;gap:.7em;align-items:baseline}
+.rdrow b{flex:0 0 9.5em;letter-spacing:.14em;font-size:clamp(9px,1vw,11px);font-weight:800}
+.fastpath .rdrow span{text-transform:none;letter-spacing:normal;font-size:clamp(10px,1.05vw,12px);color:var(--silver)}
+.fastpath .rdrow.ok span{color:var(--green)}
+.fastpath .rdrow.fail span{color:var(--red)}
+.fastpath .rdrow.run span{color:var(--amber)}
+.fastpath .rdrow.muted span{color:var(--muted)}
 .modecards{display:flex;gap:clamp(1em,2vw,1.8em);flex-wrap:wrap;justify-content:center;width:100%}
 /* VIDEO STYLE selector on GARAGE (vision decision 7): the giftee-facing
    drive/showpiece switch. Centered like the mode cards; the pills reuse the

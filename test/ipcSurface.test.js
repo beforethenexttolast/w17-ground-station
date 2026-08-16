@@ -150,13 +150,20 @@ describe('preload minimalism (audit D2)', () => {
         }
     });
 
-    it('the exposed surface is the pinned 24-method contract — additions are deliberate', () => {
+    it('the exposed surface is the pinned 28-method contract — additions are deliberate', () => {
+        // 24 -> 28 on 2026-08-17 (race-day wave, DELIBERATE): the one-action
+        // race day adds exactly four keys — three payload-free lifecycle
+        // invokes (raceDayStart/Stop/Status) and one one-way state
+        // subscription (onRaceDayState). None can carry data toward the
+        // managed mapper; test/noControlPath.test.js pins that separately.
         expect([...exposedKeys].sort()).toEqual([
             'adapterState', 'applySession', 'elrsLaunch', 'elrsStatus', 'getAddrHint',
             'getConfig', 'getSettings', 'hotspotProbe', 'hotspotStart', 'hotspotState',
             'hotspotStop', 'hotspotVerify', 'onAdapterState', 'onHeadIntentDiagnostics',
-            'onHotspotState', 'onTelemetry', 'probeHost', 'sendCommandMirror', 'setSettings',
-            'wifiCapabilities', 'wifiInterfaces', 'wifiJoin', 'wifiScan', 'wifiStatus',
+            'onHotspotState', 'onRaceDayState', 'onTelemetry', 'probeHost',
+            'raceDayStart', 'raceDayStatus', 'raceDayStop', 'sendCommandMirror',
+            'setSettings', 'wifiCapabilities', 'wifiInterfaces', 'wifiJoin',
+            'wifiScan', 'wifiStatus',
         ]);
     });
 

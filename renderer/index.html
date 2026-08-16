@@ -180,6 +180,24 @@
           <span id="fastPathSummary"></span>
         </div>
         <button class="minibtn" id="fastPathBtn">STRAIGHT TO THE GRID &#9654;</button>
+        <!-- One-action race day (2026-08-17 wave, vision operator model): ONE
+             press brings the laptop side up — car Wi-Fi, the drive program
+             with the saved controller setup, the phone link — with live
+             per-step lines in plain language (shared/raceDayView.mjs; the
+             GRID-hint wording bar). The renderer only mirrors the pushed
+             main-process snapshots; a failed step's line says what to do, a
+             retry press re-runs idempotently, STOP appears only while the
+             managed drive program is running. Full-width last row of the
+             card (the flex wrap), so the resume button above keeps its
+             boot-focus position and document order (finding 6). -->
+        <div class="raceday" id="raceDayRow">
+          <div class="racedayctl">
+            <button class="minibtn" id="raceDayBtn">RACE DAY &#9654; BRING EVERYTHING UP</button>
+            <button class="minibtn hidden" id="raceDayStopBtn">STOP RACE DAY</button>
+            <span class="racedayheadline hidden" id="raceDayHeadline"></span>
+          </div>
+          <div class="racedaysteps hidden" id="raceDaySteps"></div>
+        </div>
       </div>
       <div class="modecards">
         <button class="modecard" data-mode="solo"><b>DESKTOP FPV</b><span>full HUD on this screen · laptop only</span><span class="needs">NEEDS · controller or keyboard</span></button>

@@ -27,6 +27,8 @@ const { createCredentialStore } = require('./credentialStore.js');
 const { SessionRuntime } = require('./sessionRuntime.js');
 const { createQuitPolicy } = require('./quitPolicy.js');
 const { ElrsLauncher } = require('./elrsLauncher.js');
+const { MapperRunner } = require('./mapperRunner.js');
+const { RaceDayOrchestrator } = require('./raceDayOrchestrator.js');
 const { HostProbe } = require('./hostProbe.js');
 const { createRemoteAddrHint } = require('./remoteAddrHint.js');
 const { createHudDiscovery } = require('./HudDiscovery.js');
@@ -41,6 +43,7 @@ const {
   registerIpcHandlers,
   wireHotspotPush,
   wireAdapterPush,
+  wireRaceDayPush,
   createAdapterCoordinator,
   createWindowOptions,
   resolveFullscreen,
@@ -66,6 +69,7 @@ let mediamtxHolder = null;
 let settingsStore = null;
 let runtime = null;
 let sessionApplier = null;
+let raceDay = null;
 
 // Setup-flow platform services (thin IO; all soft-fail with reasons). The
 // hotspot lifecycle constructed here is THE runtime authority (audit B1): the
@@ -242,6 +246,21 @@ app.whenReady().then(async () => {
     settingsStore, runtime, env: process.env, applyW3, applyVideo, warn: log,
   });
 
+  // One-action race day (2026-08-17 wave): the orchestrator SEQUENCES the
+  // authorities constructed above — the hotspot lifecycle, the managed mapper
+  // runner, the session applier — and owns nothing else. Same instance answers
+  // the raceday:* IPC, feeds the renderer push, and is disposed in teardown
+  // (the managed mapper is the one child race day exclusively owns; the
+  // hotspot stays the quit policy's decision, exactly as before).
+  raceDay = new RaceDayOrchestrator({
+    hotspotLifecycle,
+    mapperRunner: new MapperRunner({ log }),
+    sessionApplier,
+    settingsStore,
+    log,
+  });
+  wireRaceDayPush({ orchestrator: raceDay, broadcast });
+
   registerIpcHandlers({
     ipcMain,
     services: {
@@ -266,6 +285,7 @@ app.whenReady().then(async () => {
       hudDiscovery,
       hostProbe,
       elrs,
+      raceDay,
     },
   });
   sessionApplier.apply();
@@ -303,13 +323,17 @@ app.on('before-quit', (event) => quitPolicy.onBeforeQuit(event));
 // failure-isolated (a throwing stop cannot skip the rest — audit D2). The
 // elrs-joystick-control launcher is deliberately absent: it spawns detached
 // and is never killed by this app. The hotspot is also deliberately absent:
-// its shutdown is decided by the quit policy above, never implicitly.
+// its shutdown is decided by the quit policy above, never implicitly. The
+// race-day MANAGED mapper is deliberately present: unlike the detached
+// convenience launch, race day owns that child's lifecycle, so quitting must
+// stop it (the mediamtx doctrine, not the elrs one).
 const teardown = createTeardown({
   steps: [
     ['head-tracking receiver', () => w3Receiver.apply(null)],
     ['head-intent diagnostics', () => headIntentClient.apply(null)],
     ['adapter monitor', () => { if (adapterMonitor) adapterMonitor.stop(); }],
     ['hud discovery', () => hudDiscovery.stop()],
+    ['race day mapper', () => { if (raceDay) raceDay.dispose(); }],
     ['session runtime', () => { if (runtime) runtime.stopAll(); }],
     ['mediamtx', () => { if (mediamtxHolder) mediamtxHolder.apply(null); }],
   ],

@@ -51,6 +51,19 @@ contextBridge.exposeInMainWorld('groundStation', {
   // elrs-joystick-control: launch-only convenience; this app never stops it.
   elrsStatus: () => ipcRenderer.invoke('elrs:status'),
   elrsLaunch: () => ipcRenderer.invoke('elrs:launch'),
+  // One-action race day (2026-08-17 wave): lifecycle verbs + a status pull,
+  // mirrored by the pushed 'race-day-state' snapshots below. Deliberately
+  // NOTHING here can carry data toward the managed mapper — start/stop/status
+  // take no payload at all (the main-side orchestrator reads persisted
+  // settings itself), and the state channel is one-way main -> renderer.
+  raceDayStart: () => ipcRenderer.invoke('raceday:start'),
+  raceDayStop: () => ipcRenderer.invoke('raceday:stop'),
+  raceDayStatus: () => ipcRenderer.invoke('raceday:status'),
+  onRaceDayState: (cb) => {
+    const handler = (_event, snapshot) => cb(snapshot);
+    ipcRenderer.on('race-day-state', handler);
+    return () => ipcRenderer.removeListener('race-day-state', handler);
+  },
   onTelemetry: (cb) => {
     const handler = (_event, telemetry) => cb(telemetry);
     ipcRenderer.on('telemetry', handler);

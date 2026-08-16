@@ -31,6 +31,7 @@ import { normalizeLowBatterySettings } from '../shared/lowBattery.mjs';
 import {
   videoProfileFor, normalizeVideoSettings, VIDEO_PROFILE_IDS, VIDEO_PROFILE_RESTART_NOTE,
 } from '../shared/videoProfiles.mjs';
+import { raceDayStepLines, raceDayHeadline, raceDayControls } from '../shared/raceDayView.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
 
@@ -172,7 +173,90 @@ function updateFastPath() {
   if (!fastPath) return;
   const show = step === 'garage' && !!settings?.setupCompleted;
   fastPath.classList.toggle('hidden', !show);
-  if (show) fastPathSummary.textContent = fastPathSummaryText(settings);
+  if (show) {
+    fastPathSummary.textContent = fastPathSummaryText(settings);
+    // Seed the race-day block from the main-process authority (the pull that
+    // backs the push, exactly like the ADAPTER card on PIT WALL entry). The
+    // card may already be showing a snapshot; the seq gate keeps the freshest.
+    seedRaceDay();
+  }
+}
+
+// ---------- one-action race day (GARAGE fast-path card, 2026-08-17 wave) ----
+// The renderer MIRRORS the main-process orchestrator: a pull to seed, a
+// one-way push to stay live, and two payload-free lifecycle invokes (start /
+// stop). All wording comes from shared/raceDayView.mjs — plain giftee
+// language on the GRID-hint bar; nothing here invents state or text.
+const raceDayBtn = el('raceDayBtn'), raceDayStopBtn = el('raceDayStopBtn');
+const raceDayStepsEl = el('raceDaySteps'), raceDayHeadlineEl = el('raceDayHeadline');
+let raceDaySnap = null;
+
+// Same snapshot-adoption gate as the hotspot/adapter mirrors: pushes carry the
+// authority's monotonic seq, and anything older than the newest held is
+// dropped (arrival order is never trusted).
+function adoptRaceDaySnap(snap) {
+  if (!snap) return false;
+  if (raceDaySnap && typeof raceDaySnap.seq === 'number' && typeof snap.seq === 'number'
+      && snap.seq < raceDaySnap.seq) return false;
+  raceDaySnap = snap;
+  return true;
+}
+
+function renderRaceDay() {
+  if (!raceDayBtn) return;
+  const { startDisabled, stopVisible } = raceDayControls(raceDaySnap);
+  raceDayBtn.disabled = startDisabled;
+  raceDayStopBtn.classList.toggle('hidden', !stopVisible);
+  const head = raceDayHeadline(raceDaySnap);
+  raceDayHeadlineEl.className = head ? `racedayheadline ${head.tone}` : 'racedayheadline hidden';
+  raceDayHeadlineEl.textContent = head ? head.text : '';
+  const lines = raceDayStepLines(raceDaySnap);
+  // An idle card (never run this session) keeps the steps collapsed — the one
+  // button tells the whole story until it is pressed.
+  const allIdle = lines.every((l) => l.tone === 'muted' && l.text === 'waiting…');
+  raceDayStepsEl.classList.toggle('hidden', !lines.length || allIdle);
+  raceDayStepsEl.replaceChildren(...lines.map(({ label, text, tone }) => {
+    const row = document.createElement('div');
+    row.className = `rdrow ${tone}`;
+    const b = document.createElement('b');
+    b.textContent = label;
+    const span = document.createElement('span');
+    span.textContent = text;
+    row.append(b, span);
+    return row;
+  }));
+}
+
+async function seedRaceDay() {
+  if (!gs || !gs.raceDayStatus) return;
+  const snap = await ipc(gs.raceDayStatus(), null, 'raceday:status');
+  if (adoptRaceDaySnap(snap) && step === 'garage') renderRaceDay();
+}
+
+// Pushed on every orchestrator change. Off GARAGE only the cache is updated
+// (the stale-DOM guard every mirror in this file follows); re-entering GARAGE
+// re-seeds and re-renders the current truth.
+if (gs && gs.onRaceDayState) {
+  gs.onRaceDayState((snap) => {
+    if (!adoptRaceDaySnap(snap)) return;
+    if (step === 'garage') renderRaceDay();
+  });
+}
+
+if (raceDayBtn) {
+  raceDayBtn.addEventListener('click', async () => {
+    sounds.uiTick();
+    radio('RACE DAY: BRINGING EVERYTHING UP');
+    // Every state change arrives via the push; the awaited answer only
+    // backstops an IPC rejection with an honest radio line (audit N1 shape).
+    const res = await ipc(gs.raceDayStart(), null, 'raceday:start');
+    if (!res) radio('RACE DAY: COULD NOT START — TRY AGAIN');
+  });
+  raceDayStopBtn.addEventListener('click', async () => {
+    sounds.uiTick();
+    const res = await ipc(gs.raceDayStop(), null, 'raceday:stop');
+    radio(res && res.ok ? 'RACE DAY: STOPPED' : 'RACE DAY: STOP DID NOT FINISH — TRY AGAIN');
+  });
 }
 
 // Viewer-only disclaimer on GARAGE, ONCE PER APP SESSION (2026-07-25). GARAGE is
