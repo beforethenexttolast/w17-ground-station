@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, extname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as crsf from '../shared/crsf.js';
+import * as orchestratorExports from '../main/raceDayOrchestrator.js';
 
 // The W2 bridge must remain viewer-only: it exports telemetry OUT and opens NO
 // control path back to the car. These guards fail loudly if a future edit adds
@@ -102,6 +103,44 @@ describe('no-control-path regression (contract A + E)', () => {
     ]) {
       expect(src, `elrs launcher must not reference ${forbidden}`).not.toContain(forbidden);
     }
+  });
+
+  // Race-day wave 2026-08-17: the orchestrator may manage the mapper PROCESS
+  // (start/liveness/stop — a DELIBERATE evolution of the launch-only doctrine,
+  // which still stands unchanged for the GRID convenience launcher above) but
+  // must never be able to SEND it anything: no input-stream writes of channel/
+  // control content, no RPC to the mapper's control services, nothing on the
+  // W3 diagnostic UDP port, and no experimental ingest flag on the command
+  // line. These pins are structural: the modules cannot do what their sources
+  // cannot even name.
+  it('race-day mapper management is lifecycle-only: closed input, no IPC/socket surface, whitelisted argv', () => {
+    // The runner is the ONLY module that touches the mapper process. Its spawn
+    // closes the child's input stream outright ('ignore' in slot 0 — there is
+    // no writable handle for ANY code to reach), pipes out/err only into the
+    // bounded diagnostics ring, and never detaches (teardown must reach it).
+    const runner = read('../main/mapperRunner.js');
+    expect(runner).toContain("stdio: ['ignore', 'pipe', 'pipe']");
+    for (const forbidden of [
+      '.stdin', "['stdin']", '"stdin"', "'ipc'", 'grpc', 'dgram', '.bind(',
+      "on('message'", 'ipcMain', 'webContents', '5602', '.send(', 'detached: true',
+    ]) {
+      expect(runner, `mapper runner must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+
+    // The orchestrator only sequences existing authorities and builds the
+    // whitelisted argv. It must not even be ABLE to reach a process, stream,
+    // or socket primitive — and the mapper's ingest flags must not exist in
+    // its vocabulary (mapperArgv cannot emit what the module never names).
+    const orch = read('../main/raceDayOrchestrator.js');
+    for (const forbidden of [
+      'child_process', 'spawn(', 'exec(', 'stdin', 'dgram', 'grpc', '5602',
+      '.write(', '.send(', 'ipcMain', 'webContents', 'headtrack',
+    ]) {
+      expect(orch, `orchestrator must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+    // The complete option vocabulary race day may hand the mapper: the saved-
+    // profile flag, nothing else (behavioral corpus: raceDayOrchestrator.test.js).
+    expect(orchestratorExports.MAPPER_ARG_WHITELIST).toEqual(['-config-file-path']);
   });
 
   it('the W3 address-suggestion seam carries the sender IP string and NOTHING else', () => {
