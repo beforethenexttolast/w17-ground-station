@@ -21,10 +21,13 @@ jobs:
   # hardware, no admin, no dialogs) and passes only on the structured
   # readiness handshake — never on mere process creation. Then the existing
   # package step proves the deliverable still builds (serialport rebuilt
-  # against Electron's ABI, unpacked directory build; no installer/signing).
+  # against Electron's ABI, unpacked directory build), and the NSIS step
+  # below builds the actual giftee installer.
   package-smoke:
     runs-on: windows-latest
-    timeout-minutes: 30
+    # 40, was 30: the NSIS step below packs the app a second time on top of
+    # the --dir smoke; measured dir builds run ~3-5 min, so 40 keeps headroom.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,3 +52,23 @@ jobs:
           if-no-files-found: ignore
       - run: npm run app:rebuild
       - run: npx electron-builder --dir
+      # The giftee NSIS installer (vision gift kit; 2026-08-16 audit defect
+      # 10: CI only ever ran --dir, so the installer the vision leans on had
+      # never been built). electron-builder.yml already targets nsis — this
+      # finally exercises it. UNSIGNED by design: no CSC_LINK/CSC_KEY_PASSWORD
+      # secrets exist in CI, so electron-builder skips signing and Windows
+      # shows the one-time "unknown publisher" prompt (docs/CODESIGNING.md —
+      # accepted for a personal gift; signing stays a manual, secret-holding
+      # step). The --dir smoke above stays: it is the fast ABI/packaging gate
+      # and this step reuses its rebuilt native modules.
+      - run: npx electron-builder --win nsis
+      # The installer is the artifact the gift kit ships — upload it so every
+      # green run yields an installable deliverable (plus the .blockmap beside
+      # it). if-no-files-found: error makes a silent target regression loud.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: w17-ground-station-nsis-unsigned
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+          if-no-files-found: error
