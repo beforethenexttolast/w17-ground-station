@@ -60,8 +60,11 @@ jobs:
       # shows the one-time "unknown publisher" prompt (docs/CODESIGNING.md —
       # accepted for a personal gift; signing stays a manual, secret-holding
       # step). The --dir smoke above stays: it is the fast ABI/packaging gate
-      # and this step reuses its rebuilt native modules.
-      - run: npx electron-builder --win nsis
+      # and this step reuses its rebuilt native modules. --publish never:
+      # electron-builder auto-detects CI and tries to publish to a GitHub
+      # release (run 31974845159 failed exactly there, after a clean build);
+      # the artifact upload below is the only distribution this job does.
+      - run: npx electron-builder --win nsis --publish never
       # The installer is the artifact the gift kit ships — upload it so every
       # green run yields an installable deliverable (plus the .blockmap beside
       # it). if-no-files-found: error makes a silent target regression loud.
