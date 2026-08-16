@@ -29,6 +29,51 @@ describe('buildChecklist — which checks apply', () => {
   });
 });
 
+// GRID hints are giftee-facing failure copy (vision operator model: plain-
+// language failures; 2026-08-16 audit defect 11 confirmed the old wording —
+// mediamtx paths, H.264, COM ports, component names — was off that bar).
+// These pins are DELIBERATE: the exact strings are the deliverable, so a
+// wording change here must be a conscious decision against the operator
+// model, not a drive-by.
+describe('hints — plain language for a non-hobbyist operator (audit defect 11)', () => {
+  const all = buildChecklist({ mode: 'iphone-hud', telemetryConfigured: true, elrsConfigured: true });
+  const hint = (id) => all.find((c) => c.id === id).hint;
+
+  it('every hint says what happened AND what to do, in gift-manual vocabulary', () => {
+    expect(hint('video-lock'))
+      .toBe('no picture from the car — is the car switched on? give it a few seconds after power-on');
+    expect(hint('controller'))
+      .toBe('controller not detected — plug it in or press the PS button (the keyboard arrows work too)');
+    expect(hint('telemetry'))
+      .toBe('no data from the car yet — make sure the car is switched on, or check the telemetry settings in ⚙');
+    expect(hint('iphone-reachable'))
+      .toBe('phone not reachable — put the phone and this computer on the same Wi-Fi, or use the hotspot');
+    expect(hint('elrs-running'))
+      .toBe('the program that drives the car is not running — press LAUNCH, or set its location in ⚙');
+  });
+
+  it('no hint leaks hobbyist vocabulary, in any mode', () => {
+    // The ban list is the audit's own examples plus the classes around them:
+    // stack components, codec/transport names, serial-port jargon, repo docs
+    // paths. "computer" must not trip a naive COM match — the pattern is
+    // anchored to the jargon forms actually banned.
+    const jargon = /mediamtx|webrtc|h\.?264|whep|rtsp|\bcom\s?\d|\bcom port|\belrs\b|joystick-control|docs\/|\.md\b|crsf/i;
+    for (const mode of ['solo', 'iphone-hud']) {
+      for (const flags of [{}, { telemetryConfigured: true, elrsConfigured: true }]) {
+        for (const c of buildChecklist({ mode, ...flags })) {
+          expect(c.hint, `${c.id} hint must stay plain-language`).not.toMatch(jargon);
+        }
+      }
+    }
+  });
+
+  it('every hint leads with the failure before the em-dash fix (the shape the renderer shows)', () => {
+    for (const c of all) {
+      expect(c.hint).toMatch(/^[^—]+ — .+/);
+    }
+  });
+});
+
 describe('applyProbes / canStart', () => {
   const base = buildChecklist({ mode: 'iphone-hud', telemetryConfigured: true, elrsConfigured: true });
 
