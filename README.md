@@ -6,7 +6,9 @@ w17-soundlight-fw (car ESP32 #2).
 
 An **Electron** app that overlays a Mercedes-livery F1 HUD on the live FPV video:
 - **Video** — OpenIPC camera RTSP → a bundled **mediamtx** → **WebRTC/WHEP** rendered as the
-  full-screen background (low latency; WebRTC not HLS).
+  full-screen background (low latency; WebRTC not HLS). Two selectable profiles — DRIVE
+  ("racing feel", lowest latency, the default) and SHOWPIECE ("cinema look", smoothest
+  picture) — switchable on GARAGE and in ⚙; see `docs/video_profiles.md`.
 - **HUD** — throttle/brake/steering/DRS/boost/overtake/gear mirrored live from the DualShock
   (Gamepad API), plus a simulated speed/rpm/ERS animation, all in the F1 dash style.
 - **Telemetry overlay** — real speed, gear, drive mode, ERS%, battery and link quality from the
