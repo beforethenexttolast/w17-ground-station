@@ -15,6 +15,7 @@ import { getPreset, selectGamepad, DEFAULT_PRESET, dedupeGamepads, resolveSelect
 import { wheelValues, pressedWheelRoles } from '../shared/wheelProfile.mjs';
 import { makeHudKeyHandlers } from '../shared/keyboardFocus.mjs';
 import { initialVideoState, reduceVideoState, videoStatus } from '../shared/videoState.mjs';
+import { videoProfileFor, normalizeVideoSettings, DEFAULT_VIDEO_PROFILE } from '../shared/videoProfiles.mjs';
 import { headIntentView } from '../shared/headIntentView.mjs';
 import { normalizeLowBatterySettings, lowBatteryLevel, LOW_BATTERY_LABELS } from '../shared/lowBattery.mjs';
 import * as uiNav from './uiNav.js';
@@ -261,6 +262,38 @@ export function hudStatus() {
     controllerConnected: !!pad(),
     telemetryState: telemetryState(),
   };
+}
+
+// --- Video profile (vision decision 7): the player half of the drive /
+// showpiece presets. The persisted profile id resolves through
+// shared/videoProfiles.mjs (the SAME module main.js reads the mediamtx half
+// from) into startWhep's tuning. A switch tears the WHEP session down and
+// reconnects with the new knobs — the honest restart both switch surfaces
+// state — via applyVideoProfile below (exported for setupFlow, the
+// setLowBatteryThresholds pattern; no new preload/IPC key).
+let whepHandle = null;
+let whepUrl = ''; // set once by init() from config; '' = video not configured
+let videoProfileId = DEFAULT_VIDEO_PROFILE;
+function connectVideo() {
+  if (!whepUrl) return;
+  whepHandle = startWhep(feed, whepUrl, {
+    log: (m) => {
+      console.log(m);
+    },
+    // Transport lifecycle -> the same video-state model (audit C1): a WebRTC
+    // drop leaves the <video> frozen without a media event, so this is what
+    // clears the confident-green lock immediately.
+    onStatus: (status) => applyVideoEvent(status),
+    player: videoProfileFor(videoProfileId).player,
+  });
+}
+export function applyVideoProfile(id) {
+  const next = videoProfileFor(id).id; // garbage repairs to DRIVE
+  if (next === videoProfileId) return; // idempotent: no knob change, no blink
+  videoProfileId = next;
+  if (!whepUrl) return; // nothing to restart — the id still seeds a later connect
+  if (whepHandle) whepHandle.stop();
+  connectVideo();
 }
 
 // --- Video state model (audit C1): ONE authority for GRID VIDEO LOCK, the HUD
@@ -617,6 +650,10 @@ async function init() {
       // Persisted low-battery thresholds (absent subtree -> 2S defaults). The
       // ⚙ LOW BATTERY row updates them at runtime via setLowBatteryThresholds.
       if (settings) setLowBatteryThresholds(settings.lowBattery);
+      // Persisted video profile (absent subtree -> DRIVE) — resolved BEFORE
+      // the WHEP connect below so the first session already carries the
+      // chosen player knobs; switches later go through applyVideoProfile.
+      if (settings) videoProfileId = normalizeVideoSettings(settings.video).profile;
     } catch (err) {
       console.error('[hud] settings load failed:', err && err.message ? err.message : err);
     }
@@ -631,15 +668,8 @@ async function init() {
   }
 
   if (cfg && cfg.whepUrl) {
-    startWhep(feed, cfg.whepUrl, {
-      log: (m) => {
-        console.log(m);
-      },
-      // Transport lifecycle -> the same video-state model (audit C1): a WebRTC
-      // drop leaves the <video> frozen without a media event, so this is what
-      // clears the confident-green lock immediately.
-      onStatus: (status) => applyVideoEvent(status),
-    });
+    whepUrl = cfg.whepUrl;
+    connectVideo();
   }
 }
 init();

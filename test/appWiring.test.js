@@ -171,7 +171,9 @@ describe('createSessionApplier — startup and effective configuration (audit D2
         const t = makeApplier();
         try {
             const applied = t.applier.apply();
-            expect(applied).toEqual({ telemetry: 'none', iphoneBridge: false, w3: false });
+            // video: null here = the DEFAULT no-op applyVideo (this applier has
+            // no video wiring injected) — main.js always injects the real one.
+            expect(applied).toEqual({ telemetry: 'none', iphoneBridge: false, w3: false, video: null });
             expect(t.sources).toEqual([]);
             expect(t.bridges).toEqual([]);
             const eff = t.applier.effective();
@@ -186,8 +188,42 @@ describe('createSessionApplier — startup and effective configuration (audit D2
         const t = makeApplier({ seed: '{"fpvMode": "iphone-hud", "iphoneAddr": ' }); // truncated JSON
         try {
             const applied = t.applier.apply();
-            expect(applied).toEqual({ telemetry: 'none', iphoneBridge: false, w3: false });
+            expect(applied).toEqual({ telemetry: 'none', iphoneBridge: false, w3: false, video: null });
         } finally { t.cleanup(); }
+    });
+
+    it('applyVideo is invoked with the effective config; its return rides the summary (vision 7)', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'w17-appwiring-'));
+        writeFileSync(join(dir, 'settings.json'), JSON.stringify({ video: { profile: 'showpiece' } }), 'utf8');
+        const settingsStore = createSettingsStore({ dir });
+        const runtime = new SessionRuntime({
+            createTelemetrySource: () => null,
+            createIphoneBridge: () => null,
+        });
+        const applyVideo = vi.fn((eff) => eff.video.profile);
+        const applier = createSessionApplier({ settingsStore, runtime, env: {}, applyVideo });
+        try {
+            const applied = applier.apply();
+            expect(applyVideo).toHaveBeenCalledWith(applier.effective());
+            expect(applier.effective().video).toEqual({ profile: 'showpiece' });
+            expect(applied.video).toBe('showpiece');
+        } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('the effective video profile falls to DRIVE when the subtree is absent or garbage', () => {
+        const cases = [
+            [null, 'drive'],
+            [JSON.stringify({}), 'drive'],
+            [JSON.stringify({ video: { profile: 'imax' } }), 'drive'],
+            [JSON.stringify({ video: { profile: 'showpiece' } }), 'showpiece'],
+        ];
+        for (const [seed, want] of cases) {
+            const t = makeApplier(seed === null ? {} : { seed });
+            try {
+                t.applier.apply();
+                expect(t.applier.effective().video).toEqual({ profile: want });
+            } finally { t.cleanup(); }
+        }
     });
 
     it('effective() is null before the first apply (config:get answers conservatively)', () => {

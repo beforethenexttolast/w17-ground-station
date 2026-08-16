@@ -56,7 +56,13 @@ const log = (m) => console.log(m);
 const WHEP_URL = process.env.W17_WHEP_URL || 'http://127.0.0.1:8889/cam/whep';
 
 // Session-scoped state, owned by whenReady below.
-let mediamtx = null;
+// mediamtx lives in a keyed holder (audit D2 pattern): the key is the VIDEO
+// PROFILE's mediamtx config (vision decision 7), so a session re-apply with an
+// unchanged profile keeps the running process untouched, while a profile
+// switch stops the old supervisor and constructs a fresh one with the new
+// MTX_* overrides — the cleanest restart the chain offers, and the renderer's
+// WHEP auto-retry rides through it.
+let mediamtxHolder = null;
 let settingsStore = null;
 let runtime = null;
 let sessionApplier = null;
@@ -179,8 +185,9 @@ app.whenReady().then(async () => {
     resourcesPath: process.resourcesPath,
     projectRoot,
   });
-  mediamtx = new MediamtxSupervisor({ binaryPath, configPath, log });
-  mediamtx.start();
+  mediamtxHolder = createKeyedInstance({
+    construct: (cfg) => new MediamtxSupervisor({ binaryPath, configPath, extraEnv: cfg.mediamtxEnv, log }),
+  });
 
   // The hotspot password is encrypted at rest via Electron safeStorage (OS
   // keystore: DPAPI / Keychain / libsecret) — audit E1 / decision Q6. safeStorage
@@ -196,6 +203,21 @@ app.whenReady().then(async () => {
   // renderer + vitest); load it dynamically so the bridge derives link state
   // with the exact same logic as the HUD. Only used when the bridge is enabled.
   const { linkState } = await import(pathToFileURL(path.join(projectRoot, 'shared', 'linkState.mjs')).href);
+  // Video profile definitions, same dynamic-ESM load: main applies the
+  // mediamtx half of a profile; the renderer reads the player half of the SAME
+  // module, so the two sides of the chain can never carry different presets.
+  const { videoProfileFor } = await import(pathToFileURL(path.join(projectRoot, 'shared', 'videoProfiles.mjs')).href);
+
+  // The video half of session apply (vision decision 7), injected into the
+  // applier beside applyW3: resolve the effective profile id to its mediamtx
+  // overrides and (re)key the supervisor. Idempotent for an unchanged profile
+  // (a GRID re-entry must not blink live video); a change restarts mediamtx,
+  // which the UI states honestly at both switch points.
+  const applyVideo = (effective) => {
+    const profile = videoProfileFor(effective && effective.video ? effective.video.profile : undefined);
+    mediamtxHolder.apply({ profile: profile.id, mediamtxEnv: profile.mediamtxEnv });
+    return profile.id;
+  };
 
   runtime = new SessionRuntime({
     createTelemetrySource: (cfg) => telemetrySourceFor(cfg, { platform: process.platform, log }),
@@ -211,9 +233,13 @@ app.whenReady().then(async () => {
   });
 
   // Recomputes effective config from persisted settings + env and (re)applies
-  // the session runtime; applyW3 keeps the W3 receiver wiring in THIS file.
+  // the session runtime; applyW3 keeps the W3 receiver wiring in THIS file,
+  // applyVideo keeps the mediamtx profile wiring here too. The first apply()
+  // below is what starts mediamtx (pre-profile it started a few lines earlier
+  // in this same handler — still before the window exists, so the renderer
+  // never sees the difference).
   sessionApplier = createSessionApplier({
-    settingsStore, runtime, env: process.env, applyW3, warn: log,
+    settingsStore, runtime, env: process.env, applyW3, applyVideo, warn: log,
   });
 
   registerIpcHandlers({
@@ -285,7 +311,7 @@ const teardown = createTeardown({
     ['adapter monitor', () => { if (adapterMonitor) adapterMonitor.stop(); }],
     ['hud discovery', () => hudDiscovery.stop()],
     ['session runtime', () => { if (runtime) runtime.stopAll(); }],
-    ['mediamtx', () => { if (mediamtx) mediamtx.stop(); }],
+    ['mediamtx', () => { if (mediamtxHolder) mediamtxHolder.apply(null); }],
   ],
   log,
 });

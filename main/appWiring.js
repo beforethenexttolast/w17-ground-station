@@ -93,10 +93,15 @@ function telemetrySourceFor(cfg, { platform = process.platform, log = () => {} }
 // session runtime, with the resolved effective config retained for the
 // config/settings IPC answers. applyW3 is INJECTED by main.js (the sanctioned
 // W3 wiring point) and returns the receiver-exists boolean the summary carries.
-// Precedence lives entirely in shared/settings.js resolveEffective — an env
-// var that is SET wins (including explicit force-off values); unset falls
-// through to persisted settings.
-function createSessionApplier({ settingsStore, runtime, env = process.env, applyW3 = () => false, warn = () => {} }) {
+// applyVideo is injected the same way (main.js owns the mediamtx supervisor's
+// keyed holder) and returns the applied video-profile id for the summary —
+// null with the default no-op, so a test applier without video wiring stays
+// honest about it. Precedence lives entirely in shared/settings.js
+// resolveEffective — an env var that is SET wins (including explicit force-off
+// values); unset falls through to persisted settings.
+function createSessionApplier({
+    settingsStore, runtime, env = process.env, applyW3 = () => false, applyVideo = () => null, warn = () => {},
+}) {
     let lastEffective = null;
     return {
         apply() {
@@ -104,7 +109,8 @@ function createSessionApplier({ settingsStore, runtime, env = process.env, apply
             lastEffective = resolveEffective(settings, env, warn);
             const applied = runtime.applyConfig(lastEffective);
             const w3 = applyW3(lastEffective);
-            return { ...applied, w3 };
+            const video = applyVideo(lastEffective);
+            return { ...applied, w3, video };
         },
         effective: () => lastEffective,
     };

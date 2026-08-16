@@ -1,8 +1,9 @@
 // Minimal WHEP (WebRTC-HTTP Egress Protocol) client: POST an SDP offer to
 // mediamtx's WHEP endpoint, apply the answer, attach the inbound video track
-// to a <video>. Video-only, minimum latency (playoutDelayHint = 0), and an
-// auto-retry loop because the 5.8GHz FPV WiFi link drops and a dead <video>
-// must recover on its own.
+// to a <video>. Video-only, with per-profile player tuning (vision decision 7)
+// whose DEFAULTS are the DRIVE profile — minimum latency (playoutDelayHint =
+// 0, jitter buffer untouched) — and an auto-retry loop because the 5.8GHz FPV
+// WiFi link drops and a dead <video> must recover on its own.
 //
 // Transport signals (audit C1): the client reports its connection lifecycle
 // through `onStatus` — 'connecting' at each (re)connect attempt, 'dropped' when
@@ -12,7 +13,20 @@
 // leaves the <video> frozen on its last frame WITHOUT firing a media event, is
 // reported here so the lock drops immediately instead of staying stale-green.
 
-export function startWhep(videoEl, whepUrl, { log = () => {}, onStatus = () => {} } = {}) {
+// The historical (pre-profile) player literals, which ARE the DRIVE profile:
+// an untuned startWhep() behaves byte-for-byte like the pre-profile client.
+// test/videoProfiles.test.js pins these against VIDEO_PROFILES.drive.player so
+// neither side can drift. jitterBufferTargetMs null = LEAVE THE PROPERTY
+// UNTOUCHED (the pre-profile client never set it; a numeric 0 would be a
+// different statement to the browser).
+export const WHEP_PLAYER_DEFAULTS = Object.freeze({
+  playoutDelayHintS: 0,
+  jitterBufferTargetMs: null,
+  retryMs: 1500,
+});
+
+export function startWhep(videoEl, whepUrl, { log = () => {}, onStatus = () => {}, player = {} } = {}) {
+  const tuning = { ...WHEP_PLAYER_DEFAULTS, ...player };
   let pc = null;
   let stopped = false;
   let retryTimer = null;
@@ -28,10 +42,21 @@ export function startWhep(videoEl, whepUrl, { log = () => {}, onStatus = () => {
     thisPc.addTransceiver('video', { direction: 'recvonly' });
 
     thisPc.ontrack = (e) => {
-      // Minimum playout delay: prefer latency over smoothness for FPV.
+      // Profile playout delay: DRIVE = 0 (latency over smoothness for FPV),
+      // SHOWPIECE trades a deliberate buffer for a smoother picture.
       if ('playoutDelayHint' in e.receiver) {
         try {
-          e.receiver.playoutDelayHint = 0;
+          e.receiver.playoutDelayHint = tuning.playoutDelayHintS;
+        } catch {
+          /* not all builds allow setting it */
+        }
+      }
+      // The current standard spelling of the same intent (milliseconds).
+      // null = leave the browser default alone — DRIVE never touches it,
+      // exactly like the pre-profile client.
+      if (tuning.jitterBufferTargetMs !== null && 'jitterBufferTarget' in e.receiver) {
+        try {
+          e.receiver.jitterBufferTarget = tuning.jitterBufferTargetMs;
         } catch {
           /* not all builds allow setting it */
         }
@@ -70,7 +95,7 @@ export function startWhep(videoEl, whepUrl, { log = () => {}, onStatus = () => {
     retryTimer = setTimeout(() => {
       retryTimer = null;
       connect();
-    }, 1500);
+    }, tuning.retryMs);
   }
 
   function cleanupPc() {
