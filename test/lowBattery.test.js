@@ -110,6 +110,22 @@ describe('lowBatteryLevel — thresholds and hysteresis (no flicker at the bound
     expect(level).toBe('ok');
   });
 
+  it('a single-reading jump from critical past warn+hysteresis still ratchets through warn', () => {
+    // The adversarial-review case: a worn pack sags to critical under
+    // throttle, then one idle reading recovers FAR past warn + hysteresis.
+    // Without the prevLevel==='critical' ratchet this returned 'ok' in one
+    // frame — the banner blinked straight off, contradicting the
+    // one-level-at-a-time exit contract.
+    let level = step(6.5, 'ok');
+    expect(level).toBe('critical');
+    level = step(7.3, level); // ≥ warnV + hysteresis in ONE reading
+    expect(level).toBe('warn'); // ratchet: never straight to ok
+    level = step(7.3, level); // warn's own exit runs on the NEXT reading
+    expect(level).toBe('ok');
+    // …and the ratchet is critical-only: the same jump from 'warn' clears.
+    expect(step(7.3, 'warn')).toBe('ok');
+  });
+
   it('no reading, no claim: non-finite voltages are ok from any previous level', () => {
     for (const v of [undefined, null, NaN, 'seven', {}]) {
       expect(lowBatteryLevel({ batteryV: v, prevLevel: 'critical', thresholds: T })).toBe('ok');

@@ -162,6 +162,10 @@ const LOW_BATTERY_MIN_V = 1;
 const LOW_BATTERY_MAX_V = 60;
 
 const lbNum = (v) => {
+    // Mirrors lowBattery.mjs num(): a boolean is never a threshold —
+    // Number(true) === 1 sits inside the sanity band and would otherwise
+    // become a 1 V warn line (banner silently never fires). Repair to default.
+    if (typeof v === 'boolean') return null;
     const n = Number(v);
     return Number.isFinite(n) && n >= LOW_BATTERY_MIN_V && n <= LOW_BATTERY_MAX_V ? n : null;
 };

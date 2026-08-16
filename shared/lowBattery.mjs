@@ -43,6 +43,12 @@ export const LOW_BATTERY_LABELS = Object.freeze({
 });
 
 const num = (v) => {
+    // A boolean is never a threshold: Number(true) === 1 sits INSIDE the
+    // sanity band, so without this guard {warnV: true} would normalize to a
+    // 1 V warn line and the banner would silently never fire — the exact
+    // failure repair-to-defaults exists to prevent. Numeric strings still
+    // coerce (settings.json / ⚙ inputs); booleans repair to the defaults.
+    if (typeof v === 'boolean') return null;
     const n = Number(v);
     return Number.isFinite(n) && n >= LOW_BATTERY_MIN_V && n <= LOW_BATTERY_MAX_V ? n : null;
 };
@@ -68,7 +74,13 @@ export function normalizeLowBatterySettings(raw) {
 //   enter:  v <= criticalV            -> 'critical'   (immediate, never late)
 //           v <= warnV                -> 'warn'
 //   exit:   only after recovering HYSTERESIS_V above the level's own threshold,
-//           and only one level at a time (critical steps down through warn).
+//           and only one level at a time — the final prevLevel==='critical'
+//           ratchet makes that literal: even a single reading that recovers
+//           past warnV + HYSTERESIS_V steps critical down to 'warn' for one
+//           classification and lets warn's own exit run on the next. Without
+//           it, a worn pack sagging to critical under throttle and recovering
+//           >(warn-critical)+HYSTERESIS_V at idle would blink the banner
+//           straight off in one frame.
 //
 // A batteryV that is not an actual finite number returns 'ok' — no reading,
 // no claim; the renderer hides the banner whenever telemetry has never been
@@ -84,5 +96,6 @@ export function lowBatteryLevel({ batteryV, prevLevel = 'ok', thresholds } = {})
     if (prevLevel === 'critical' && v < t.criticalV + LOW_BATTERY_HYSTERESIS_V) return 'critical';
     if (v <= t.warnV) return 'warn';
     if ((prevLevel === 'warn' || prevLevel === 'critical') && v < t.warnV + LOW_BATTERY_HYSTERESIS_V) return 'warn';
+    if (prevLevel === 'critical') return 'warn'; // ratchet: critical never exits straight to ok
     return 'ok';
 }

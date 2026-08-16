@@ -48,7 +48,7 @@ const CORPUS = [
   { warnV: 'high', criticalV: {} },
   { warnV: [], criticalV: 'low' },
   { warnV: null, criticalV: null },
-  { warnV: true, criticalV: false },
+  { warnV: true, criticalV: false }, // booleans: expectation pinned below, not just parity
 
   // --- hostile: prototype key, NaN, Infinity, huge/tiny numbers ---
   protoPolluted,
@@ -98,6 +98,18 @@ describe('normalizeLowBattery — parity with the real ESM validator', () => {
         const t = impl(raw);
         expect(t.criticalV).toBeLessThanOrEqual(t.warnV);
       }
+    }
+  });
+
+  it('booleans are invalid thresholds, not 1/0 volts — repair to defaults in BOTH impls', () => {
+    // Parity alone would pass if both mirrors shared the same coercion bug
+    // (Number(true) === 1 sits inside the [1..60] band, silently disarming
+    // the banner with a 1 V warn line) — so the EXPECTED value is pinned
+    // here, against each implementation independently.
+    for (const impl of [normalizeLowBattery, normalizeLowBatterySettings]) {
+      expect(impl({ warnV: true, criticalV: false })).toStrictEqual(DEFAULT_LOW_BATTERY);
+      expect(impl({ warnV: true })).toStrictEqual(DEFAULT_LOW_BATTERY);
+      expect(impl({ criticalV: true })).toStrictEqual(DEFAULT_LOW_BATTERY);
     }
   });
 });
