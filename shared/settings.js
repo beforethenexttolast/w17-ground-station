@@ -179,6 +179,28 @@ function normalizeLowBattery(raw) {
     return { warnV, criticalV };
 }
 
+// --- video profile (CJS-local mirror of shared/videoProfiles.mjs) ---
+//
+// Same construction as the wheel/lowBattery mirrors above, for the same
+// reason: the real validator + profile DEFINITIONS live in
+// shared/videoProfiles.mjs (ESM — the renderer reads the player knobs, main.js
+// dynamic-imports the mediamtx knobs) and cannot be require()'d synchronously
+// here. This LOCAL MIRROR is kept honest by the corpus-based parity test in
+// test/videoProfilePersist.test.js — normalizeVideo(x) must deep-equal
+// normalizeVideoSettings(x) over a hostile corpus, so a drift fails the suite.
+//
+// Only the profile ID persists — never the knob values, so a repo upgrade
+// retunes both profiles without stale numbers resurrecting from settings.json.
+// Unknown/garbage ids repair to 'drive' (the proven, driven-on tuning).
+const VIDEO_PROFILE_IDS = ['drive', 'showpiece'];
+const DEFAULT_VIDEO_PROFILE = 'drive';
+
+// Mirror of normalizeVideoSettings (shared/videoProfiles.mjs). Never throws.
+function normalizeVideo(raw) {
+    const r = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+    return { profile: VIDEO_PROFILE_IDS.includes(r.profile) ? r.profile : DEFAULT_VIDEO_PROFILE };
+}
+
 // Accepts anything (missing file, garbage JSON, old versions) and returns a
 // complete settings object. Unknown keys are dropped; bad values fall back to
 // defaults field-by-field so one corrupt entry never nukes the rest.
@@ -241,6 +263,18 @@ function normalizeSettings(raw) {
         ...(raw.lowBattery && typeof raw.lowBattery === 'object' && !Array.isArray(raw.lowBattery)
             ? { lowBattery: normalizeLowBattery(raw.lowBattery) }
             : {}),
+        // Video profile (vision decision 7), admitted ONLY when the subtree is
+        // actually present — the same conditional spread as `wheel`/`lowBattery`
+        // above, for the same reasons: an unadmitted key is silently dropped on
+        // every save (audit Finding 1 class), while an unconditional key would
+        // change the on-disk shape of every existing install (the
+        // exactly-13-keys pins). A session that never touched the profile keeps
+        // the baseline keys and every consumer falls back to DRIVE. The subtree
+        // is deliberately self-contained (only `profile` inside) so it stays
+        // isolated from sibling-wave additions at the top level.
+        ...(raw.video && typeof raw.video === 'object' && !Array.isArray(raw.video)
+            ? { video: normalizeVideo(raw.video) }
+            : {}),
     };
 }
 
@@ -287,9 +321,17 @@ function resolveEffective(settings, env = {}, warn = () => {}) {
     // --- W3 diagnostic receiver: wish only, resolved in main.js (see header) ---
     const w3FromEnv = env.W17_HEADTRACK !== undefined;
 
+    // --- video profile (vision decision 7): pure settings passthrough ---
+    // Deliberately NO env var in this wave: the profile is an operator choice
+    // with two first-class UI switch points, not a subsystem needing a dev/CI
+    // escape hatch — and an env lock would drag the whole C3 badge apparatus
+    // in for no operational win. Absent subtree resolves to DRIVE.
+    const video = normalizeVideo(s.video);
+
     return {
         telemetry,
         iphoneBridge,
+        video,
         w3Wish: { fromEnv: w3FromEnv, enabled: s.w3DiagnosticEnabled },
         elrs: { path: s.elrsPath },
         ui: {
@@ -320,5 +362,6 @@ module.exports = {
     normalizeSettings,
     normalizeWheelProfile,
     normalizeLowBattery,
+    normalizeVideo,
     resolveEffective,
 };
