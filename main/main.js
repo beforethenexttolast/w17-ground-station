@@ -257,6 +257,10 @@ app.whenReady().then(async () => {
     mapperRunner: new MapperRunner({ log }),
     sessionApplier,
     settingsStore,
+    // Reuses the GRID's existing detection seam so race day can no-op
+    // honestly when the drive program already runs OUTSIDE race day (the
+    // detached convenience launch is the same executable in the gift kit).
+    elrsDetect: (p) => elrs.detectRunning(p),
     log,
   });
   wireRaceDayPush({ orchestrator: raceDay, broadcast });

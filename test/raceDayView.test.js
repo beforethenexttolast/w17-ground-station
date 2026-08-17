@@ -23,7 +23,7 @@ const EMITTABLE = {
     idle: [null],
     pending: [null],
     running: ['starting'],
-    ok: ['running', 'already-running'],
+    ok: ['running', 'already-running', 'external'],
     skipped: [],
     fail: ['not-configured', 'no-profile', 'bad-profile-path', 'profile-not-found',
       'not-found', 'spawn-failed', 'exited', 'unexpected'],
@@ -90,6 +90,12 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
   it('a crash of the drive program leads with what to do', () => {
     const [l] = raceDayStepLines(snap([step('mapper', 'fail', 'exited')]));
     expect(l.text).toBe('stopped on its own — press RACE DAY to bring it back');
+  });
+
+  it('an instance running OUTSIDE race day is stated as such, green, not claimed as ours (review minor 5)', () => {
+    const [l] = raceDayStepLines(snap([step('mapper', 'ok', 'external')]));
+    expect(l.tone).toBe('ok');
+    expect(l.text).toBe('already running (started outside RACE DAY)');
   });
 
   it('NO line leaks hobbyist vocabulary, over EVERY emittable status/kind pair', () => {

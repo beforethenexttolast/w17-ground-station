@@ -56,6 +56,9 @@ const TEXT = {
         ok: {
             running: 'running',
             'already-running': 'already running',
+            // Detected running OUTSIDE race day (e.g. launched from the GRID):
+            // honest no-op — race day neither adopted it nor will stop it.
+            external: 'already running (started outside RACE DAY)',
             '*': 'running',
         },
         skipped: { '*': 'not needed this time' },

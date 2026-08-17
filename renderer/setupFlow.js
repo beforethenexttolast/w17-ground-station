@@ -256,7 +256,12 @@ if (raceDayBtn) {
   raceDayStopBtn.addEventListener('click', async () => {
     sounds.uiTick();
     const res = await ipc(gs.raceDayStop(), null, 'raceday:stop');
-    radio(res && res.ok ? 'RACE DAY: STOPPED' : 'RACE DAY: STOP DID NOT FINISH — TRY AGAIN');
+    // stop-failed = the kill did not take and the drive program is STILL
+    // RUNNING (the card keeps saying so — main left the steps alone); the
+    // radio line must match that truth, never claim STOPPED.
+    if (res && res.ok) radio('RACE DAY: STOPPED');
+    else if (res && res.kind === 'stop-failed') radio('RACE DAY: COULD NOT STOP THE DRIVE PROGRAM — TRY AGAIN, OR RESTART THE APP');
+    else radio('RACE DAY: STOP DID NOT FINISH — TRY AGAIN');
   });
 }
 

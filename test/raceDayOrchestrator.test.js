@@ -75,7 +75,10 @@ function settingsWith(over = {}) {
   };
 }
 
-function harness({ settings = settingsWith(), lifecycle, runner, applier, exists = () => true } = {}) {
+function harness({
+  settings = settingsWith(), lifecycle, runner, applier, exists = () => true,
+  elrsDetect = vi.fn(async () => ({ configured: false, detected: false })),
+} = {}) {
   const lc = lifecycle || fakeLifecycle();
   const rn = runner || fakeRunner();
   const ap = applier || fakeApplier();
@@ -86,9 +89,10 @@ function harness({ settings = settingsWith(), lifecycle, runner, applier, exists
     sessionApplier: ap,
     settingsStore: { load: () => JSON.parse(JSON.stringify(settings)) },
     existsSync: exists,
+    elrsDetect,
   });
   orch.onChange((snap) => pushes.push(snap));
-  return { orch, lc, rn, ap, pushes };
+  return { orch, lc, rn, ap, pushes, elrsDetect };
 }
 
 const stepOf = (snap, id) => snap.steps.find((s) => s.id === id);
@@ -115,17 +119,31 @@ describe('mapperArgv — the ONLY source of mapper command lines', () => {
     }
   });
 
+  it('refuses a RELATIVE profile path (review minor 3): the GS and the mapper resolve them against different directories', () => {
+    // The orchestrator existence-checks against the GS cwd; the mapper
+    // resolves against its own cwd (the binary folder). A relative value can
+    // pass here and still miss there — refuse under BOTH path conventions.
+    for (const relative of ['relative/w17.json', './w17.json', '../w17.json', 'w17.json', 'C:w17.json']) {
+      expect(mapperArgv({ profilePath: relative }), relative).toEqual({ ok: false, kind: 'bad-profile-path' });
+    }
+    // Either convention's ABSOLUTE form is accepted (⚙ written on Windows,
+    // dev runs on POSIX), and the value is passed trimmed.
+    expect(mapperArgv({ profilePath: ' /w17/w17.json ' }).argv).toEqual(['-config-file-path', '/w17/w17.json']);
+    expect(mapperArgv({ profilePath: 'C:\\W17\\w17.json' }).ok).toBe(true);
+    expect(mapperArgv({ profilePath: '\\\\pit-nas\\w17\\w17.json' }).ok).toBe(true); // UNC
+  });
+
   it('over a hostile corpus, every emitted argv carries ONLY whitelisted lifecycle strings', () => {
     const corpus = [
       { profilePath: '/w17/w17-ds4.json' },
       { profilePath: 'C:\\W17\\w17 profile.json' },
-      { profilePath: 'relative/w17.json' },
+      { profilePath: 'relative/w17.json' }, // refused since review minor 3 (relative)
       { profilePath: '-headtrack-ingest' },
       { profilePath: '--grpc-port 10000' },
       { profilePath: '' },
       { profilePath: '   ' },
       {},
-      { profilePath: 'x'.repeat(4096) },
+      { profilePath: 'x'.repeat(4096) }, // relative — refused
       { profilePath: '/w17/w17.json', extraArgs: ['-headtrack-ingest'] }, // no such escape hatch exists
       { profilePath: '/w17/w17.json', args: ['-tx-serial-port-name', 'COM7'] },
     ];
@@ -272,6 +290,8 @@ describe('RaceDayOrchestrator — failure halts the sequence, partial state stay
       [{ mapperPath: '', profilePath: '/w17/w17.json', autoBridge: true }, 'not-configured'],
       [{ mapperPath: '/w17/mapper.exe', profilePath: '', autoBridge: true }, 'no-profile'],
       [{ mapperPath: '/w17/mapper.exe', profilePath: '-headtrack-ingest', autoBridge: true }, 'bad-profile-path'],
+      // Relative profile refused before launch (review minor 3).
+      [{ mapperPath: '/w17/mapper.exe', profilePath: 'configs/w17.json', autoBridge: true }, 'bad-profile-path'],
     ];
     for (const [racePrep, kind] of cases) {
       const { orch, rn } = harness({ settings: settingsWith({ racePrep }) });
@@ -355,6 +375,44 @@ describe('RaceDayOrchestrator — a retry re-runs idempotently', () => {
   });
 });
 
+// Review minor 5: the GRID's detached convenience launch is this same
+// executable — a second instance would lose its port bind and die with a
+// misleading "stopped on its own" line. Race day probes first via the
+// EXISTING elrs detection seam and no-ops honestly.
+describe('RaceDayOrchestrator — a drive program already running OUTSIDE race day', () => {
+  it('detects the external instance, marks the step ok/external, and spawns NOTHING', async () => {
+    const elrsDetect = vi.fn(async () => ({ configured: true, detected: true, method: 'pgrep' }));
+    const { orch, rn } = harness({ elrsDetect });
+    const res = await orch.start();
+    expect(res.ok).toBe(true);
+    expect(elrsDetect).toHaveBeenCalledWith('/w17/mapper.exe'); // probed with the RACE DAY binary path
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'external' });
+    expect(rn.start).not.toHaveBeenCalled();
+    // Not ours: the managed-runner surface stays empty, so STOP never offers
+    // to kill a process race day did not start (launch-only doctrine).
+    expect(res.snapshot.mapper.running).toBe(false);
+    const stopped = orch.stop();
+    expect(rn.stop).not.toHaveBeenCalled();
+    expect(stopped.ok).toBe(true);
+  });
+
+  it('a rejected probe reads as not-running: the launch proceeds and reports its own truth', async () => {
+    const elrsDetect = vi.fn(async () => { throw new Error('tasklist unavailable'); });
+    const { orch, rn } = harness({ elrsDetect });
+    const res = await orch.start();
+    expect(res.ok).toBe(true);
+    expect(rn.start).toHaveBeenCalledTimes(1);
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'running' });
+  });
+
+  it('an unconfigured/negative probe changes nothing (the default path still launches)', async () => {
+    const { orch, rn, elrsDetect } = harness(); // default: configured:false
+    await orch.start();
+    expect(elrsDetect).toHaveBeenCalledTimes(1);
+    expect(rn.start).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('RaceDayOrchestrator — stop and liveness', () => {
   it('STOP stops ONLY the managed mapper: the hotspot authority is never touched', async () => {
     const { orch, lc, rn } = harness();
@@ -364,6 +422,24 @@ describe('RaceDayOrchestrator — stop and liveness', () => {
     expect(rn.stop).toHaveBeenCalledTimes(1);
     expect(lc.stop).not.toHaveBeenCalled();
     for (const s of res.snapshot.steps) expect(s.status).toBe('idle');
+  });
+
+  it('a FAILED kill propagates stop-failed and leaves the card truthful — never idle over a live child (review minor 4)', async () => {
+    const rn = fakeRunner();
+    rn.stop.mockImplementation(() => ({ ok: false, kind: 'stop-failed', error: 'EPERM' }));
+    const { orch } = harness({ runner: rn });
+    await orch.start();
+    const res = orch.stop();
+    expect(res).toMatchObject({ ok: false, kind: 'stop-failed' });
+    // Steps untouched: the drive program is STILL RUNNING and the card says so.
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'running' });
+    expect(stepOf(res.snapshot, 'hotspot')).toMatchObject({ status: 'ok', kind: 'verified' });
+    expect(res.snapshot.mapper.running).toBe(true);
+    // A later successful stop still winds down normally.
+    rn.stop.mockImplementation(() => { rn._running = false; return { ok: true, stopped: true }; });
+    const again = orch.stop();
+    expect(again.ok).toBe(true);
+    for (const s of again.snapshot.steps) expect(s.status).toBe('idle');
   });
 
   it('STOP during a bring-up answers busy (the authorities own their in-flight transitions)', async () => {
@@ -390,6 +466,15 @@ describe('RaceDayOrchestrator — stop and liveness', () => {
     rn.emit({ running: false, stoppedByUs: true, exitCode: null });
     last = pushes[pushes.length - 1];
     expect(stepOf(last, 'mapper')).toMatchObject({ status: 'idle' });
+  });
+
+  it("the runner's async spawn-error settlement maps to fail/spawn-failed — the ⚙-location line, not \"stopped on its own\" (review blocker 1)", async () => {
+    const { orch, rn, pushes } = harness();
+    await orch.start();
+    rn._running = false;
+    rn.emit({ running: false, stoppedByUs: false, exitCode: 'spawn-error' });
+    const last = pushes[pushes.length - 1];
+    expect(stepOf(last, 'mapper')).toMatchObject({ status: 'fail', kind: 'spawn-failed' });
   });
 
   it('dispose() stops a running child and unsubscribes the liveness mirror (teardown path)', async () => {

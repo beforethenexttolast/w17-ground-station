@@ -34,6 +34,7 @@
 // against the wave-2a wording bar without booting Electron.
 
 const fsDefault = require('node:fs');
+const path = require('node:path');
 const { normalizeRacePrep } = require('../shared/settings.js');
 
 // The COMPLETE set of option strings race day may ever hand the mapper:
@@ -50,23 +51,43 @@ function mapperArgv({ profilePath } = {}) {
     if (typeof profilePath !== 'string' || !profilePath.trim()) {
         return { ok: false, kind: 'no-profile' };
     }
-    if (profilePath.trim().startsWith('-')) {
+    const trimmed = profilePath.trim();
+    if (trimmed.startsWith('-')) {
         // A leading dash would let a hostile/typo'd settings value ride into
         // option position downstream. Refuse honestly instead of launching.
         return { ok: false, kind: 'bad-profile-path' };
     }
-    return { ok: true, argv: [MAPPER_ARG_WHITELIST[0], profilePath] };
+    // Absolute paths only (review minor 3): this module validates existence
+    // against the GS's own working directory, but the mapper resolves a
+    // relative path against ITS working directory (the binary's folder) — the
+    // two silently disagree, so a relative value could pass the check here
+    // and still launch the mapper on a missing/different file. Either path
+    // convention is accepted (the ⚙ value is written on Windows, dev runs on
+    // POSIX), a relative form under BOTH is refused.
+    if (!path.win32.isAbsolute(trimmed) && !path.posix.isAbsolute(trimmed)) {
+        return { ok: false, kind: 'bad-profile-path' };
+    }
+    return { ok: true, argv: [MAPPER_ARG_WHITELIST[0], trimmed] };
 }
 
 const STEP_ORDER = Object.freeze(['hotspot', 'mapper', 'bridge']);
 
 class RaceDayOrchestrator {
-    constructor({ hotspotLifecycle, mapperRunner, sessionApplier, settingsStore, existsSync = fsDefault.existsSync, log = () => {} } = {}) {
+    constructor({
+        hotspotLifecycle, mapperRunner, sessionApplier, settingsStore,
+        existsSync = fsDefault.existsSync,
+        // Probe for an instance of the drive program running OUTSIDE race day
+        // (the GRID's detached launch is the same executable in the gift kit).
+        // Injected: main.js hands in the existing elrs.detectRunning seam.
+        elrsDetect = async () => ({ configured: false, detected: false }),
+        log = () => {},
+    } = {}) {
         this._lifecycle = hotspotLifecycle;
         this._runner = mapperRunner;
         this._applier = sessionApplier;
         this._settingsStore = settingsStore;
         this._existsSync = existsSync;
+        this._elrsDetect = elrsDetect;
         this._log = log;
         this._running = false;
         this._seq = 0;
@@ -83,7 +104,10 @@ class RaceDayOrchestrator {
         this._unsubRunner = this._runner.onChange((st) => {
             if (st.running || this._steps.mapper.status !== 'ok') return;
             if (st.stoppedByUs) this._set('mapper', 'idle', null);
-            else this._set('mapper', 'fail', 'exited');
+            // A failed spawn surfaces asynchronously as the runner's
+            // 'spawn-error' exit (review blocker 1): the honest line is the
+            // check-the-⚙-location one, not "stopped on its own".
+            else this._set('mapper', 'fail', st.exitCode === 'spawn-error' ? 'spawn-failed' : 'exited');
         });
     }
 
@@ -135,7 +159,7 @@ class RaceDayOrchestrator {
             const settings = this._settingsStore.load();
             const prep = normalizeRacePrep(settings.racePrep);
             ok = await this._hotspotStep(settings)
-                && this._mapperStep(prep)
+                && await this._mapperStep(prep)
                 && this._bridgeStep(settings, prep);
         } catch (err) {
             // An unexpected rejection must never wedge the card in RUNNING.
@@ -214,7 +238,7 @@ class RaceDayOrchestrator {
     // Step (b): the drive program with the saved profile. All validation is
     // up-front and honest — a missing profile refuses to launch (launching the
     // mapper unconfigured would drop the giftee into hobbyist territory).
-    _mapperStep(prep) {
+    async _mapperStep(prep) {
         if (this._runner.status().running) {
             this._set('mapper', 'ok', 'already-running');
             return true;
@@ -223,12 +247,31 @@ class RaceDayOrchestrator {
             this._set('mapper', 'fail', 'not-configured');
             return false;
         }
+        // An instance may already be driving from OUTSIDE race day (review
+        // minor 5) — the GRID's detached convenience launch is this same
+        // executable in the gift kit. A second instance would lose its port
+        // bind and die with a misleading "stopped on its own" line, so probe
+        // first (the existing elrs detection seam) and no-op honestly. A
+        // rejected probe reads as not-running: the launch below then reports
+        // its own truth. The external instance is never adopted or stopped —
+        // the launch-only doctrine holds for processes race day did not start.
+        let external = null;
+        try {
+            external = await this._elrsDetect(prep.mapperPath);
+        } catch (err) {
+            this._log(`[raceday] external drive-program probe failed (treated as not running): ${err && err.message ? err.message : err}`);
+        }
+        if (external && external.configured && external.detected) {
+            this._set('mapper', 'ok', 'external');
+            return true;
+        }
         const argvRes = mapperArgv(prep);
         if (!argvRes.ok) {
             this._set('mapper', 'fail', argvRes.kind);
             return false;
         }
-        if (!this._existsSync(prep.profilePath)) {
+        // Existence check on the exact (trimmed) value the mapper will get.
+        if (!this._existsSync(argvRes.argv[1])) {
             this._set('mapper', 'fail', 'profile-not-found');
             return false;
         }
@@ -289,7 +332,16 @@ class RaceDayOrchestrator {
             return { ok: false, kind: 'busy', snapshot: this.snapshot() };
         }
         const st = this._runner.status();
-        if (st.running) this._runner.stop();
+        if (st.running) {
+            const res = this._runner.stop();
+            if (!res.ok) {
+                // A failed kill means the child is STILL ALIVE (review minor
+                // 4): leave every step exactly as it stands — winding the card
+                // to idle would present a stopped state over a live process —
+                // and hand the honest kind to the renderer's radio line.
+                return { ok: false, kind: 'stop-failed', snapshot: this.snapshot() };
+            }
+        }
         for (const id of STEP_ORDER) this._steps[id] = { status: 'idle', kind: null };
         this._emit();
         return { ok: true, snapshot: this.snapshot() };
