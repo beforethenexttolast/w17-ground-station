@@ -11,19 +11,21 @@
 > This copy supersedes the earlier camelCase/port-48017 draft that previously
 > lived in this file (W1); that draft is obsolete.
 >
-> **Sync record:** mirrored 2026-07-14 from canonical revision
-> `84532ed870ee9dc4563217a78ae112ccd0f1c8f6` ("Consolidate VR FPV integration
-> plans", `iPhone_rc` branch `main`). The previous mirror was the 2026-07-08
-> canonical; this revision brings in the Discovery (Bonjour/mDNS) section
-> (canonical 2026-07-10) and the 2026-07-14 plan-consolidation clarifications
-> (handoff items H1–H11: approved video baseline, mapper host =
-> owned/forked `elrs-joystick-control`, commanded-mirror camera telemetry,
-> 299/300/301 ms stale boundary, ≤250 ms future motion-sample freshness,
-> warning-field near-limit notice).
+> **Sync record:** mirrored 2026-08-17 from canonical revision
+> `9d0d8d7a1931663dac36bc97b0492777183dd7d8` ("docs: make the mDNS receiver
+> acceptance policy explicit (v1 clarification)", `iPhone_rc` branch `main`).
+> The previous mirror was the 2026-07-14 canonical (`84532ed8`); this revision
+> brings in the Discovery section's explicit receiver acceptance policy (TXT
+> `v` required and exactly `1`; `role`/`tport` optional but must match — `hud`
+> case-insensitive, SRV port — when present; unknown `feat` tokens ignored,
+> known tokens `w2`/`w3`; `dev` advisory, clampable to 32 printable ASCII),
+> the TXT table's new Required column, and the corrected `role` row (a non-`hud`
+> role is declined, not ignored). Receiver policy only; no advertiser, service,
+> or wire change.
 
 # W17 iPhone <-> Windows Bridge Contract
 
-Last updated: 2026-07-14
+Last updated: 2026-08-17 (Discovery: explicit receiver acceptance policy, v1-compatible clarification)
 
 This document defines the W17 integration contract between the existing iPhone FPV HUD / head-tracking app and the future Windows ground-station bridge.
 
@@ -122,13 +124,13 @@ Canonical service definition:
 
 TXT record keys:
 
-| Key | Example | Meaning |
-| --- | --- | --- |
-| `v` | `1` | Discovery/bridge contract version |
-| `role` | `hud` | Advertiser role; receivers should ignore unknown roles |
-| `tport` | `5601` | Telemetry listen port; mirrors the SRV port |
-| `feat` | `w2` or `w2,w3` | Supported bridge features; `w3` means the app can emit head-tracking intent packets when separately configured and safely gated |
-| `dev` | `Vitaliy iPhone` | Short printable ASCII user-facing device label |
+| Key | Required | Example | Meaning |
+| --- | --- | --- | --- |
+| `v` | Yes | `1` | Discovery/bridge contract version; must be `1` for this revision |
+| `role` | No | `hud` | Advertiser role; if present it must be `hud` (case-insensitive) or the advertisement is declined |
+| `tport` | No | `5601` | Telemetry listen port; mirrors the SRV port |
+| `feat` | No | `w2` or `w2,w3` | Supported bridge features; `w3` means the app can emit head-tracking intent packets when separately configured and safely gated |
+| `dev` | No | `Vitaliy iPhone` | Short printable ASCII user-facing device label; advisory/display only |
 
 Current iPhone advertisement:
 
@@ -144,6 +146,25 @@ Receiver behavior:
 - Windows may show discovered HUDs as candidate telemetry destinations, but the user should confirm the destination before Windows sends telemetry there.
 - Reachability/config checks remain the ground truth for whether telemetry is actually flowing.
 - A spoofed or stale advertisement must not affect vehicle control, head-tracking authority, CRSF output, servo output, firmware behavior, or failsafe behavior.
+
+Receiver acceptance policy (v1-compatible clarification, added 2026-08-17):
+
+This subsection makes the version-1 TXT acceptance rules explicit for receiver
+implementations. It is a receiver-policy clarification only: it changes no advertiser
+behavior, no service definition, no TXT key, and no wire format. The current iPhone
+advertisement described above already conforms unchanged.
+
+- `v` is REQUIRED and must be exactly `1`. An advertisement that omits `v` or carries
+  any other value must be declined as an unsupported version.
+- `role` is optional. If present it must equal `hud` case-insensitively; any other
+  value must be declined. If absent, the advertisement is acceptable.
+- `tport` is optional. If present it must equal the SRV port; a mismatch must be
+  declined rather than guessing which port is real. If absent, the SRV port alone is
+  authoritative.
+- `feat` is optional. Unknown tokens must be ignored, not rejected. Known version-1
+  tokens: `w2`, `w3`.
+- `dev` is optional and advisory (display only). Receivers may clamp it to 32
+  printable-ASCII characters.
 
 Lifecycle:
 
@@ -685,7 +706,8 @@ Two providers feed that suggestion:
 1. **Last W3 sender** — transport metadata from the log-only receiver (sender IP only,
    never packet contents), fresh for 30 s.
 2. **mDNS discovery (`_w17hud._udp.local.`)** — canonically specified in the contract
-   "Discovery" section above (adopted 2026-07-10, mirrored here at rev `84532ed`) and
+   "Discovery" section above (adopted 2026-07-10, mirrored here at rev `84532ed`;
+   receiver acceptance policy made explicit at rev `9d0d8d7`, re-mirrored 2026-08-17) and
    **implemented on Windows 2026-07-25** (CB4): `shared/dnsWire.js` (wire codec),
    `shared/hudDiscovery.js` (contract policy), `main/HudDiscovery.js` (transport).
    No dependency was added — the query is hand-rolled over `node:dgram`.
