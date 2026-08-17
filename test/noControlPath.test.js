@@ -126,6 +126,14 @@ describe('no-control-path regression (contract A + E)', () => {
     ]) {
       expect(runner, `mapper runner must not reference ${forbidden}`).not.toContain(forbidden);
     }
+    // Review blocker 2: the child's environment is SCRUBBED, never inherited
+    // verbatim — the mapper's own experimental flags default from W17_* env
+    // vars, so un-scrubbed inheritance would be an env-shaped bypass of the
+    // argv whitelist. Pins: the class-scrub mechanism exists, the spawn site
+    // uses it, and no spawn option ever hands over process.env directly.
+    expect(runner).toContain("startsWith('W17_')");
+    expect(runner).toContain('env: this._childEnv()');
+    expect(runner, 'spawn must never inherit the parent env verbatim').not.toContain('env: process.env');
 
     // The orchestrator only sequences existing authorities and builds the
     // whitelisted argv. It must not even be ABLE to reach a process, stream,

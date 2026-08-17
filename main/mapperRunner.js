@@ -22,6 +22,11 @@
 // program that DRIVES THE CAR is a control-adjacent policy decision. A death
 // is surfaced honestly on the race-day card instead, and the giftee's retry
 // button is the restart.
+//
+// POSIX orphan note (review obs 5): a hard crash of the GS (SIGKILL — no
+// teardown runs) can orphan the child on macOS/Linux dev hosts; accepted —
+// the Windows gift target is covered by the non-detached kill-on-close
+// teardown, and a dev host owner can kill the process by hand.
 
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -33,9 +38,10 @@ const RING_LIMIT = 200; // lines kept
 const LINE_LIMIT = 400; // chars kept per line
 
 class MapperRunner {
-    constructor({ spawnFn = spawn, existsSync = fs.existsSync, log = () => {} } = {}) {
+    constructor({ spawnFn = spawn, existsSync = fs.existsSync, env = process.env, log = () => {} } = {}) {
         this._spawn = spawnFn;
         this._existsSync = existsSync;
+        this._env = env;
         this._log = log;
         this._proc = null;
         this._pid = null;
@@ -43,6 +49,22 @@ class MapperRunner {
         this._stoppedByUs = false;
         this._ring = [];
         this._listeners = new Set();
+    }
+
+    // Child environment: the parent's, minus the ENTIRE W17_* namespace
+    // (review blocker 2). The mapper reads its own experimental defaults from
+    // W17_* variables — a bench machine carrying one would otherwise have
+    // race day start the mapper with features the argv whitelist deliberately
+    // never passes, an env-shaped bypass of that whitelist. Scrubbing the
+    // CLASS (not an enumerated name list) means a future W17_* knob on either
+    // side cannot silently reopen the hole. The launched mapper runs on its
+    // committed profile + built-in defaults, nothing inherited from this app.
+    _childEnv() {
+        const env = {};
+        for (const [k, v] of Object.entries(this._env)) {
+            if (!k.startsWith('W17_')) env[k] = v;
+        }
+        return env;
     }
 
     onChange(listener) {
@@ -86,6 +108,9 @@ class MapperRunner {
                 // stderr are piped ONLY into the bounded diagnostics ring.
                 stdio: ['ignore', 'pipe', 'pipe'],
                 cwd: path.dirname(binaryPath),
+                // Scrubbed environment (review blocker 2): never the parent's
+                // env verbatim — see _childEnv for the W17_* class scrub.
+                env: this._childEnv(),
                 // Race day is giftee-facing: never pop a console window at the
                 // operator (the GRID convenience launcher shows one on purpose;
                 // this managed run logs into the ring instead).
@@ -101,12 +126,26 @@ class MapperRunner {
         this._ring = [];
         if (child.stdout) child.stdout.on('data', (d) => this._record('out', d));
         if (child.stderr) child.stderr.on('data', (d) => this._record('err', d));
-        // 'error' fires for spawn failures surfaced asynchronously (e.g. a
-        // non-executable file on some platforms): record + treat as an exit.
+        // 'error' fires for spawn failures surfaced asynchronously (ENOENT /
+        // EACCES / a non-executable file) — and for THOSE, Node never fires
+        // 'exit' at all (review blocker 1). Without the reset below the runner
+        // claimed "running" forever after a failed spawn: the card lied, a
+        // stop "succeeded" against nothing, and the retry was refused as
+        // already-running. Identity-guarded so a late event from a replaced
+        // child can never clobber a newer run's state.
         child.on('error', (err) => {
-            this._record('err', `spawn error: ${err && err.message ? err.message : err}`);
+            if (this._proc !== child) return; // already settled or replaced — a stale child's noise stays out of the new run's ring
+            this._record('err', `process error: ${err && err.message ? err.message : err}`);
+            this._proc = null;
+            this._exitCode = 'spawn-error';
+            this._log('[mapper] process error with no exit (failed spawn) — treated as exited');
+            this._emit();
         });
         child.on('exit', (code, signal) => {
+            // The 'error' path above may have settled this child already, and
+            // after a retry `this._proc` is a NEWER child — never touch state
+            // that is not this child's own.
+            if (this._proc !== child) return;
             this._proc = null;
             this._exitCode = code ?? (signal ? `signal:${signal}` : null);
             this._log(`[mapper] exited (${this._exitCode})${this._stoppedByUs ? ' — stopped by this app' : ''}`);

@@ -20,7 +20,7 @@ function fakeChild({ pid = 4242 } = {}) {
     return child;
 }
 
-function harness({ exists = true, pid = 4242 } = {}) {
+function harness({ exists = true, pid = 4242, env } = {}) {
     const spawned = [];
     let child = null;
     const runner = new MapperRunner({
@@ -30,6 +30,7 @@ function harness({ exists = true, pid = 4242 } = {}) {
             return child;
         },
         existsSync: () => exists,
+        ...(env ? { env } : {}),
     });
     return { runner, spawned, child: () => child };
 }
@@ -61,6 +62,32 @@ describe('MapperRunner — managed start', () => {
         // silently (teardown stops it; the GRID convenience launcher is the
         // deliberate detached path).
         expect(opts.detached).toBeUndefined();
+    });
+
+    it('the child env is SCRUBBED: the whole W17_* class is stripped, everything else passes (review blocker 2)', () => {
+        // The mapper's own experimental flags DEFAULT from W17_* env vars, so
+        // inheriting the GS environment verbatim would be an env-shaped bypass
+        // of the argv whitelist on any bench machine carrying such a var. The
+        // scrub is by CLASS — a future W17_* knob is covered without a list edit.
+        const { runner, spawned } = harness({
+            env: {
+                PATH: '/usr/bin',
+                HOME: '/Users/pit',
+                W17_HEADTRACK_INGEST: '1',
+                W17_HEADTRACK: '1',
+                W17_IPHONE_BRIDGE: '1',
+                W17_WIFI_SIM: 'pixel',
+                W17_ANY_FUTURE_KNOB: 'x',
+            },
+        });
+        runner.start({ binaryPath: '/opt/w17/mapper', argv: [] });
+        const opts = spawned[0].opts;
+        // An env option MUST be present — absence means full inheritance.
+        expect(opts.env).toBeDefined();
+        expect(Object.keys(opts.env).filter((k) => k.startsWith('W17_'))).toEqual([]);
+        // Non-W17 vars survive (the mapper still needs PATH etc. to run).
+        expect(opts.env.PATH).toBe('/usr/bin');
+        expect(opts.env.HOME).toBe('/Users/pit');
     });
 
     it('soft-fails without spawning: no path, missing binary, already running', () => {
@@ -126,6 +153,67 @@ describe('MapperRunner — liveness and stop', () => {
         expect(res.ok).toBe(true);
         expect(spawned).toHaveLength(2);
         expect(runner.status()).toMatchObject({ running: true, exitCode: null, stoppedByUs: false });
+    });
+});
+
+// Review blocker 1: an async spawn failure (ENOENT/EACCES/non-executable
+// file) fires 'error' and NEVER 'exit'. The old handler only recorded to the
+// ring, so the runner claimed running forever: the card lied, stop()
+// "succeeded" against nothing, and the retry was refused as already-running.
+describe('MapperRunner — a failed spawn that fires error with NO exit (review blocker 1)', () => {
+    it('flips to not-running with the spawn-error code and notifies listeners', () => {
+        const { runner, child } = harness();
+        const seen = [];
+        runner.onChange((st) => seen.push(st));
+        runner.start({ binaryPath: '/opt/w17/not-executable' });
+        child().emit('error', new Error('spawn EACCES'));
+        // no 'exit' ever arrives — that IS the reproduced defect shape
+        expect(runner.status()).toMatchObject({ running: false, exitCode: 'spawn-error', stoppedByUs: false });
+        expect(seen.map((s) => s.running)).toEqual([true, false]);
+        // The failure detail landed in the diagnostics ring for the technician.
+        expect(runner.logTail().some((l) => l.includes('spawn EACCES'))).toBe(true);
+    });
+
+    it('stop() after the error is a truthful no-op — never a claimed kill of a dead child', () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/not-executable' });
+        child().emit('error', new Error('spawn ENOENT'));
+        expect(runner.stop()).toEqual({ ok: true, stopped: false });
+        expect(child().kill).not.toHaveBeenCalled();
+    });
+
+    it('the retry respawns instead of being refused as already-running', () => {
+        const { runner, child, spawned } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().emit('error', new Error('spawn EACCES'));
+        const res = runner.start({ binaryPath: '/opt/w17/mapper' });
+        expect(res.ok).toBe(true);
+        expect(spawned).toHaveLength(2);
+        expect(runner.status()).toMatchObject({ running: true, exitCode: null });
+    });
+
+    it('handlers are identity-guarded: a stale event from a replaced child never clobbers the new run', () => {
+        const { runner, spawned } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        const first = spawned[0].child;
+        first.emit('error', new Error('spawn EACCES')); // settles run 1
+        runner.start({ binaryPath: '/opt/w17/mapper' }); // run 2 alive
+        // Late duplicate events from the DEAD first child arrive afterwards.
+        first.emit('exit', 1, null);
+        first.emit('error', new Error('late'));
+        expect(runner.status()).toMatchObject({ running: true, exitCode: null });
+        expect(spawned).toHaveLength(2);
+    });
+
+    it('error followed by a real exit emits exactly one state flip (no double transition)', () => {
+        const { runner, child } = harness();
+        const seen = [];
+        runner.onChange((st) => seen.push(st));
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().emit('error', new Error('boom'));
+        child().emit('exit', 1, null); // some platforms fire both
+        expect(seen.map((s) => s.running)).toEqual([true, false]);
+        expect(runner.status().exitCode).toBe('spawn-error'); // first settlement wins
     });
 });
 
