@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { HotspotManager } = require('../main/hotspot.js');
 const { HotspotLifecycle } = require('../main/hotspotLifecycle.js');
-const { createQuitPolicy, QUIT_BUTTONS } = require('../main/quitPolicy.js');
+const { createQuitPolicy, QUIT_BUTTONS, MAPPER_QUIT_BUTTONS } = require('../main/quitPolicy.js');
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 const ok = (stdout = '') => ({ ok: true, code: 0, stdout, stderr: '' });
@@ -48,7 +48,7 @@ const CANCEL = 2;
 
 // One quit-policy world: real lifecycle over routed manager, scripted dialog
 // answers, spies on everything. flush() drains the policy's promise chains.
-function build(routes, { responses = [] } = {}) {
+function build(routes, { responses = [], mapperAlive } = {}) {
   const { run, calls } = fakeRun(routes);
   const manager = new HotspotManager({ run, platform: 'win32' });
   const lifecycle = new HotspotLifecycle({ manager });
@@ -61,7 +61,7 @@ function build(routes, { responses = [] } = {}) {
   });
   const showError = vi.fn();
   const quit = vi.fn();
-  const policy = createQuitPolicy({ lifecycle, showDialog, showError, quit });
+  const policy = createQuitPolicy({ lifecycle, mapperAlive, showDialog, showError, quit });
   const quitEvent = () => {
     const event = { prevented: false, preventDefault() { this.prevented = true; } };
     policy.onBeforeQuit(event);
@@ -272,5 +272,97 @@ describe('quit policy (audit B1, decision Q1)', () => {
     w.quitEvent();
     await w.flush();
     expect(w.quit).toHaveBeenCalledTimes(1); // fail-open for quit, hotspot left as-is
+  });
+});
+
+// Race-day honesty (micro-backlog 2026-08-20): quitting while race day's
+// MANAGED drive program is alive must SAY the quit stops it — teardown kills
+// that child unconditionally, so a silent quit would misrepresent what the
+// button does. Pins: the two-button dialog, its giftee wording (no "mapper"),
+// mapper-prompt-before-hotspot-prompt ordering (CANCEL stays side-effect
+// free), the no-mapper path unchanged, and fail-open on a broken seam.
+describe('quit policy — race-day managed drive program', () => {
+  const MAPPER_QUIT = 0;
+  const MAPPER_CANCEL = 1;
+
+  it('managed drive program alive, no hotspot: quit is intercepted and the two-button dialog appears', async () => {
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => true, responses: [MAPPER_QUIT] });
+    const event = w.quitEvent();
+    await w.flush();
+    expect(event.prevented).toBe(true);
+    expect(w.showDialog).toHaveBeenCalledTimes(1);
+    expect(w.dialogs[0].buttons).toEqual([...MAPPER_QUIT_BUTTONS]);
+    // Giftee wording bar (shared/raceDayView.mjs): "the drive program", never
+    // the component name — and the copy states the consequence honestly.
+    const copy = `${w.dialogs[0].message} ${w.dialogs[0].detail}`;
+    expect(copy).toContain('drive program');
+    expect(copy).not.toMatch(/mapper/i);
+    expect(copy).toMatch(/stops it|will be stopped/i);
+    expect(w.quit).toHaveBeenCalledTimes(1); // QUIT proceeds; teardown does the stop
+    const second = w.quitEvent(); // the re-issued quit sails through
+    expect(second.prevented).toBe(false);
+  });
+
+  it('CANCEL: nothing quits, nothing is stopped, and a later quit asks again', async () => {
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => true, responses: [MAPPER_CANCEL, MAPPER_CANCEL] });
+    w.quitEvent();
+    await w.flush();
+    expect(w.quit).not.toHaveBeenCalled();
+    w.quitEvent();
+    await w.flush();
+    expect(w.showDialog).toHaveBeenCalledTimes(2); // fresh decision, asked again
+  });
+
+  it('drive program AND owned hotspot: the side-effect-free prompt comes first, then the hotspot one', async () => {
+    const w = build(MOBILE_OK_ROUTES, {
+      mapperAlive: () => true,
+      responses: [MAPPER_QUIT, LEAVE_RUNNING],
+    });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.showDialog).toHaveBeenCalledTimes(2);
+    expect(w.dialogs[0].buttons).toEqual([...MAPPER_QUIT_BUTTONS]); // mapper asked FIRST
+    expect(w.dialogs[1].buttons).toEqual([...QUIT_BUTTONS]);
+    expect(w.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('CANCEL at the drive-program prompt skips the hotspot dialog entirely — no side effects at all', async () => {
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => true, responses: [MAPPER_CANCEL] });
+    await w.lifecycle.start(CREDS);
+    const snapBefore = w.lifecycle.snapshot();
+    w.quitEvent();
+    await w.flush();
+    expect(w.showDialog).toHaveBeenCalledTimes(1); // hotspot never asked
+    expect(w.quit).not.toHaveBeenCalled();
+    expect(w.lifecycle.snapshot()).toEqual(snapBefore); // hotspot untouched
+    expect(w.calls.filter((c) => c.args.join(' ').includes(PS_STOP_KEY))).toHaveLength(0);
+  });
+
+  it('a child that exits between before-quit and the decision raises no stale prompt', async () => {
+    let alive = true;
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => alive });
+    const event = w.quitEvent(); // intercepted on the alive snapshot
+    expect(event.prevented).toBe(true);
+    alive = false; // the managed child died while the quit was in flight
+    await w.flush();
+    expect(w.showDialog).not.toHaveBeenCalled();
+    expect(w.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('no managed drive program: quit passes through with no dialog (unchanged behavior)', async () => {
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => false });
+    const event = w.quitEvent();
+    await w.flush();
+    expect(event.prevented).toBe(false);
+    expect(w.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('a throwing aliveness seam fails open: reads as not-alive, the app stays quittable', async () => {
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => { throw new Error('orchestrator gone'); } });
+    const event = w.quitEvent();
+    await w.flush();
+    expect(event.prevented).toBe(false); // treated as no managed child
+    expect(w.showDialog).not.toHaveBeenCalled();
   });
 });

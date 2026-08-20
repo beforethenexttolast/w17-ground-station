@@ -314,8 +314,14 @@ app.on('window-all-closed', () => {
 // window closing routes through app.quit() -> before-quit, so the same policy
 // covers it; nothing else ever stops the hotspot implicitly, and an external
 // or inactive hotspot quits without any dialog.
+// Race-day honesty: quitting while race day's MANAGED drive program is alive
+// asks QUIT AND STOP THE DRIVE PROGRAM / CANCEL first — teardown below stops
+// that child unconditionally, so the quit must say so. The seam is read-only
+// aliveness from the orchestrator's own snapshot (the GRID's detached launch
+// is not managed and never prompts); the stop stays teardown's, unchanged.
 const quitPolicy = createQuitPolicy({
   lifecycle: hotspotLifecycle,
+  mapperAlive: () => !!(raceDay && raceDay.snapshot().mapper.running),
   showDialog: (opts) => dialog.showMessageBox(opts),
   showError: (title, content) => dialog.showErrorBox(title, content),
   quit: () => app.quit(),
