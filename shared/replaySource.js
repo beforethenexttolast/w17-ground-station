@@ -21,6 +21,41 @@ const DEMO_TIMELINE = [
   { t: 20000, speedKmh: 0, batteryV: 7.5, batteryPct: 52, armed: false, failsafe: false, linkQualityPct: 96, gear: 1, ersPct: 45, driveMode: 0 },
 ];
 
+// Low-battery rehearsal loop (~20s): the demo timeline above deliberately
+// never sags below 7.2 V, so it can NEVER show the low-battery banner
+// (shared/lowBattery.mjs: warn 7.0 V / critical 6.6 V pack on the default 2S
+// thresholds). This timeline is the banner's demo: a pack that sags into
+// BATTERY LOW under throttle, recovers at idle but only INSIDE the 0.15 V
+// hysteresis band (the banner honestly stays up), sags on into BATTERY
+// CRITICAL, parks, and is then swapped for a fresh pack (7.6 V — clear of the
+// exit band, banner gone). Demoable without draining a real pack; the numbers
+// below are pinned against the REAL classifier in test/replay.test.js, so a
+// threshold change that silently un-demos this loop fails a test instead.
+const LOW_BATTERY_TIMELINE = [
+  { t: 0, speedKmh: 0, batteryV: 7.9, batteryPct: 60, armed: false, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 80, driveMode: 0 },
+  { t: 1500, speedKmh: 0, batteryV: 7.9, batteryPct: 60, armed: true, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 80, driveMode: 1 },
+  { t: 5000, speedKmh: 160, batteryV: 6.9, batteryPct: 30, armed: true, failsafe: false, linkQualityPct: 97, gear: 4, ersPct: 45, driveMode: 1 },
+  { t: 8000, speedKmh: 40, batteryV: 7.05, batteryPct: 28, armed: true, failsafe: false, linkQualityPct: 98, gear: 2, ersPct: 55, driveMode: 1 },
+  { t: 12000, speedKmh: 190, batteryV: 6.5, batteryPct: 12, armed: true, failsafe: false, linkQualityPct: 95, gear: 4, ersPct: 15, driveMode: 2 },
+  { t: 14500, speedKmh: 0, batteryV: 6.55, batteryPct: 10, armed: true, failsafe: false, linkQualityPct: 98, gear: 1, ersPct: 15, driveMode: 1 },
+  { t: 17000, speedKmh: 0, batteryV: 6.9, batteryPct: 10, armed: false, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 15, driveMode: 0 },
+  { t: 20000, speedKmh: 0, batteryV: 7.6, batteryPct: 55, armed: false, failsafe: false, linkQualityPct: 100, gear: 1, ersPct: 15, driveMode: 0 },
+];
+
+// Named timelines a replay session can be started on. The name is a dev/demo
+// knob (env W17_REPLAY_TIMELINE via `npm run demo:low-battery`), never
+// persisted settings — see main/appWiring.js telemetrySourceFor.
+const TIMELINES = Object.freeze({
+  demo: DEMO_TIMELINE,
+  'low-battery': LOW_BATTERY_TIMELINE,
+});
+
+// Absent or unknown names fall back to the standard demo loop: a typo'd env
+// var must degrade to the familiar demo, never to a dead HUD.
+function timelineFor(name) {
+  return TIMELINES[name] || DEMO_TIMELINE;
+}
+
 const NUMERIC_FIELDS = ['speedKmh', 'batteryV', 'batteryPct', 'linkQualityPct', 'gear', 'ersPct'];
 
 function lerp(a, b, f) {
@@ -90,4 +125,4 @@ class ReplaySource extends TelemetrySource {
   }
 }
 
-module.exports = { ReplaySource, sampleTimeline, DEMO_TIMELINE };
+module.exports = { ReplaySource, sampleTimeline, DEMO_TIMELINE, LOW_BATTERY_TIMELINE, TIMELINES, timelineFor };

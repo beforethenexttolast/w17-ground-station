@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ReplaySource, sampleTimeline, DEMO_TIMELINE } from '../shared/replaySource.js';
+import {
+  ReplaySource, sampleTimeline, DEMO_TIMELINE, LOW_BATTERY_TIMELINE, TIMELINES, timelineFor,
+} from '../shared/replaySource.js';
+import { lowBatteryLevel } from '../shared/lowBattery.mjs';
 import {
   ERS_DEPLOY_PCT_PER_SEC,
   ERS_HARVEST_PCT_PER_SEC,
@@ -71,6 +74,60 @@ describe('ReplaySource', () => {
     expect(seen[1].gear).toBe(4); // t=6000 keyframe (canonical 4-gear demo, audit R05)
     src.stop();
     expect(tick).toBeNull();
+  });
+});
+
+// The low-battery rehearsal timeline, pinned against the REAL classifier
+// (shared/lowBattery.mjs, default 2S thresholds) exactly as hud.js runs it:
+// one level variable carried frame to frame. If a threshold or hysteresis
+// change ever un-demos this loop, these fail instead of the demo going quiet.
+describe('LOW_BATTERY_TIMELINE exercises the low-battery banner', () => {
+  // Classify one full loop at the replay cadence (50 ms), the way render()
+  // would see it, and record the level at each sampled instant.
+  const levelsOverOneLoop = () => {
+    const period = LOW_BATTERY_TIMELINE[LOW_BATTERY_TIMELINE.length - 1].t;
+    const out = [];
+    let level = 'ok';
+    for (let ms = 0; ms < period; ms += 50) {
+      level = lowBatteryLevel({ batteryV: sampleTimeline(LOW_BATTERY_TIMELINE, ms).batteryV, prevLevel: level });
+      out.push({ ms, level });
+    }
+    return out;
+  };
+
+  it('reaches warn, then critical, and ends the loop back at ok (fresh pack)', () => {
+    const seq = levelsOverOneLoop();
+    const firstWarn = seq.findIndex((s) => s.level === 'warn');
+    const firstCritical = seq.findIndex((s) => s.level === 'critical');
+    expect(firstWarn).toBeGreaterThan(0);              // starts healthy
+    expect(firstCritical).toBeGreaterThan(firstWarn);  // warn stage comes first, never straight to critical
+    expect(seq[seq.length - 1].level).toBe('ok');      // pack swap clears the banner
+  });
+
+  it('holds warn through the idle recovery inside the hysteresis band (t=8000, 7.05 V)', () => {
+    // The keyframe recovery sits ABOVE warn (7.0) but inside warn + 0.15, so
+    // the banner honestly stays up — the exact no-flicker behavior the
+    // hysteresis exists for, scripted on purpose into the demo.
+    const v = sampleTimeline(LOW_BATTERY_TIMELINE, 8000).batteryV;
+    expect(v).toBeGreaterThan(7.0);
+    expect(lowBatteryLevel({ batteryV: v, prevLevel: 'warn' })).toBe('warn');
+  });
+
+  it('the standard demo loop stays out of banner territory (unchanged behavior)', () => {
+    const period = DEMO_TIMELINE[DEMO_TIMELINE.length - 1].t;
+    let level = 'ok';
+    for (let ms = 0; ms < period; ms += 50) {
+      level = lowBatteryLevel({ batteryV: sampleTimeline(DEMO_TIMELINE, ms).batteryV, prevLevel: level });
+      expect(level).toBe('ok');
+    }
+  });
+
+  it('timelineFor: named selection with a safe fallback to the demo loop', () => {
+    expect(TIMELINES['low-battery']).toBe(LOW_BATTERY_TIMELINE);
+    expect(timelineFor('low-battery')).toBe(LOW_BATTERY_TIMELINE);
+    expect(timelineFor('demo')).toBe(DEMO_TIMELINE);
+    expect(timelineFor(undefined)).toBe(DEMO_TIMELINE);
+    expect(timelineFor('no-such-timeline')).toBe(DEMO_TIMELINE); // typo degrades to the familiar demo, never a dead HUD
   });
 });
 

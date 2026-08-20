@@ -7,6 +7,7 @@
     "setup": "node scripts/ensure-electron.js && node scripts/fetch-mediamtx.js",
     "start": "node scripts/run.js",
     "demo": "node scripts/run.js --demo",
+    "demo:low-battery": "node scripts/run.js --demo-low-battery",
     "test": "vitest run",
     "test:watch": "vitest",
     "proto:check": "node scripts/check-canonical-proto.js",

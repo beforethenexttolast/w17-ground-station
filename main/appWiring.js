@@ -13,7 +13,7 @@
 const os = require('node:os');
 const path = require('node:path');
 
-const { ReplaySource } = require('../shared/replaySource.js');
+const { ReplaySource, TIMELINES, timelineFor } = require('../shared/replaySource.js');
 const { CrsfSerialSource } = require('./CrsfSerialSource.js');
 const { WifiManager } = require('./wifiManager.js');
 const { HotspotManager } = require('./hotspot.js');
@@ -80,8 +80,18 @@ function createNetworkServices({ env = process.env, platform = process.platform,
 
 // Telemetry source selection from the EFFECTIVE config (post env-override).
 // 'none' returns null: the HUD runs fully on gamepad + display model.
-function telemetrySourceFor(cfg, { platform = process.platform, log = () => {} } = {}) {
-    if (cfg.source === 'replay') return new ReplaySource();
+function telemetrySourceFor(cfg, { platform = process.platform, env = process.env, log = () => {} } = {}) {
+    if (cfg.source === 'replay') {
+        // Which scripted timeline to replay is a dev/demo knob (the
+        // W17_WIFI_SIM precedent): env-only, never persisted settings —
+        // display-only data either way. Unknown names fall back to the
+        // standard demo loop, said out loud in the log rather than silently.
+        const name = env.W17_REPLAY_TIMELINE;
+        if (name && !TIMELINES[name]) {
+            log(`[telemetry] unknown replay timeline "${name}" — using the standard demo loop`);
+        }
+        return new ReplaySource({ timeline: timelineFor(name) });
+    }
     if (cfg.source === 'crsf-serial') {
         // Real battery + link-quality over the ELRS backchannel (docs/TELEMETRY.md).
         return new CrsfSerialSource({

@@ -34,6 +34,10 @@ npm run smoke:electron      # boot the REAL app in 4 scenarios; passes on a stru
                             #   readiness handshake, not on process launch (no hardware)
 npm start                   # launch the app (video needs the camera; see docs/SETUP.md)
 npm run demo                # launch with the replay telemetry source (live-looking, no car)
+npm run demo:low-battery    # same replay backend on the low-battery timeline: the pack
+                            #   sags through BATTERY LOW and BATTERY CRITICAL (incl. the
+                            #   hysteresis hold) so the banner is demoable without
+                            #   draining a real pack
 npm run build               # package a Windows .exe (electron-builder; unsigned by
                             #   default -- code-signing is opt-in, see docs/CODESIGNING.md)
 npm run proto:check         # verify the head-intent proto mirror matches ../w17-mapper

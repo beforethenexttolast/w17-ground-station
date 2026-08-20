@@ -28,6 +28,7 @@ import {
 } from '../main/appWiring.js';
 import { createSettingsStore } from '../main/settingsStore.js';
 import { SessionRuntime } from '../main/sessionRuntime.js';
+import { DEMO_TIMELINE, LOW_BATTERY_TIMELINE } from '../shared/replaySource.js';
 import { HotspotManager } from '../main/hotspot.js';
 import { HotspotLifecycle } from '../main/hotspotLifecycle.js';
 
@@ -149,7 +150,19 @@ describe('telemetrySourceFor — effective source to instance (audit D2)', () =>
     // and appWiring's require would otherwise be two module instances under
     // the vitest interop, failing instanceof for the same class.
     it("'replay' returns a ReplaySource", () => {
-        expect(telemetrySourceFor({ source: 'replay', port: '' }).constructor.name).toBe('ReplaySource');
+        expect(telemetrySourceFor({ source: 'replay', port: '' }, { env: {} }).constructor.name).toBe('ReplaySource');
+    });
+
+    // Timeline identity is asserted by VALUE (toEqual), the constructor-name
+    // rationale above: the ESM import here and appWiring's require may be two
+    // module instances under the vitest interop.
+    it("'replay' honors the W17_REPLAY_TIMELINE dev knob; unknown names fall back to the demo loop and say so", () => {
+        const pick = (env, log) => telemetrySourceFor({ source: 'replay', port: '' }, { env, log })._timeline;
+        expect(pick({ W17_REPLAY_TIMELINE: 'low-battery' })).toEqual(LOW_BATTERY_TIMELINE);
+        expect(pick({})).toEqual(DEMO_TIMELINE); // unset: the standard demo, unchanged
+        const log = vi.fn();
+        expect(pick({ W17_REPLAY_TIMELINE: 'no-such' }, log)).toEqual(DEMO_TIMELINE); // typo degrades, never a dead HUD
+        expect(log.mock.calls.flat().join(' ')).toContain('no-such'); // and the fallback is said out loud
     });
 
     it("'crsf-serial' returns a CrsfSerialSource on the configured port", () => {
