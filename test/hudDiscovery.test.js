@@ -3,7 +3,7 @@
 // these tests pin which advertisements we will offer, which we decline and
 // why, and that network-authored text is bounded before it reaches a log line
 // or the setup UI. The canonical rules are docs/windows_bridge_contract.md
-// "Discovery" (mirrored at rev 84532ed).
+// "Discovery" (mirrored at rev 9d0d8d7).
 import { describe, it, expect } from 'vitest';
 import { encodeName, TYPE } from '../shared/dnsWire.js';
 import { advert, goodbye, message, rr, srvRdata, txtRdata, aRdata } from './fixtures/mdnsAdvert.mjs';

@@ -14,7 +14,7 @@
 // operator is OFFERED a wrong address, declines it, or confirms it and sends
 // display telemetry JSON to the wrong local host.
 //
-// Canonical service definition (contract "Discovery", mirrored at rev 84532ed):
+// Canonical service definition (contract "Discovery", mirrored at rev 9d0d8d7):
 //   service `_w17hud._udp.local.`, instance `W17 HUD (<device name>)`,
 //   SRV port = the app's W2 telemetry listen port (default 5601), TXT keys
 //   v / role / tport / feat / dev.
@@ -91,8 +91,9 @@ function validateAdvertisement({ srv, txt, addr, ttl = null }) {
     const pairs = (txt && txt.pairs) || {};
     if (!('v' in pairs)) return { ok: false, reason: 'missing-version' };
     if (pairs.v !== CONTRACT_VERSION) return { ok: false, reason: 'unsupported-version' };
-    // "Advertiser role; receivers should ignore unknown roles" -- absent is
-    // tolerated (v is the only required key), a wrong role is not ours.
+    // "If present it must equal `hud` case-insensitively; any other value must
+    // be declined. If absent, the advertisement is acceptable." (v is the only
+    // required key.)
     if ('role' in pairs && lower(pairs.role) !== 'hud') return { ok: false, reason: 'not-a-hud' };
 
     const port = srv.port;
