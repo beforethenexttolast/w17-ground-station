@@ -11,9 +11,11 @@
 > This copy supersedes the earlier camelCase/port-48017 draft that previously
 > lived in this file (W1); that draft is obsolete.
 >
-> **Sync record:** mirrored 2026-08-17 from canonical revision
-> `9d0d8d7a1931663dac36bc97b0492777183dd7d8` ("docs: make the mDNS receiver
-> acceptance policy explicit (v1 clarification)", `iPhone_rc` branch `main`).
+> **Sync record:** mirrored 2026-08-20 from canonical revision
+> `862aeb07eac8be73005f5c2889d3549bb4559afa` ("docs(contract): record the
+> deliberate loss-display divergence (owner, 2026-08-20)", `iPhone_rc` branch
+> `main`). That revision adds the ratified cross-client divergence-on-loss
+> paragraph; the acceptance-policy content below is unchanged from `9d0d8d7a`.
 > The previous mirror was the 2026-07-14 canonical (`84532ed8`); this revision
 > brings in the Discovery section's explicit receiver acceptance policy (TXT
 > `v` required and exactly `1`; `role`/`tport` optional but must match — `hud`
@@ -313,6 +315,16 @@ Lost telemetry:
   - speed -> `-- km/h`
   - source/mode -> `UNKNOWN` or `--`
 - HUD may hold only non-authoritative debug metadata if clearly marked stale.
+
+### Deliberate Cross-Client Divergence On Loss (owner-ratified 2026-08-20)
+
+The two viewers intentionally behave differently when a stream dies, and this is a
+decision, not drift: the **iPhone clears to placeholders** (the rules above — a phone
+glanced at from the couch must say "no signal" unambiguously, with no plausible-looking
+stale numbers), while the **ground station holds the last frame dimmed under a
+stream-lost banner** (a laptop operator is diagnosing, and the last-known state is
+diagnostic context). Do not "fix" one side to match the other; a future change to either
+policy is an owner decision and must be made deliberately on both sides of the mirror.
 
 ## 3. Head-Tracking Intent Contract
 
