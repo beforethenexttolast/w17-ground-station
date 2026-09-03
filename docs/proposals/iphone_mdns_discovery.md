@@ -107,7 +107,10 @@ discovery is advisory and must never become a liability:
 - **No new IPC or preload surface.** Discovered HUDs ride the existing
   `setup:addr-hint` channel alongside the last-W3-sender hint — that channel
   already answers "what could the iPhone's address be?". The preload surface
-  stays at exactly the 24 methods `test/ipcSurface.test.js` pins.
+  stays unchanged by this feature — pinned by `test/ipcSurface.test.js` at
+  exactly 28 methods as of the 2026-08-17 race-day wave (24 before it; this
+  proposal's mDNS work added none of the four RACE DAY keys and predates
+  that count).
 - **Demand-driven.** The socket opens and the query goes out only while the
   setup flow polls for a suggestion (PIT WALL active). No background browsing,
   and therefore no env-var gate: not looking is the off switch.
