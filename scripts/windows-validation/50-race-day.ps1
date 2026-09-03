@@ -2,37 +2,56 @@
 <#
 .SYNOPSIS
   W17 Windows-VM validation, step 50: exercise race day's mapper step end to
-  end against the REAL installed build, to gather runtime evidence for two
-  CONFIRMED v2-review blockers (w17-mapper.v2report.json) — this step is
-  EXPECTED TO FAIL against today's code; that failure IS the finding being
-  exposed, not a bug in this script.
+  end against the REAL installed build, to gather runtime evidence for
+  CONFIRMED v2-review blockers/findings spanning BOTH repos' reports
+  (w17-mapper.v2report.json's MAP-1/MAP-2/MAP-8, and
+  w17-ground-station.v2report.json's own SYN-2/boundaries-3/boundaries-4/
+  boundaries-5 — several of these are the SAME underlying defect confirmed
+  independently from each repo's own review pass) — this step is EXPECTED
+  TO FAIL against today's code; that failure IS the finding being exposed,
+  not a bug in this script.
 
 .DESCRIPTION
-  MAP-1 (blocker) — `-config-file-path` double-wraps the committed profile:
-  grpc_client.go:57-62 puts the WHOLE staged file into SetConfigReq.Config;
-  server_grpc.go:103-104 re-marshals that into {"config": <file>};
-  configs/w17-ds4.json already carries that wrapper; pkg/config/schema.yaml
-  then rejects the doubled document; grpc_client.go:63 panics. The mapper
-  race day spawns is therefore expected to crash shortly after launch.
+  MAP-1 (blocker, mapper repo) — `-config-file-path` double-wraps the
+  committed profile: grpc_client.go:57-62 puts the WHOLE staged file into
+  SetConfigReq.Config; server_grpc.go:103-104 re-marshals that into
+  {"config": <file>}; configs/w17-ds4.json already carries that wrapper;
+  pkg/config/schema.yaml then rejects the doubled document; grpc_client.go:63
+  panics. The mapper race day spawns is therefore expected to crash shortly
+  after launch.
 
-  MAP-2 (blocker) — race day's argv whitelist (MAPPER_ARG_WHITELIST,
-  raceDayOrchestrator.js:44) is EXACTLY `-config-file-path`, and no GS code
-  ever calls the mapper's StartLink RPC — so even a mapper that survives
-  never drives the RF link, and the COM port is never opened by race day
-  either (a structural consequence, not something this script probes
-  directly — COMMON.md: never open a serial port). This is checked every run
-  via the SAME exported mapperArgv()/MAPPER_ARG_WHITELIST the orchestrator
-  itself uses (lib/race-day-probe.js), not re-derived — so it holds
-  regardless of whether MAP-1 reproduces on a given run.
+  MAP-2 (blocker, mapper repo) / SYN-2 (blocker, GS repo — "RACE DAY starts
+  the drive program but never its radio link") — race day's argv whitelist
+  (MAPPER_ARG_WHITELIST, raceDayOrchestrator.js:44) is EXACTLY
+  `-config-file-path`, and no GS code ever calls the mapper's StartLink RPC —
+  so even a mapper that survives never drives the RF link, and the COM port
+  is never opened by race day either (a structural consequence, not
+  something this script probes directly — COMMON.md: never open a serial
+  port). This is checked every run via the SAME exported
+  mapperArgv()/MAPPER_ARG_WHITELIST the orchestrator itself uses
+  (lib/race-day-probe.js), not re-derived — so it holds regardless of
+  whether MAP-1 reproduces on a given run.
 
-  MAP-8 (high) — mapper gRPC :10000 (reflection on) and the grpc-web UI :3000
-  bind all interfaces, unauthenticated. This script is the one place in the
-  suite that can observe those ports LIVE, because 20-mapper-stage.ps1 never
-  starts the mapper (it only stages settings) and this script's own probe
-  stops the mapper again before returning control — so port evidence is
-  gathered by POLLING `Get-NetTCPConnection` on a background clock WHILE the
-  probe process runs, not after it exits. 40-mdns-udp.ps1 covers 5601/5602/
-  5353 (ports it owns before the mapper exists).
+  MAP-8 (high, mapper repo) / boundaries-3 (medium, GS repo) — mapper gRPC
+  :10000 (reflection on) and the grpc-web UI :3000 bind all interfaces,
+  unauthenticated, reachable from the hotspot the ground station itself
+  creates. This script is the one place in the suite that can observe those
+  ports LIVE, because 20-mapper-stage.ps1 never starts the mapper (it only
+  stages settings) and this script's own probe stops the mapper again before
+  returning control — so port evidence is gathered by POLLING
+  `Get-NetTCPConnection` on a background clock WHILE the probe process runs,
+  not after it exits. 40-mdns-udp.ps1 covers 5601/5602/5353 (ports it owns
+  before the mapper exists).
+
+  boundaries-4 (medium, GS repo) — GRID's convenience launch
+  (main/elrsLauncher.js) spawns the mapper with an UN-scrubbed environment,
+  reopening the very env bypass race day's own managed launch closes.
+  boundaries-5 (low, GS repo) — that scrub (both race day's real one and, if
+  written naively, a validation script's own) is case-sensitive while
+  Windows environment-variable names are not. Both are documented below as
+  code facts (data.gridLaunchEnvScrubGap); see that section and
+  .DESCRIPTION further down for why boundaries-4 is not live-exercised, and
+  how boundaries-5 is avoided in THIS script's own launch env.
 
   How the mapper is driven: lib/race-day-probe.js, run under the installed
   exe in Node mode (ELECTRON_RUN_AS_NODE=1 — a plain node.exe cannot resolve
@@ -136,11 +155,15 @@ if (-not $prepMapperPath -or -not $prepProfilePath) {
 }
 
 # --- GRID-launch env-scrub gap: documented as a code fact, not live-exercised
-# (see .DESCRIPTION for why). ---------------------------------------------
+# (see .DESCRIPTION for why). CONFIRMED findings boundaries-4 (the gap itself)
+# and boundaries-5 (the scrub is ALSO case-sensitive, which Windows env names
+# are not) from w17-ground-station.v2report.json. ---------------------------
+$findings.Add('boundaries-4')
+$findings.Add('boundaries-5')
 $data.gridLaunchEnvScrubGap = [ordered]@{
-    claim                  = 'GRID launch (main/elrsLauncher.js launchDetached()) inherits this app''s FULL, unscrubbed process.env; race day''s managed launch (main/mapperRunner.js _childEnv()) strips the entire W17_* class first.'
-    evidenceGridLaunch     = 'main/elrsLauncher.js:26-31 — spawn(elrsPath, [], {detached:true, stdio:"ignore", cwd:path.dirname(elrsPath), windowsHide:false}) — no env key at all, so Node child_process defaults to inheriting process.env verbatim, and no argv either (nothing here is even whitelisted, unlike race day).'
-    evidenceRaceDay        = 'main/mapperRunner.js _childEnv() — copies process.env but skips every key starting with "W17_" before spawning.'
+    claim                  = 'GRID launch (main/elrsLauncher.js launchDetached()) inherits this app''s FULL, unscrubbed process.env; race day''s managed launch (main/mapperRunner.js _childEnv()) strips the entire W17_* class first — and even that strip is CASE-SENSITIVE (boundaries-5) while Windows environment-variable names are not, so a mixed-case w17_headtrack_ingest could survive race day''s own scrub too.'
+    evidenceGridLaunch     = 'main/elrsLauncher.js:26-31 — spawn(elrsPath, [], {detached:true, stdio:"ignore", cwd:path.dirname(elrsPath), windowsHide:false}) — no env key at all, so Node child_process defaults to inheriting process.env verbatim, and no argv either (nothing here is even whitelisted, unlike race day). boundaries-4.'
+    evidenceRaceDay        = 'main/mapperRunner.js _childEnv() — copies process.env but skips only keys whose name STARTS WITH the literal, uppercase "W17_" (ordinal StartsWith) before spawning — boundaries-5: a "w17_headtrack_ingest" would not match that check and would ride through even race day''s own scrub.'
     onlyKnownAffectedFlag  = 'w17-mapper cmd/elrs-joystick-control/main.go — the -headtrack-ingest flag defaults from env W17_HEADTRACK_INGEST (envTruthy helper) when no CLI flag is given; GRID launch passes NO CLI flags at all, so an ambient W17_HEADTRACK_INGEST on this machine silently changes GRID''s launch in a way race day''s launch never can (LOG-ONLY receiver, CLAUDE.md safety boundary 5 — enabling it changes nothing control-relevant, but the SILENT, ambient-environment nature of the toggle is the gap being flagged).'
     exercisedLive          = $false
     whyNotExercisedLive    = 'launchDetached() spawns the REAL control-path binary DETACHED, stdio ignored, no pid returned, and elrsLauncher.js has no kill/stop/restart function by design ("this app will never stop it") — an unattended VM session cannot reliably identify and clean up the resulting orphan; left as a human-supervised runbook step (see the workspace runbook).'
@@ -148,15 +171,20 @@ $data.gridLaunchEnvScrubGap = [ordered]@{
 
 # --- scrubbed launch env for the probe, mirroring scripts/electron-smoke.js's
 # SCRUB_ENV_EXACT + wholesale W17_* delete, layered UNDER race day's own scrub.
+# Deliberately CASE-INSENSITIVE here (unlike the production scrub above,
+# boundaries-5) — this is new code this script owns, so it is written
+# correctly rather than reproducing a known gap; it does not paper over
+# boundaries-5, which lives in main/mapperRunner.js and is documented above,
+# not fixed by anything in this file.
 $scrubExact = @('ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ATTACH_CONSOLE', 'NODE_OPTIONS')
 $scrubbedEnv = @{}
 foreach ($item in (Get-ChildItem Env:)) {
-    if ($item.Name.StartsWith('W17_')) { continue }
+    if ($item.Name.ToUpperInvariant().StartsWith('W17_')) { continue }
     if ($scrubExact -contains $item.Name) { continue }
     $scrubbedEnv[$item.Name] = $item.Value
 }
 $scrubbedEnv['ELECTRON_RUN_AS_NODE'] = '1' # the one var this probe itself needs, added back deliberately
-$data.launchEnvScrubbed = @('W17_* (wholesale)') + $scrubExact
+$data.launchEnvScrubbed = @('W17_* (wholesale, case-insensitive)') + $scrubExact
 
 # --- launch the probe NON-BLOCKING so ports can be polled while it runs ----
 # (a bespoke inline launch rather than lib/common.ps1's Invoke-W17Command,
@@ -218,6 +246,7 @@ Unregister-Event -SourceIdentifier $errEvt.Name -ErrorAction SilentlyContinue
 $data.portListenersObservedWhileRunning = @($portSamples)
 if ($portSamples.Count -gt 0) {
     $findings.Add('MAP-8')
+    $findings.Add('boundaries-3')
     $data.portObservationNote = 'a LISTENING socket on 10000 and/or 3000 was observed while the probe ran — see portListenersObservedWhileRunning for the LocalAddress reported at each sample (0.0.0.0 confirms the all-interfaces bind boundaries-3/MAP-8 describes; 127.0.0.1 would not).'
 } else {
     $data.portObservationNote = 'no LISTENING socket seen on 10000/3000 during the poll window — either the mapper crashed before binding them (consistent with MAP-1) or the poll missed a narrow window; NOT itself proof the ports are unreachable when the mapper does survive long enough to bind them.'
@@ -259,7 +288,8 @@ if (-not $probe) {
         $failures.Add("unexpected: the captured argv/whitelist did not match the expected shape (whitelist=$($probe.mapperArgWhitelist -join ','); argvCheck=$($probe.argvCheck | ConvertTo-Json -Compress)) — re-check this script against raceDayOrchestrator.js, something moved")
     }
     $findings.Add('MAP-2')
-    $failures.Add('MAP-2 (structural, every run): MAPPER_ARG_WHITELIST is exactly ["-config-file-path"] (raceDayOrchestrator.js) and no GS code path ever calls the mapper''s StartLink RPC (main/*.js has no JoystickControl gRPC client) — so even a mapper that survives race day''s launch never drives the RF link, and the COM port is never opened by race day either. This will keep failing until the mapper/GS fix wave (owner decision D1 first, per the review) lands MAP-2''s remediation.')
+    $findings.Add('SYN-2')
+    $failures.Add('MAP-2/SYN-2 (structural, every run): MAPPER_ARG_WHITELIST is exactly ["-config-file-path"] (raceDayOrchestrator.js) and no GS code path ever calls the mapper''s StartLink RPC (main/*.js has no JoystickControl gRPC client) — so even a mapper that survives race day''s launch never drives the RF link, and the COM port is never opened by race day either. This will keep failing until the mapper/GS fix wave (owner decision D1 first, per the review) lands the remediation.')
 
     if ($null -ne $probe.stopResult) {
         $data.stopResult = $probe.stopResult
