@@ -5,6 +5,14 @@ SmartScreen shows an "unknown publisher — Windows protected your PC" prompt; t
 clicks **More info → Run anyway** once. For a one-off personal gift that is genuinely fine and
 needs zero setup. Sign only if you want that prompt gone.
 
+CI builds this exact same unsigned installer on every push to `main` (no `CSC_LINK` /
+`CSC_KEY_PASSWORD` secrets exist in CI, so signing is always skipped there) and uploads it
+as the `w17-ground-station-nsis-unsigned` artifact on the `package-smoke` job (`Actions` tab
+→ the run → `Artifacts`) — see the README CI section. `[fix-wave: boundaries-1]` today that
+CI-built installer ships without the bundled `mediamtx.exe` (the job does not yet run the
+mediamtx fetch step before packaging), so it has no working video relay until that fix
+lands; a locally-run `npm run build` is unaffected as long as `npm run setup` ran first.
+
 electron-builder signs automatically when a certificate is provided via the environment (no
 secrets committed):
 
