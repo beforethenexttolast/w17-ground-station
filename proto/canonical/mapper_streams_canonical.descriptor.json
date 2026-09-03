@@ -1,0 +1,282 @@
+{
+  "package": "JoystickControl",
+  "empty": {
+    "name": "Empty",
+    "fields": []
+  },
+  "enums": {
+    "PortState": [
+      {
+        "name": "PortUnknown",
+        "number": 0
+      },
+      {
+        "name": "PortDisconnected",
+        "number": 1
+      },
+      {
+        "name": "PortConnected",
+        "number": 2
+      }
+    ],
+    "SupervisorState": [
+      {
+        "name": "SupervisorUnknown",
+        "number": 0
+      },
+      {
+        "name": "SupervisorInactive",
+        "number": 1
+      },
+      {
+        "name": "SupervisorActive",
+        "number": 2
+      }
+    ]
+  },
+  "messages": {
+    "LinkState": [
+      {
+        "name": "supervisor_state",
+        "number": 1,
+        "type": "TYPE_ENUM",
+        "typeName": "SupervisorState",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "port_state",
+        "number": 2,
+        "type": "TYPE_ENUM",
+        "typeName": "PortState",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "received_packets_count",
+        "number": 3,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "sent_packets_count",
+        "number": 4,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "error_packets_count",
+        "number": 5,
+        "type": "TYPE_UINT64",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      }
+    ],
+    "LinkStatsData": [
+      {
+        "name": "uplink_rssi1",
+        "number": 1,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "uplink_rssi2",
+        "number": 2,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "uplink_link_quality",
+        "number": 3,
+        "type": "TYPE_UINT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "uplink_snr",
+        "number": 4,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "active_antenna",
+        "number": 5,
+        "type": "TYPE_UINT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "radio_frequency_mode",
+        "number": 6,
+        "type": "TYPE_UINT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "uplink_power",
+        "number": 7,
+        "type": "TYPE_UINT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "downlink_rssi",
+        "number": 8,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "downlink_link_quality",
+        "number": 9,
+        "type": "TYPE_UINT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "downlink_snr",
+        "number": 10,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      }
+    ],
+    "BatteryData": [
+      {
+        "name": "voltage",
+        "number": 1,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "current",
+        "number": 2,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "fuel",
+        "number": 3,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "remaining",
+        "number": 4,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      }
+    ],
+    "GPSData": [
+      {
+        "name": "latitude",
+        "number": 1,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "longitude",
+        "number": 2,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "ground_speed",
+        "number": 3,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "heading",
+        "number": 4,
+        "type": "TYPE_FLOAT",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "altitude",
+        "number": 5,
+        "type": "TYPE_INT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "satellites",
+        "number": 6,
+        "type": "TYPE_UINT32",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      }
+    ],
+    "FlightModeData": [
+      {
+        "name": "mode",
+        "number": 1,
+        "type": "TYPE_STRING",
+        "typeName": "",
+        "label": "LABEL_OPTIONAL"
+      }
+    ]
+  },
+  "telemetry": {
+    "name": "Telemetry",
+    "fields": [
+      {
+        "name": "link_stats",
+        "number": 1,
+        "type": "TYPE_MESSAGE",
+        "typeName": "LinkStatsData",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "battery",
+        "number": 3,
+        "type": "TYPE_MESSAGE",
+        "typeName": "BatteryData",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "gps",
+        "number": 4,
+        "type": "TYPE_MESSAGE",
+        "typeName": "GPSData",
+        "label": "LABEL_OPTIONAL"
+      },
+      {
+        "name": "flight_mode",
+        "number": 5,
+        "type": "TYPE_MESSAGE",
+        "typeName": "FlightModeData",
+        "label": "LABEL_OPTIONAL"
+      }
+    ]
+  },
+  "methods": [
+    {
+      "name": "getLinkStream",
+      "path": "/JoystickControl.JoystickControl/getLinkStream",
+      "requestStream": false,
+      "responseStream": true,
+      "requestType": "Empty",
+      "responseType": "LinkState"
+    },
+    {
+      "name": "getTelemetryStream",
+      "path": "/JoystickControl.JoystickControl/getTelemetryStream",
+      "requestStream": false,
+      "responseStream": true,
+      "requestType": "Empty",
+      "responseType": "Telemetry"
+    }
+  ]
+}

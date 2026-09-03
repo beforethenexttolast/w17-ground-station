@@ -15,6 +15,8 @@ const path = require('node:path');
 
 const { ReplaySource, TIMELINES, timelineFor } = require('../shared/replaySource.js');
 const { CrsfSerialSource } = require('./CrsfSerialSource.js');
+const { MapperTelemetrySource } = require('./MapperTelemetrySource.js');
+const { createMapperTelemetryConnect } = require('./mapperTelemetryGrpcConnect.js');
 const { WifiManager } = require('./wifiManager.js');
 const { HotspotManager } = require('./hotspot.js');
 const { HotspotLifecycle } = require('./hotspotLifecycle.js');
@@ -99,7 +101,29 @@ function telemetrySourceFor(cfg, { platform = process.platform, env = process.en
             log,
         });
     }
+    if (cfg.source === 'mapper-grpc') {
+        // Owner decision OD-4: the SAME car-side truths, read from the drive
+        // program's read-only telemetry stream instead of the serial port it
+        // holds exclusively — the only source that can run at the same time as
+        // race day. Read-only by construction: the factory binds exactly
+        // getTelemetryStream and the source never writes to the call.
+        // The address follows the head-intent consumer's existing knob so a
+        // bench with a non-default mapper has one place to say so.
+        return new MapperTelemetrySource({
+            connect: createMapperTelemetryConnect(mapperGrpcAddr(env), { log }),
+            log,
+        });
+    }
     return null;
+}
+
+// Loopback by default (mapper branch A / OD-8 makes 127.0.0.1 the mapper's own
+// default bind). W17_MAPPER_GRPC_ADDR is the same override the head-intent
+// diagnostics consumer already reads, so there is one address knob, not two.
+const DEFAULT_MAPPER_GRPC_ADDR = '127.0.0.1:10000';
+function mapperGrpcAddr(env = process.env) {
+    const raw = env && env.W17_MAPPER_GRPC_ADDR;
+    return (typeof raw === 'string' && raw.trim()) ? raw.trim() : DEFAULT_MAPPER_GRPC_ADDR;
 }
 
 // The apply-session seam: persisted settings + env -> effective config ->
@@ -599,6 +623,8 @@ module.exports = {
     PUSH_CHANNELS,
     createNetworkServices,
     telemetrySourceFor,
+    mapperGrpcAddr,
+    DEFAULT_MAPPER_GRPC_ADDR,
     createSessionApplier,
     createKeyedInstance,
     mediamtxPaths,

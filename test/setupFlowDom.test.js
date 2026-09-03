@@ -339,6 +339,51 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     return { gs, push: (s) => push(s) };
   }
 
+  // Owner decision OD-4 + review SYN-2: the card now carries FOUR steps, and
+  // the drive-program line is honest about the radio.
+  it('the four steps render with the CAR READINGS line, and a dead radio is not "running"', async () => {
+    const { push } = await loadReturningUser();
+    push({
+      seq: 2,
+      running: false,
+      steps: [
+        { id: 'hotspot', status: 'ok', kind: 'verified' },
+        { id: 'mapper', status: 'ok', kind: 'running' },
+        { id: 'telemetry', status: 'ok', kind: 'live' },
+        { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+      ],
+      mapper: { running: true, logTail: [] },
+      link: { up: true },
+    });
+    await tick();
+    const rows = [...el('raceDaySteps').children];
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r) => r.querySelector('b').textContent))
+      .toEqual(['CAR WI-FI', 'DRIVE PROGRAM', 'CAR READINGS', 'PHONE LINK']);
+    expect(rows[2].querySelector('span').textContent).toBe('on — the car is sending its battery and speed');
+
+    // The radio drops: the drive-program line stops claiming it is running.
+    push({
+      seq: 3,
+      running: false,
+      steps: [
+        { id: 'hotspot', status: 'ok', kind: 'verified' },
+        { id: 'mapper', status: 'fail', kind: 'link-down' },
+        { id: 'telemetry', status: 'ok', kind: 'waiting' },
+        { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+      ],
+      mapper: { running: true, logTail: [] },
+      link: { up: false },
+    });
+    await tick();
+    const after = [...el('raceDaySteps').children];
+    expect(after[1].className).toBe('rdrow fail');
+    expect(after[1].querySelector('span').textContent)
+      .toBe('started, but the radio is not transmitting — check the cable to the little radio box, then press RACE DAY again');
+    expect(after[2].querySelector('span').textContent)
+      .toBe('on — nothing from the car yet (switch the car on)');
+  });
+
   it('a returning user gets the one-press action; idle card keeps the step lines collapsed', async () => {
     const { gs } = await loadReturningUser();
     expect(el('fastPath').classList.contains('hidden')).toBe(false);

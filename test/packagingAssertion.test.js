@@ -85,7 +85,10 @@ async function makePackage({ mediamtx = 'mediamtx.exe', mediamtxBytes = 'MZ bina
   if (yml) writeFileSync(join(res, 'mediamtx', 'mediamtx.yml'), 'paths:\n  cam:\n');
 
   const appFiles = { 'package.json': '{"name":"w17"}', 'main/main.js': '// main' };
-  if (proto) appFiles[REQUIRED_APP_FILES[0]] = 'syntax = "proto3";\n';
+  // Every runtime proto the app loads, not just the first: a new one added to
+  // REQUIRED_APP_FILES must be packaged too, and this fixture follows the list
+  // rather than naming files.
+  if (proto) for (const rel of REQUIRED_APP_FILES) appFiles[rel] = 'syntax = "proto3";\n';
   if (layout === 'asar') {
     await makeAsar(join(res, 'app.asar'), appFiles);
   } else if (layout === 'plain') {
@@ -135,8 +138,10 @@ describe('assert-packaged — every gap is loud (the regressions it exists to ca
   it('proto/ missing from app.asar fails and names the electron-builder fix (boundaries-6)', async () => {
     const res = await makePackage({ proto: false });
     const { failures } = checkResources(res);
-    expect(failures).toHaveLength(1);
+    // One failure per missing runtime proto, each naming its own file.
+    expect(failures).toHaveLength(REQUIRED_APP_FILES.length);
     expect(failures[0]).toMatch(/head_intent_diagnostics\.proto is not inside app\.asar/);
+    expect(failures.join('\n')).toMatch(/mapper_readonly_streams\.proto is not inside app\.asar/);
     expect(failures[0]).toMatch(/proto\/\*\* to electron-builder\.yml/);
   });
 
@@ -263,7 +268,26 @@ describe('the CI wiring itself (the assertion is worthless if nothing calls it)'
     expect(builder).toMatch(/^\s*-\s*proto\/\*\*\s*$/m);
   });
 
-  it('the required runtime proto is actually in the repo at that path', () => {
-    expect(existsSync(new URL(`../${REQUIRED_APP_FILES[0]}`, import.meta.url))).toBe(true);
+  it('every required runtime proto is actually in the repo at that path', () => {
+    // Both mirrors: the head-intent diagnostics one, and the read-only streams
+    // the car telemetry + link truth ride on (OD-4 / SYN-2).
+    expect(REQUIRED_APP_FILES).toContain('proto/head_intent_diagnostics.proto');
+    expect(REQUIRED_APP_FILES).toContain('proto/mapper_readonly_streams.proto');
+    for (const rel of REQUIRED_APP_FILES) {
+      expect(existsSync(new URL(`../${rel}`, import.meta.url)), rel).toBe(true);
+    }
+  });
+
+  it('a package missing ONLY the newer stream proto still fails (the list is not decorative)', async () => {
+    const res = await makePackage();
+    // Rebuild the asar without the second proto.
+    const asarPath = join(res, 'app.asar');
+    await makeAsar(asarPath, {
+      'package.json': '{"name":"w17"}',
+      'main/main.js': '// main',
+      'proto/head_intent_diagnostics.proto': 'syntax = "proto3";\n',
+    });
+    const { failures } = checkResources(res);
+    expect(failures.join('\n')).toMatch(/mapper_readonly_streams\.proto is not inside app\.asar/);
   });
 });

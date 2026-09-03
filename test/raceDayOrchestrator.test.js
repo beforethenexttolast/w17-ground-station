@@ -75,9 +75,25 @@ function settingsWith(over = {}) {
   };
 }
 
+// The mapper's read-only link answer (review SYN-2). `up` is true / false /
+// null (unknown); the orchestrator polls snapshot() and subscribes to changes.
+function fakeLinkProbe({ up = true } = {}) {
+  const listeners = new Set();
+  const probe = {
+    _up: up,
+    start: vi.fn(),
+    stop: vi.fn(),
+    snapshot: vi.fn(() => ({ up: probe._up })),
+    onChange: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    set: (next) => { probe._up = next; for (const fn of listeners) fn({ up: next }); },
+  };
+  return probe;
+}
+
 function harness({
   settings = settingsWith(), lifecycle, runner, applier, exists = () => true,
   elrsDetect = vi.fn(async () => ({ configured: false, detected: false })),
+  telemetryStatus, linkProbe,
 } = {}) {
   const lc = lifecycle || fakeLifecycle();
   const rn = runner || fakeRunner();
@@ -90,9 +106,16 @@ function harness({
     settingsStore: { load: () => JSON.parse(JSON.stringify(settings)) },
     existsSync: exists,
     elrsDetect,
+    ...(telemetryStatus ? { telemetryStatus } : {}),
+    ...(linkProbe ? { linkProbe } : {}),
+    // Every bounded wait in this module runs on the injected clock; no test in
+    // this file ever waits real milliseconds.
+    schedule: (fn) => { setImmediate(fn); return 0; },
   });
   orch.onChange((snap) => pushes.push(snap));
-  return { orch, lc, rn, ap, pushes, elrsDetect };
+  return {
+    orch, lc, rn, ap, pushes, elrsDetect, linkProbe,
+  };
 }
 
 const stepOf = (snap, id) => snap.steps.find((s) => s.id === id);
@@ -202,7 +225,7 @@ describe('RaceDayOrchestrator — happy path', () => {
     const { orch } = harness({ lifecycle: lc, runner: rn, applier: ap });
     await orch.start();
     expect(order).toEqual(['hotspot', 'mapper', 'bridge']);
-    expect(STEP_ORDER).toEqual(['hotspot', 'mapper', 'bridge']);
+    expect(STEP_ORDER).toEqual(['hotspot', 'mapper', 'telemetry', 'bridge']);
   });
 
   it('a second start while one is in flight answers busy and runs nothing twice', async () => {
@@ -612,5 +635,160 @@ describe('RaceDayOrchestrator — snapshot hygiene', () => {
     const snap = orch.snapshot();
     expect(snap.mapper).toMatchObject({ running: true, pid: 7 });
     expect(snap.mapper.logTail).toEqual(['[out] listening']);
+  });
+});
+
+// --- SYN-2: a started drive program is not a transmitting one --------------
+// The mapper opens the transmitter's serial port itself. With that port shut it
+// emits no CRSF frame at all, and the card said "running" either way — the one
+// claim on this screen the giftee acts on.
+describe('RaceDayOrchestrator — the card says running only when the radio is up (SYN-2)', () => {
+  it('link UP: the step is ok/running and the sequence carries on', async () => {
+    const probe = fakeLinkProbe({ up: true });
+    const { orch } = harness({ linkProbe: probe });
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'running' });
+    expect(probe.start).toHaveBeenCalled();
+    expect(res.snapshot.link).toEqual({ up: true });
+  });
+
+  it('link DOWN: an honest failure that names the cable, and the sequence halts', async () => {
+    const { orch, rn, ap } = harness({ linkProbe: fakeLinkProbe({ up: false }) });
+    const res = await orch.start();
+    expect(res.ok).toBe(false);
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
+    // The program itself was started — it is the RADIO that is not up.
+    expect(rn.start).toHaveBeenCalledTimes(1);
+    expect(ap.apply).not.toHaveBeenCalled();
+    expect(stepOf(res.snapshot, 'telemetry').status).toBe('pending');
+  });
+
+  it('no answer at all: honest partial success, said out loud, never a silent "running"', async () => {
+    const { orch } = harness({ linkProbe: fakeLinkProbe({ up: null }) });
+    const res = await orch.start();
+    expect(res.ok).toBe(true);
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'link-unknown' });
+  });
+
+  it('with NO probe wired the step behaves exactly as before (never an invented link state)', async () => {
+    const { orch } = harness();
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'running' });
+    expect(res.snapshot.link).toEqual({ up: null });
+  });
+
+  it('an ALREADY-RUNNING or EXTERNAL instance is link-checked too — not trusted on sight', async () => {
+    const rn = fakeRunner({ running: true });
+    const { orch } = harness({ runner: rn, linkProbe: fakeLinkProbe({ up: false }) });
+    expect(stepOf((await orch.start()).snapshot, 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
+
+    const { orch: orch2 } = harness({
+      elrsDetect: vi.fn(async () => ({ configured: true, detected: true })),
+      linkProbe: fakeLinkProbe({ up: false }),
+    });
+    expect(stepOf((await orch2.start()).snapshot, 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
+  });
+
+  it('a link that drops mid-drive takes the claim back, and returns it when the radio comes back', async () => {
+    const probe = fakeLinkProbe({ up: true });
+    const { orch, pushes } = harness({ linkProbe: probe });
+    await orch.start();
+    probe.set(false);
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
+    probe.set(true);
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'ok', kind: 'running' });
+  });
+
+  it('STOP and dispose() stop watching the link (no stream outlives the drive program)', async () => {
+    const probe = fakeLinkProbe({ up: true });
+    const { orch } = harness({ linkProbe: probe });
+    await orch.start();
+    orch.stop();
+    expect(probe.stop).toHaveBeenCalledTimes(1);
+    orch.dispose();
+    expect(probe.stop).toHaveBeenCalledTimes(2);
+  });
+});
+
+// --- OD-4: the telemetry step -----------------------------------------------
+// On the shipped defaults the telemetry source is 'none' and NO screen can tell
+// Lola the battery is low. This step selects the drive program's read-only
+// stream — the only source that can run while race day holds the serial port.
+describe('RaceDayOrchestrator — the car-readings step (OD-4)', () => {
+  const status = (over = {}) => {
+    const st = { source: 'none', receiving: false, ...over };
+    return () => st;
+  };
+
+  it('selects the read-only mapper source when nothing is configured, and says so once readings arrive', async () => {
+    const st = { source: 'none', receiving: false };
+    const saved = [];
+    const settings = settingsWith();
+    const { orch, ap } = harness({
+      telemetryStatus: () => st,
+      settings,
+    });
+    // The save + apply is what the step does; model the runtime following it.
+    orch._settingsStore.save = (patch) => {
+      saved.push(patch);
+      st.source = patch.telemetry.source;
+      st.receiving = true;
+      return settings;
+    };
+    const res = await orch.start();
+    expect(saved).toEqual([{ telemetry: { source: 'mapper-grpc' } }]);
+    expect(ap.apply).toHaveBeenCalled();
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'ok', kind: 'live' });
+  });
+
+  it('a configured source with no reading yet is ok, and SAYS the car has not spoken', async () => {
+    const { orch } = harness({ telemetryStatus: status({ source: 'mapper-grpc', receiving: false }) });
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'ok', kind: 'waiting' });
+    // It never fails and never halts: whether the car is switched on is not
+    // race day's business.
+    expect(res.ok).toBe(true);
+    expect(stepOf(res.snapshot, 'bridge').status).not.toBe('pending');
+  });
+
+  it("a source chosen on purpose is left alone", async () => {
+    for (const source of ['replay', 'crsf-serial']) {
+      const saved = [];
+      const { orch } = harness({ telemetryStatus: status({ source }) });
+      orch._settingsStore.save = (p) => { saved.push(p); return {}; };
+      const res = await orch.start();
+      expect(stepOf(res.snapshot, 'telemetry'), source).toMatchObject({ status: 'skipped', kind: 'own-source' });
+      expect(saved, source).toEqual([]);
+    }
+  });
+
+  it('a developer setting that pins the source off is reported, not fought', async () => {
+    const ap = fakeApplier();
+    ap.effective = vi.fn(() => ({ envOverridden: { telemetrySource: true } }));
+    const saved = [];
+    const { orch } = harness({ applier: ap, telemetryStatus: status({ source: 'none' }) });
+    orch._settingsStore.save = (p) => { saved.push(p); return {}; };
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'held-off' });
+    expect(saved).toEqual([]);
+  });
+
+  it('a failed save does not take the whole bring-up down — the card just says the number stays blank', async () => {
+    const { orch } = harness({ telemetryStatus: status({ source: 'none' }) });
+    orch._settingsStore.save = () => { throw new Error('disk full'); };
+    const res = await orch.start();
+    expect(res.ok).toBe(true);
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'unavailable' });
+  });
+
+  it('a throwing status seam is treated as "nothing yet", never as a crash', async () => {
+    const { orch } = harness({
+      telemetryStatus: () => { throw new Error('boom'); },
+    });
+    const res = await orch.start();
+    // A wedged 'pending' step under a green headline is the exact dishonesty
+    // race day exists to remove, so the step must still resolve.
+    expect(stepOf(res.snapshot, 'telemetry').status).not.toBe('pending');
+    expect(res.ok).toBe(true);
   });
 });

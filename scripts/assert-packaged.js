@@ -33,7 +33,14 @@ const REPO_ROOT = path.join(__dirname, '..');
 // electron-builder's --dir output directory per platform.
 const CANDIDATE_DIRS = ['win-unpacked', 'linux-unpacked', 'mac', 'mac-arm64'];
 // The runtime-loaded proto the gRPC consumer needs (boundaries-6).
-const REQUIRED_APP_FILES = ['proto/head_intent_diagnostics.proto'];
+const REQUIRED_APP_FILES = [
+    'proto/head_intent_diagnostics.proto',
+    // Owner decision OD-4 / review SYN-2: main/mapperStreamsProto.js loads this
+    // at runtime for the car-telemetry and link-state subscriptions. Without it
+    // the packaged build cannot show a battery number OR tell the truth about
+    // the radio — both gift blockers, both silent.
+    'proto/mapper_readonly_streams.proto',
+];
 
 // --- asar reading -----------------------------------------------------------
 // Format (electron's asar, pickle-framed):

@@ -27,6 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const protoLoader = require('@grpc/proto-loader');
 const { extractHeadIntentDescriptor } = require('./headIntentCanonicalDescriptor.js');
+const { extractMapperStreamsDescriptor } = require('./mapperStreamsCanonicalDescriptor.js');
 
 const LOADER_OPTIONS = Object.freeze({
     keepCase: true,
@@ -37,7 +38,20 @@ const LOADER_OPTIONS = Object.freeze({
 });
 
 const REPO_ROOT = path.join(__dirname, '..');
-const SNAPSHOT_PATH = path.join(REPO_ROOT, 'proto', 'canonical', 'head_intent_canonical.descriptor.json');
+// Two mirrors, two snapshots, ONE live source: the mapper's server.proto. Both
+// are checked in the same run so a mapper change cannot be half-adopted.
+const SNAPSHOTS = [
+    {
+        label: 'head-intent',
+        file: path.join(REPO_ROOT, 'proto', 'canonical', 'head_intent_canonical.descriptor.json'),
+        extract: extractHeadIntentDescriptor,
+    },
+    {
+        label: 'read-only streams',
+        file: path.join(REPO_ROOT, 'proto', 'canonical', 'mapper_streams_canonical.descriptor.json'),
+        extract: extractMapperStreamsDescriptor,
+    },
+];
 
 function resolveMapperProto() {
     const repo = process.env.W17_MAPPER_REPO
@@ -64,40 +78,52 @@ function main() {
         process.exit(3);
     }
 
-    let liveDescriptor;
+    let def;
     try {
-        const def = protoLoader.loadSync(proto, LOADER_OPTIONS);
-        liveDescriptor = extractHeadIntentDescriptor(def);
+        def = protoLoader.loadSync(proto, LOADER_OPTIONS);
     } catch (err) {
         console.error(`[proto-drift] FAILED to load mapper proto: ${err.message}`);
         process.exit(2);
     }
 
-    const liveJson = serialize(liveDescriptor);
+    let drifted = false;
+    for (const { label, file, extract } of SNAPSHOTS) {
+        let liveJson;
+        try {
+            liveJson = serialize(extract(def));
+        } catch (err) {
+            console.error(`[proto-drift] ${label}: FAILED to extract from the mapper proto: ${err.message}`);
+            process.exit(2);
+        }
 
-    if (write) {
-        fs.mkdirSync(path.dirname(SNAPSHOT_PATH), { recursive: true });
-        fs.writeFileSync(SNAPSHOT_PATH, liveJson);
-        console.log(`[proto-drift] wrote snapshot from ${repo}`);
-        console.log(`[proto-drift] -> ${path.relative(REPO_ROOT, SNAPSHOT_PATH)}`);
-        process.exit(0);
+        if (write) {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, liveJson);
+            console.log(`[proto-drift] ${label}: wrote snapshot from ${repo}`);
+            console.log(`[proto-drift]   -> ${path.relative(REPO_ROOT, file)}`);
+            continue;
+        }
+
+        if (!fs.existsSync(file)) {
+            console.error(`[proto-drift] ${label}: no snapshot at ${file}; run with --write`);
+            drifted = true;
+            continue;
+        }
+        if (fs.readFileSync(file, 'utf8') === liveJson) {
+            console.log(`[proto-drift] ${label}: OK — checked-in snapshot matches live mapper`);
+            continue;
+        }
+        console.error(`[proto-drift] ${label}: DRIFT — snapshot != live mapper contract.`);
+        drifted = true;
     }
 
-    if (!fs.existsSync(SNAPSHOT_PATH)) {
-        console.error(`[proto-drift] no snapshot at ${SNAPSHOT_PATH}; run with --write`);
+    if (write) process.exit(0);
+    if (drifted) {
+        console.error('[proto-drift] Review the mapper change; if intended, refresh with --write and re-run the suite.');
         process.exit(2);
     }
-
-    const snapshotJson = fs.readFileSync(SNAPSHOT_PATH, 'utf8');
-    if (snapshotJson === liveJson) {
-        console.log('[proto-drift] OK: checked-in snapshot matches live mapper');
-        console.log(`[proto-drift]   mapper: ${repo}`);
-        process.exit(0);
-    }
-
-    console.error('[proto-drift] DRIFT: snapshot != live mapper head-intent contract.');
-    console.error('[proto-drift] Review the mapper change; if intended, refresh with --write and re-run the suite.');
-    process.exit(2);
+    console.log(`[proto-drift] mapper: ${repo}`);
+    process.exit(0);
 }
 
 main();

@@ -16,6 +16,7 @@
 export const RACE_DAY_STEP_LABELS = Object.freeze({
     hotspot: 'CAR WI-FI',
     mapper: 'DRIVE PROGRAM',
+    telemetry: 'CAR READINGS',
     bridge: 'PHONE LINK',
 });
 
@@ -67,6 +68,10 @@ const TEXT = {
             // Detected running OUTSIDE race day (e.g. launched from the GRID):
             // honest no-op — race day neither adopted it nor will stop it.
             external: 'already running (started outside RACE DAY)',
+            // Review SYN-2: started, but this computer could not check whether
+            // the radio is actually transmitting. Honest partial success, the
+            // same shape as the hotspot's 'unverified' line.
+            'link-unknown': 'started (could not double-check the radio on this computer)',
             '*': 'running',
         },
         skipped: { '*': 'not needed this time' },
@@ -77,6 +82,10 @@ const TEXT = {
             'profile-not-found': 'the saved controller setup file is missing — fix it in ⚙ (RACE DAY)',
             'not-found': 'not found where ⚙ points — fix the location in ⚙ (RACE DAY)',
             'spawn-failed': 'could not start — check its location in ⚙, then press RACE DAY again',
+            // Review SYN-2 / OD-5: the program is up but its radio is not, so
+            // NOTHING reaches the car. This is the line that used to read
+            // "running" while no signal left the computer at all.
+            'link-down': 'started, but the radio is not transmitting — check the cable to the little radio box, then press RACE DAY again',
             exited: 'stopped on its own — press RACE DAY to bring it back',
             // It died AND told us why (the drive program prints one plain
             // sentence and stops when the saved controller setup has not been
@@ -88,6 +97,28 @@ const TEXT = {
             'stop-failed': 'it would not stop when asked and is still running — close the app and open it again',
             '*': 'something went wrong here — press RACE DAY to try again',
         },
+    },
+    // Owner decision OD-4. This step never fails: it selects where the car's
+    // readings come from and then says, honestly, whether any have arrived.
+    // Whether the car is switched on is not race day's business.
+    telemetry: {
+        running: {
+            selecting: 'switching them on…',
+            waiting: 'listening for the car…',
+            '*': 'working…',
+        },
+        ok: {
+            live: 'on — the car is sending its battery and speed',
+            waiting: 'on — nothing from the car yet (switch the car on)',
+            '*': 'on',
+        },
+        skipped: {
+            'own-source': 'a different source is chosen in ⚙ — leaving it alone',
+            'held-off': 'held off by a developer setting on this computer — ask whoever set the computer up',
+            unavailable: 'could not be switched on — the battery number stays blank',
+            '*': 'not needed this time',
+        },
+        fail: { '*': 'something went wrong here — press RACE DAY to try again' },
     },
     bridge: {
         running: {

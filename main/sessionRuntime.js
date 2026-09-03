@@ -20,6 +20,13 @@ class SessionRuntime {
         this._telemetry = null;
         this._telemetryKey = null;
         this._unsubscribe = null;
+        // Has the CURRENT telemetry source ever produced a reading? Race day's
+        // telemetry step asks (owner decision OD-4): a configured source that
+        // has never spoken is not the same thing as one the car is feeding, and
+        // the card must not claim the second when it only has the first. Reset
+        // whenever the source changes — a new source has said nothing yet.
+        this._telemetryReceived = false;
+        this._telemetrySource = 'none';
 
         this._bridge = null;
         this._bridgeKey = null;
@@ -37,14 +44,25 @@ class SessionRuntime {
         return !!this._telemetry;
     }
 
+    // { source, receiving }: what is configured, and whether it has actually
+    // delivered a reading this session. Display/decision truth only.
+    telemetryStatus() {
+        return {
+            source: this._telemetrySource || 'none',
+            receiving: this._telemetryReceived,
+        };
+    }
+
     applyConfig(effective) {
         const teleKey = JSON.stringify(effective.telemetry);
         if (teleKey !== this._telemetryKey) {
             this._stopTelemetry();
             this._telemetry = this._createTelemetrySource(effective.telemetry) || null;
             this._telemetryKey = teleKey;
+            this._telemetrySource = effective.telemetry.source;
             if (this._telemetry) {
                 this._unsubscribe = this._telemetry.onTelemetry((t) => {
+                    this._telemetryReceived = true;
                     if (this._snapshotSink) this._snapshotSink(t);
                     // Second consumer: the send-only bridge. Feeding it here
                     // never alters the renderer push above.
@@ -88,6 +106,8 @@ class SessionRuntime {
             this._telemetry = null;
         }
         this._telemetryKey = null;
+        this._telemetryReceived = false;
+        this._telemetrySource = 'none';
     }
 
     _stopBridge() {

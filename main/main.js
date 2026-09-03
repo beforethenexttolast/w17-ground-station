@@ -29,6 +29,8 @@ const { createQuitPolicy } = require('./quitPolicy.js');
 const { ElrsLauncher } = require('./elrsLauncher.js');
 const { MapperRunner } = require('./mapperRunner.js');
 const { RaceDayOrchestrator } = require('./raceDayOrchestrator.js');
+const { MapperLinkStateClient } = require('./MapperLinkStateClient.js');
+const { createMapperLinkConnect } = require('./mapperLinkGrpcConnect.js');
 const { HostProbe } = require('./hostProbe.js');
 const { createRemoteAddrHint } = require('./remoteAddrHint.js');
 const { createHudDiscovery } = require('./HudDiscovery.js');
@@ -37,6 +39,7 @@ const {
   PUSH_CHANNELS,
   createNetworkServices,
   telemetrySourceFor,
+  mapperGrpcAddr,
   createSessionApplier,
   createKeyedInstance,
   mediamtxPaths,
@@ -294,6 +297,19 @@ if (instanceRole === 'primary') app.whenReady().then(async () => {
     // honestly when the drive program already runs OUTSIDE race day (the
     // detached convenience launch is the same executable in the gift kit).
     elrsDetect: (p) => elrs.detectRunning(p),
+    // Owner decision OD-4: what the session runtime's telemetry source is and
+    // whether it has actually delivered a reading. Read-only truth — the step
+    // decides from it; it never reaches into the source itself.
+    telemetryStatus: () => runtime.telemetryStatus(),
+    // Review SYN-2: the mapper's OWN answer to "am I transmitting?", read from
+    // its read-only link-state stream on loopback. A SUBSCRIBER — the only
+    // things it does to the call are read and cancel — so it is a viewer
+    // consumer, not the ground station sending the mapper anything. Race day
+    // starts it with the drive program and stops it with STOP.
+    linkProbe: new MapperLinkStateClient({
+      connect: createMapperLinkConnect(mapperGrpcAddr(process.env), { log }),
+      log,
+    }),
     log,
   });
   wireRaceDayPush({ orchestrator: raceDay, broadcast });

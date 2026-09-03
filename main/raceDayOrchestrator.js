@@ -35,7 +35,7 @@
 
 const fsDefault = require('node:fs');
 const path = require('node:path');
-const { normalizeRacePrep } = require('../shared/settings.js');
+const { normalizeRacePrep, MAPPER_TELEMETRY_SOURCE } = require('../shared/settings.js');
 
 // The COMPLETE set of option strings race day may ever hand the mapper:
 // the saved-profile flag, nothing else. The flag takes its value as the NEXT
@@ -70,7 +70,26 @@ function mapperArgv({ profilePath } = {}) {
     return { ok: true, argv: [MAPPER_ARG_WHITELIST[0], trimmed] };
 }
 
-const STEP_ORDER = Object.freeze(['hotspot', 'mapper', 'bridge']);
+// Owner decision OD-4: 'telemetry' sits AFTER the drive program, because the
+// source it selects reads from that program's own read-only stream — there is
+// nothing to listen to until it is up.
+const STEP_ORDER = Object.freeze(['hotspot', 'mapper', 'telemetry', 'bridge']);
+
+// How long the telemetry step waits for the car's FIRST reading before saying
+// so. Deliberately short: the step never fails and never halts the sequence —
+// whether the car is switched on is not race day's business — it only decides
+// between "on — the car is sending readings" and "on — waiting for the car".
+const TELEMETRY_FIRST_READING_MS = 3000;
+
+// How long the mapper step waits for the RF link to come UP before deciding
+// (review SYN-2). The mapper answers the moment the stream opens and then every
+// 500 ms, so this is a window for the transmitter port to open, not a poll
+// budget: a healthy bring-up resolves in well under a second.
+const LINK_UP_WAIT_MS = 5000;
+
+// Mapper-step kinds that CLAIM the drive program is up and driving. A link that
+// drops under any of them makes that claim false.
+const LINK_BEARING_KINDS = new Set(['running', 'already-running', 'external', 'link-unknown']);
 
 class RaceDayOrchestrator {
     constructor({
@@ -80,6 +99,19 @@ class RaceDayOrchestrator {
         // (the GRID's detached launch is the same executable in the gift kit).
         // Injected: main.js hands in the existing elrs.detectRunning seam.
         elrsDetect = async () => ({ configured: false, detected: false }),
+        // Owner decision OD-4. What the session runtime currently has:
+        // { source, receiving }. Injected (main.js hands in the SessionRuntime's
+        // own telemetryStatus) so this module reads truth rather than deriving
+        // it, and so the step tests need no telemetry plumbing at all.
+        telemetryStatus = () => ({ source: 'none', receiving: false }),
+        // Review SYN-2. The mapper's OWN answer to "am I transmitting?", read
+        // from its read-only link-state stream: { start, stop, snapshot, onChange }
+        // where snapshot() is { up: true | false | null }. Injected, and null by
+        // default — with no probe wired this module behaves exactly as it did
+        // before, rather than inventing a link state it cannot observe.
+        linkProbe = null,
+        // Test seam for the one bounded wait in this module.
+        schedule = (fn, ms) => setTimeout(fn, ms),
         log = () => {},
     } = {}) {
         this._lifecycle = hotspotLifecycle;
@@ -88,12 +120,16 @@ class RaceDayOrchestrator {
         this._settingsStore = settingsStore;
         this._existsSync = existsSync;
         this._elrsDetect = elrsDetect;
+        this._telemetryStatus = telemetryStatus;
+        this._linkProbe = linkProbe;
+        this._schedule = schedule;
         this._log = log;
         this._running = false;
         this._seq = 0;
         this._steps = {
             hotspot: { status: 'idle', kind: null },
             mapper: { status: 'idle', kind: null },
+            telemetry: { status: 'idle', kind: null },
             bridge: { status: 'idle', kind: null },
         };
         this._listeners = new Set();
@@ -123,6 +159,20 @@ class RaceDayOrchestrator {
             // so the card points at the program's own words instead.
             else this._set('mapper', 'fail', st.exitMessage ? 'exited-with-message' : 'exited');
         });
+        // Link mirror (review SYN-2): the drive program can be alive with its
+        // transmitter port shut, in which case no CRSF frame leaves the PC. If
+        // that happens AFTER the bring-up said the link was up, the card must
+        // stop claiming it — and must take the claim back when it returns.
+        this._unsubLink = (this._linkProbe && this._linkProbe.onChange)
+            ? this._linkProbe.onChange((snap) => {
+                const step = this._steps.mapper;
+                if (step.status === 'ok' && LINK_BEARING_KINDS.has(step.kind) && snap.up === false) {
+                    this._set('mapper', 'fail', 'link-down');
+                } else if (step.status === 'fail' && step.kind === 'link-down' && snap.up === true) {
+                    this._set('mapper', 'ok', 'running');
+                }
+            })
+            : null;
     }
 
     onChange(listener) {
@@ -158,6 +208,9 @@ class RaceDayOrchestrator {
             running: this._running,
             steps: STEP_ORDER.map((id) => ({ id, ...this._steps[id] })),
             mapper: { ...this._runner.status(), logTail: this._runner.logTail() },
+            // The mapper's own link answer (review SYN-2), or an honest
+            // unknown when nothing is watching it on this computer.
+            link: this._linkProbe ? this._linkProbe.snapshot() : { up: null },
         };
     }
 
@@ -174,6 +227,7 @@ class RaceDayOrchestrator {
             const prep = normalizeRacePrep(settings.racePrep);
             ok = await this._hotspotStep(settings)
                 && await this._mapperStep(prep)
+                && await this._telemetryStep()
                 && this._bridgeStep(settings, prep);
         } catch (err) {
             // An unexpected rejection must never wedge the card in RUNNING.
@@ -275,8 +329,7 @@ class RaceDayOrchestrator {
     // mapper unconfigured would drop the giftee into hobbyist territory).
     async _mapperStep(prep) {
         if (this._runner.status().running) {
-            this._set('mapper', 'ok', 'already-running');
-            return true;
+            return this._linkCheck('already-running');
         }
         if (!prep.mapperPath) {
             this._set('mapper', 'fail', 'not-configured');
@@ -297,8 +350,7 @@ class RaceDayOrchestrator {
             this._log(`[raceday] external drive-program probe failed (treated as not running): ${err && err.message ? err.message : err}`);
         }
         if (external && external.configured && external.detected) {
-            this._set('mapper', 'ok', 'external');
-            return true;
+            return this._linkCheck('external');
         }
         const argvRes = mapperArgv(prep);
         if (!argvRes.ok) {
@@ -314,17 +366,157 @@ class RaceDayOrchestrator {
         const res = this._runner.start({ binaryPath: prep.mapperPath, argv: argvRes.argv });
         if (!res.ok) {
             if (res.kind === 'already-running') {
-                this._set('mapper', 'ok', 'already-running');
-                return true;
+                return this._linkCheck('already-running');
             }
             this._set('mapper', 'fail', res.kind || 'spawn-failed');
             return false;
         }
-        this._set('mapper', 'ok', 'running');
+        return this._linkCheck('running');
+    }
+
+    // Review SYN-2. A started process is NOT a driveable car: the mapper opens
+    // the transmitter's serial port itself, and with that port shut it emits no
+    // CRSF frame at all — the card said "running" either way, which is the one
+    // claim on this screen the giftee acts on. So every success path converges
+    // here and asks the mapper.
+    //
+    // Three outcomes, because "not up" and "we could not look" are different
+    // things to tell an operator: up -> the given ok kind; down -> an honest
+    // failure that names the cable; unknown (nothing answered within the
+    // window — no probe wired, or no mapper on a dev host) -> ok, and SAYS it
+    // could not be checked, exactly as the hotspot's 'unverified' does.
+    async _linkCheck(okKind) {
+        if (!this._linkProbe) {
+            this._set('mapper', 'ok', okKind);
+            return true;
+        }
+        try {
+            this._linkProbe.start();
+        } catch (err) {
+            this._log(`[raceday] link watch failed to start: ${err && err.message ? err.message : err}`);
+            this._set('mapper', 'ok', 'link-unknown');
+            return true;
+        }
+        const up = await this._awaitLink();
+        if (up === true) {
+            this._set('mapper', 'ok', okKind);
+            return true;
+        }
+        if (up === null) {
+            this._set('mapper', 'ok', 'link-unknown');
+            return true;
+        }
+        this._set('mapper', 'fail', 'link-down');
+        return false;
+    }
+
+    // Poll the probe until the link is UP or the window closes; a false answer
+    // does not resolve early, because the transmitter port may still be opening.
+    // Returns the last answer (true / false / null).
+    _awaitLink(totalMs = LINK_UP_WAIT_MS, stepMs = 100) {
+        return new Promise((resolve) => {
+            let waited = 0;
+            const tick = () => {
+                let snap;
+                try { snap = this._linkProbe.snapshot() || {}; } catch { snap = {}; }
+                const up = snap.up === true ? true : (snap.up === false ? false : null);
+                if (up === true) { resolve(true); return; }
+                waited += stepMs;
+                if (waited >= totalMs) { resolve(up); return; }
+                this._schedule(tick, stepMs);
+            };
+            tick();
+        });
+    }
+
+    // Step (c): the car's telemetry, so a battery number can reach BOTH screens
+    // (owner decision OD-4). On the shipped defaults the telemetry source is
+    // 'none' and nothing anywhere could tell the operator the pack is low —
+    // the HUD's BATT reads '--' and the low-battery banner can never raise.
+    // 'crsf-serial' cannot fix that during a drive: it needs the transmitter's
+    // serial port, which the drive program holds exclusively. So race day
+    // selects the read-only stream the drive program already publishes.
+    //
+    // The source id arrives as a CONSTANT from shared/settings.js and is never
+    // spelled out here: this module's no-control-path pin bans every transport
+    // word outright, and selecting a source must not be the thing that makes
+    // one appear in its source text.
+    //
+    // This step NEVER fails and never halts the sequence. Whether the car is
+    // switched on is not race day's business; the honest outcomes are "on — the
+    // car is sending readings" and "on — waiting for the car", and a deliberate
+    // choice of another source is left alone.
+    async _telemetryStep() {
+        // The injected seam is read defensively everywhere in this step: a
+        // throwing status must degrade to "nothing yet", never take the whole
+        // bring-up down and leave this step wedged on 'pending' — a card with a
+        // green headline over a step that never ran is exactly the dishonesty
+        // race day exists to remove.
+        const st = this._readTelemetryStatus();
+        const source = st.source || 'none';
+        // A developer setting on this computer (W17_TELEMETRY_SOURCE) pins the
+        // source; race day must not fight it, and must say why the readings are
+        // not coming. The effective config is where that lock is recorded.
+        const eff = this._applier.effective ? this._applier.effective() : null;
+        const locked = !!(eff && eff.envOverridden && eff.envOverridden.telemetrySource);
+        if (locked && source === 'none') {
+            this._set('telemetry', 'skipped', 'held-off');
+            return true;
+        }
+        if (source !== 'none' && source !== MAPPER_TELEMETRY_SOURCE) {
+            // replay (the demo loop) or crsf-serial: someone chose it on
+            // purpose. Report it and change nothing.
+            this._set('telemetry', 'skipped', 'own-source');
+            return true;
+        }
+        if (source === 'none') {
+            if (locked) {
+                this._set('telemetry', 'skipped', 'held-off');
+                return true;
+            }
+            this._set('telemetry', 'running', 'selecting');
+            try {
+                this._settingsStore.save({ telemetry: { source: MAPPER_TELEMETRY_SOURCE } });
+                this._applier.apply();
+                this._log('[raceday] telemetry source set to the drive program\'s read-only stream');
+            } catch (err) {
+                this._log(`[raceday] could not select the telemetry source: ${err && err.message ? err.message : err}`);
+                this._set('telemetry', 'skipped', 'unavailable');
+                return true;
+            }
+        }
+        this._set('telemetry', 'running', 'waiting');
+        const receiving = await this._awaitFirstReading();
+        this._set('telemetry', 'ok', receiving ? 'live' : 'waiting');
         return true;
     }
 
-    // Step (c): the phone telemetry link, per settings. Nothing new is wired:
+    _readTelemetryStatus() {
+        try {
+            return this._telemetryStatus() || {};
+        } catch (err) {
+            this._log(`[raceday] telemetry status unavailable: ${err && err.message ? err.message : err}`);
+            return {};
+        }
+    }
+
+    // Poll the injected status until a reading lands or the short window
+    // closes. Polling (rather than a subscription) keeps this module free of
+    // any handle on the telemetry source itself.
+    _awaitFirstReading(totalMs = TELEMETRY_FIRST_READING_MS, stepMs = 100) {
+        return new Promise((resolve) => {
+            let waited = 0;
+            const tick = () => {
+                if (this._readTelemetryStatus().receiving) { resolve(true); return; }
+                waited += stepMs;
+                if (waited >= totalMs) { resolve(false); return; }
+                this._schedule(tick, stepMs);
+            };
+            tick();
+        });
+    }
+
+    // Step (d): the phone telemetry link, per settings. Nothing new is wired:
     // the session applier already owns bridge start/stop from persisted
     // settings + env; race day just runs it and mirrors the outcome.
     _bridgeStep(settings, prep) {
@@ -377,9 +569,18 @@ class RaceDayOrchestrator {
                 return { ok: false, kind: 'stop-failed', snapshot: this.snapshot() };
             }
         }
+        // Nothing race day started is transmitting any more; stop watching.
+        this._stopLinkProbe();
         for (const id of STEP_ORDER) this._steps[id] = { status: 'idle', kind: null };
         this._emit();
         return { ok: true, snapshot: this.snapshot() };
+    }
+
+    _stopLinkProbe() {
+        if (!this._linkProbe) return;
+        try { this._linkProbe.stop(); } catch (err) {
+            this._log(`[raceday] link watch stop failed: ${err && err.message ? err.message : err}`);
+        }
     }
 
     // App-teardown hook (composition root): stop the managed child quietly.
@@ -389,6 +590,11 @@ class RaceDayOrchestrator {
             this._unsubRunner();
             this._unsubRunner = null;
         }
+        if (this._unsubLink) {
+            this._unsubLink();
+            this._unsubLink = null;
+        }
+        this._stopLinkProbe();
         const st = this._runner.status();
         if (st.running) this._runner.stop();
     }

@@ -21,7 +21,16 @@ const { iphoneBridgeConfigFromEnv } = require('../main/iphoneBridgeConfig.js');
 const FPV_MODES = ['solo', 'iphone-hud'];
 const NETWORK_KINDS = ['join', 'hotspot', 'guide'];
 const CONTROLLER_PRESETS = ['dualshock', 'xbox', 'generic'];
-const TELEMETRY_SOURCES = ['none', 'replay', 'crsf-serial'];
+// 'mapper-grpc' (owner decision OD-4) reads the car's telemetry from the drive
+// program's READ-ONLY stream on loopback, which is the only source that can run
+// AT THE SAME TIME as race day: the drive program holds the FT232 port
+// 'crsf-serial' would need. Nothing is ever sent to it (see
+// main/MapperTelemetrySource.js and test/noControlPath.test.js).
+// Named so callers that must not even NAME a transport (the race-day
+// orchestrator, whose no-control-path pin bans the substring outright) can
+// select it by constant. See test/noControlPath.test.js.
+const MAPPER_TELEMETRY_SOURCE = 'mapper-grpc';
+const TELEMETRY_SOURCES = ['none', 'replay', 'crsf-serial', MAPPER_TELEMETRY_SOURCE];
 // GS DRIVE MODE display preference (NOT the car's mode). Maps to the firmware
 // drive-mode index the HUD previews: normal=TRAINING(0), sim=RACE/gearbox(1),
 // full-sim=ERS(2). The car owns its real mode and reports it via telemetry.
@@ -395,6 +404,7 @@ module.exports = {
     NETWORK_KINDS,
     CONTROLLER_PRESETS,
     TELEMETRY_SOURCES,
+    MAPPER_TELEMETRY_SOURCE,
     DRIVING_MODES,
     normalizeSettings,
     normalizeWheelProfile,

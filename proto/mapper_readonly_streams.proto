@@ -1,0 +1,131 @@
+// W17 ground-station SUBSCRIBER-ONLY mirror of the two READ-ONLY mapper streams
+// the ground station consumes: the car's telemetry and the RF link's state.
+// Consumed by the Electron MAIN process via @grpc/proto-loader
+// (main/mapperTelemetryGrpcConnect.js, main/mapperLinkGrpcConnect.js).
+//
+// CANONICAL SOURCE (do not fork the semantics): the mapper owns these
+// definitions in `w17-mapper/pkg/proto/server.proto` (owned fork of
+// elrs-joystick-control, branch w17-headtrack). Mirrored from that file at
+// 21834fe:
+//   * rpc getTelemetryStream (server.proto:575)
+//   * rpc getLinkStream      (server.proto:574)
+//   * message LinkState      (:120)  + enums PortState (:108) / SupervisorState (:114)
+//   * message Telemetry      (:129)  — see the ONEOF note below
+//   * messages LinkStatsData, BatteryData, GPSData, FlightModeData
+// proto/canonical/mapper_streams_canonical.descriptor.json holds the checked-in
+// snapshot of that contract; test/protoDrift.test.js compares THIS file against
+// it in every CI run, and scripts/check-canonical-proto.js compares the snapshot
+// against a real mapper checkout.
+//
+// SAFETY / SCOPE (why this is a separate, minimal proto rather than a copy of
+// the whole service — the same reasoning as head_intent_diagnostics.proto):
+//   * This app is a SUBSCRIBER. The only RPCs declared here are the two
+//     read-only, server-streaming ones. Every mutating RPC the mapper exposes
+//     (setConfig, startLink, stopLink, setCRSFDeviceField, …) is deliberately
+//     ABSENT, so the generated client HAS NO METHOD that could change anything
+//     on the mapper — the boundary holds at the wire-definition level, not just
+//     by convention. Race day may manage the mapper PROCESS; it never sends the
+//     mapper anything, and a read-only stream subscription is a viewer consumer.
+//   * test/noControlPath.test.js pins both the method set here and the fact
+//     that each transport factory invokes exactly one of them.
+//
+// PARTIAL ONEOF, ON PURPOSE. The mapper's Telemetry carries fifteen possible
+// payloads; the W17 car sends four types (battery 0x08, GPS 0x02, FLIGHTMODE
+// 0x21 — plus LINK_STATISTICS 0x14, which the ground TX module reports), and
+// those are the only ones the HUD consumes (shared/crsfTelemetry.js maps exactly
+// the same four off the serial backchannel). The other oneof members are omitted
+// with their field numbers left unused, so a message carrying one decodes as an
+// unknown field and is ignored — the designed-for case: the HUD keeps simulating
+// what the car does not report. Adding a member later is a pure addition here.
+
+syntax = "proto3";
+
+package JoystickControl;
+
+// Empty request. Matches the mapper's JoystickControl.Empty — an empty message
+// serializes to zero bytes, which is all a streaming subscribe needs.
+message Empty {}
+
+// --- RF link state (the mapper's own supervisor + serial port) --------------
+
+enum PortState {
+  PortUnknown = 0;
+  PortDisconnected = 1;
+  PortConnected = 2;
+}
+
+enum SupervisorState {
+  SupervisorUnknown = 0;
+  SupervisorInactive = 1;
+  SupervisorActive = 2;
+}
+
+// The mapper's authoritative view of whether it is actually TRANSMITTING: the
+// link supervisor is running AND the transmitter's serial port is open. Race day
+// says the drive program is "running" only when this says so (review SYN-2) —
+// a started process with no open port emits no CRSF frame at all.
+message LinkState {
+  SupervisorState supervisor_state = 1;
+  PortState port_state = 2;
+  uint64 received_packets_count = 3;
+  uint64 sent_packets_count = 4;
+  uint64 error_packets_count = 5;
+}
+
+// --- Car telemetry ---------------------------------------------------------
+
+message LinkStatsData {
+  int32 uplink_rssi1 = 1;
+  int32 uplink_rssi2 = 2;
+  uint32 uplink_link_quality = 3;
+  int32 uplink_snr = 4;
+  uint32 active_antenna = 5;
+  uint32 radio_frequency_mode = 6;
+  uint32 uplink_power = 7;
+  int32 downlink_rssi = 8;
+  uint32 downlink_link_quality = 9;
+  int32 downlink_snr = 10;
+}
+
+message BatteryData {
+  float voltage = 1;   // volts (mapper divides the CRSF decivolt field by 10)
+  float current = 2;
+  float fuel = 3;
+  float remaining = 4; // percent
+}
+
+message GPSData {
+  float latitude = 1;
+  float longitude = 2;
+  // UNITS WARNING — see shared/mapperTelemetry.js. The mapper divides the raw
+  // CRSF field by 100 and calls the result m/s (an upstream Betaflight
+  // assumption). The W17 car encodes the standard CRSF 0.1 km/h unit
+  // (w17-control-fw/lib/crsf/include/crsf/CrsfFrameBuilder.hpp buildGpsFrame,
+  // "groundspeedKmhX10"), so the real conversion to km/h is x10, NOT x3.6.
+  float ground_speed = 3;
+  float heading = 4;
+  int32 altitude = 5;
+  uint32 satellites = 6;
+}
+
+message FlightModeData {
+  // The car packs gear/drive-mode/ERS into this status string ("G3 M2 E55");
+  // shared/crsf.js parseFlightMode reads them back out.
+  string mode = 1;
+}
+
+message Telemetry {
+  oneof data {
+    LinkStatsData link_stats = 1;
+    BatteryData battery = 3;
+    GPSData gps = 4;
+    FlightModeData flight_mode = 5;
+  }
+}
+
+// SUBSCRIBER-ONLY service: exactly two read-only, server-streaming RPCs and
+// nothing else. No request payload, no client->server method of any kind.
+service JoystickControl {
+  rpc getLinkStream(Empty) returns (stream LinkState) {}
+  rpc getTelemetryStream(Empty) returns (stream Telemetry) {}
+}

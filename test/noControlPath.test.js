@@ -5,6 +5,7 @@ import { join, extname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as crsf from '../shared/crsf.js';
 import * as orchestratorExports from '../main/raceDayOrchestrator.js';
+import { streamServiceMethodNames } from '../main/mapperStreamsProto.js';
 
 // The W2 bridge must remain viewer-only: it exports telemetry OUT and opens NO
 // control path back to the car. These guards fail loudly if a future edit adds
@@ -410,6 +411,61 @@ describe('no-control-path sweep — discovers a newly-created runtime file (audi
     expect(body).toContain('removeListener');
     expect(body).not.toContain('invoke');
     expect(body).not.toContain('ipcRenderer.send');
+  });
+
+  // Owner decision OD-4: the ground station now READS the car's telemetry from
+  // the mapper, over a gRPC server stream. That is a viewer consumer — data
+  // flows mapper -> GS and nothing goes the other way — and these pins are what
+  // make that a structural fact rather than a promise. The mirrored service is
+  // the boundary: a client generated from it HAS NO mutating method.
+  it('the mapper telemetry source is a subscriber-only, one-way read path (OD-4)', () => {
+    // 1. The wire definition. Exactly the two read-only streams, nothing else —
+    //    so setConfig / startLink / stopLink / setCRSFDeviceField do not exist
+    //    on the generated client at all.
+    expect(streamServiceMethodNames()).toEqual(['getLinkStream', 'getTelemetryStream']);
+    const proto = read('../proto/mapper_readonly_streams.proto');
+    for (const forbidden of ['setConfig', 'startLink', 'stopLink', 'setCRSFDeviceField', 'startHTTP', 'stopHTTP']) {
+      expect(proto, `the mirrored service must not declare ${forbidden}`).not.toContain(`rpc ${forbidden}`);
+    }
+
+    // 2. The TELEMETRY transport factory names getTelemetryStream and NO other
+    //    mapper RPC — the whole reason it is its own file.
+    const telemetry = read('../main/mapperTelemetryGrpcConnect.js');
+    const telemetryCalls = [...telemetry.matchAll(/\.(\w+)\(\{\}\)/g)].map((m) => m[1]);
+    expect(telemetryCalls).toEqual(['getTelemetryStream']);
+    for (const forbidden of ['setConfig', 'setCRSFDeviceField', 'startLink', 'stopLink', 'getLinkStream', '.write(']) {
+      expect(telemetry, `telemetry transport must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+
+    // 3. The LINK-STATE transport factory, the same way round.
+    const link = read('../main/mapperLinkGrpcConnect.js');
+    const linkCalls = [...link.matchAll(/\.(\w+)\(\{\}\)/g)].map((m) => m[1]);
+    expect(linkCalls).toEqual(['getLinkStream']);
+    for (const forbidden of ['setConfig', 'setCRSFDeviceField', 'startLink', 'stopLink', 'getTelemetryStream', '.write(']) {
+      expect(link, `link transport must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+
+    // 4. The CONSUMERS are transport-agnostic: they take an injected connect()
+    //    and never write to the call, so they cannot name an RPC even by
+    //    accident, and they bind no socket of their own.
+    for (const file of ['../main/MapperTelemetrySource.js', '../main/MapperLinkStateClient.js']) {
+      const src = read(file);
+      expect(src, `${file} must not write to the stream`).not.toMatch(/\.write\(/);
+      for (const forbidden of [
+        'setConfig', 'setCRSFDeviceField', 'startLink', 'stopLink',
+        'dgram', '.bind(', "on('message'", '5602',
+      ]) {
+        expect(src, `${file} must not reference ${forbidden}`).not.toContain(forbidden);
+      }
+      // The ONLY things done to the call are reads and a cancel.
+      expect(src).toContain('.cancel()');
+    }
+
+    // 5. The race-day orchestrator SELECTS this source, and must still not be
+    //    able to name a transport: it uses the settings constant.
+    const orch = read('../main/raceDayOrchestrator.js');
+    expect(orch).toContain('MAPPER_TELEMETRY_SOURCE');
+    expect(orch, 'the orchestrator must not name a transport').not.toContain('grpc');
   });
 
   it('the allow/exception rules are narrow: a serial-exempt path is exempt only for serial, never for control output', () => {

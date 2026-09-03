@@ -24,11 +24,19 @@ const EMITTABLE = {
     idle: [null],
     pending: [null],
     running: ['starting'],
-    ok: ['running', 'already-running', 'external'],
+    ok: ['running', 'already-running', 'external', 'link-unknown'],
     skipped: [],
     fail: ['not-configured', 'no-profile', 'bad-profile-path', 'profile-not-found',
-      'not-found', 'spawn-failed', 'exited', 'exited-with-message', 'stop-failed',
-      'unexpected'],
+      'not-found', 'spawn-failed', 'link-down', 'exited', 'exited-with-message',
+      'stop-failed', 'unexpected'],
+  },
+  telemetry: {
+    idle: [null],
+    pending: [null],
+    running: ['selecting', 'waiting'],
+    ok: ['live', 'waiting'],
+    skipped: ['own-source', 'held-off', 'unavailable'],
+    fail: ['unexpected'],
   },
   bridge: {
     idle: [null],
@@ -45,6 +53,7 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
     expect(RACE_DAY_STEP_LABELS).toEqual({
       hotspot: 'CAR WI-FI',
       mapper: 'DRIVE PROGRAM',
+      telemetry: 'CAR READINGS',
       bridge: 'PHONE LINK',
     });
   });

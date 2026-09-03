@@ -13,6 +13,8 @@ import {
     PUSH_CHANNELS,
     createNetworkServices,
     telemetrySourceFor,
+    mapperGrpcAddr,
+    DEFAULT_MAPPER_GRPC_ADDR,
     createSessionApplier,
     createKeyedInstance,
     mediamtxPaths,
@@ -177,6 +179,61 @@ describe('telemetrySourceFor — effective source to instance (audit D2)', () =>
     it("'crsf-serial' with no port falls to the platform default (COM5 / /dev/ttyUSB0)", () => {
         expect(telemetrySourceFor({ source: 'crsf-serial', port: '' }, { platform: 'win32' })._path).toBe('COM5');
         expect(telemetrySourceFor({ source: 'crsf-serial', port: '' }, { platform: 'darwin' })._path).toBe('/dev/ttyUSB0');
+    });
+
+    // Owner decision OD-4: the source race day can actually use, because the
+    // drive program holds the serial port 'crsf-serial' would need.
+    it("'mapper-grpc' returns a MapperTelemetrySource bound to the read-only stream", () => {
+        const s = telemetrySourceFor({ source: 'mapper-grpc', port: '' }, { env: {} });
+        expect(s.constructor.name).toBe('MapperTelemetrySource');
+        // Constructing it opens NOTHING: the transport is a closure, and the
+        // channel is only built when start() first calls it.
+        expect(typeof s._connect).toBe('function');
+    });
+
+    it('the mapper address defaults to loopback and follows the ONE existing knob', () => {
+        expect(DEFAULT_MAPPER_GRPC_ADDR).toBe('127.0.0.1:10000');
+        expect(mapperGrpcAddr({})).toBe('127.0.0.1:10000');
+        expect(mapperGrpcAddr({ W17_MAPPER_GRPC_ADDR: ' 10.0.0.5:10000 ' })).toBe('10.0.0.5:10000');
+        expect(mapperGrpcAddr({ W17_MAPPER_GRPC_ADDR: '  ' })).toBe('127.0.0.1:10000');
+    });
+});
+
+// ---------- session runtime: what the race-day telemetry step reads ----------
+
+describe('SessionRuntime.telemetryStatus — configured vs actually speaking (OD-4)', () => {
+    const runtimeWith = (source) => {
+        let emit = null;
+        const runtime = new SessionRuntime({
+            createTelemetrySource: () => ({
+                onTelemetry: (cb) => { emit = cb; return () => {}; },
+                start() {}, stop() {},
+            }),
+            createIphoneBridge: () => null,
+        });
+        runtime.applyConfig({ telemetry: { source, port: '' }, iphoneBridge: null });
+        return { runtime, feed: (t) => emit(t) };
+    };
+
+    it('reports the source, and receiving only once a reading has actually arrived', () => {
+        const { runtime, feed } = runtimeWith('mapper-grpc');
+        expect(runtime.telemetryStatus()).toEqual({ source: 'mapper-grpc', receiving: false });
+        feed({ batteryV: 7.4 });
+        expect(runtime.telemetryStatus()).toEqual({ source: 'mapper-grpc', receiving: true });
+    });
+
+    it('a source change resets it — a new source has said nothing yet', () => {
+        const { runtime, feed } = runtimeWith('mapper-grpc');
+        feed({ batteryV: 7.4 });
+        runtime.applyConfig({ telemetry: { source: 'replay', port: '' }, iphoneBridge: null });
+        expect(runtime.telemetryStatus()).toEqual({ source: 'replay', receiving: false });
+    });
+
+    it('stopAll() leaves nothing claiming to receive', () => {
+        const { runtime, feed } = runtimeWith('mapper-grpc');
+        feed({ batteryV: 7.4 });
+        runtime.stopAll();
+        expect(runtime.telemetryStatus()).toEqual({ source: 'none', receiving: false });
     });
 });
 
