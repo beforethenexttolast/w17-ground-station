@@ -5,10 +5,24 @@
 // at-rest ENCRYPTION of the one persisted secret: the hotspot password
 // (audit E1 / decision Q6).
 //
-// Robustness rules (plan "settings corruption"):
-//  - Missing or unparseable file  -> normalized defaults; NEVER blocks launch.
+// Robustness rules (plan "settings corruption"; tightened by review
+// correctness-2, which found the .bak claim below to be false in practice):
+//  - MISSING file (ENOENT) -> normalized defaults; NEVER blocks launch.
+//  - UNREADABLE file (IO error or unparseable JSON) is a DIFFERENT outcome and
+//    is no longer flattened into "missing": the bad file is moved aside as
+//    settings.json.corrupt-<timestamp>, settings.json.bak is read, and the last
+//    good configuration is restored. Only if the backup is unusable too do we
+//    fall back to defaults. Either way the app still launches.
 //  - Every save writes tmp + rename (atomic on one filesystem) and keeps the
 //    previous file as settings.json.bak, so one bad write can't eat the config.
+//    That claim only holds because of the two rules above plus backupCurrent()'s
+//    refusal to copy unparseable content over a good .bak: before the fix, an
+//    unreadable file silently became defaults and the NEXT save copied the
+//    corrupt bytes over the only backup, taking the gift configuration AND the
+//    RACE DAY card (which lives in the returning-user block) with it.
+//  - The recovery is not silent: recoveryStatus() reports it and the renderer
+//    prints a GARAGE line, because a configuration that quietly reset is
+//    exactly the failure a giftee cannot diagnose.
 //
 // Credential rules (audit E1 / Q6):
 //  - The hotspot password is NEVER written to disk as plaintext. On disk it
@@ -58,15 +72,89 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
     // Renderer-visible, non-secret credential status from the last load/save.
     let credStatus = { state: 'none', encryptionAvailable: credentialStore.available(), hasPassword: false };
 
+    // Renderer-visible recovery status (review correctness-2). STICKY for the
+    // life of this store: the operator must still see the line on a later
+    // settings:get, because the very next load reads a healthy file again and
+    // would otherwise erase the evidence that anything happened.
+    let recovery = { state: 'ok', quarantinedAs: null, restoredFrom: null, at: null };
+
+    // TRI-STATE read (review correctness-2). Flattening "unreadable" into
+    // "absent" is what made the corruption silent: 'absent' legitimately means
+    // defaults, 'unreadable' means a configuration EXISTS and could not be
+    // read, which is a recoverable fault, not a fresh install.
     function readRaw() {
+        let text;
         try {
-            return JSON.parse(fs.readFileSync(file, 'utf8'));
+            text = fs.readFileSync(file, 'utf8');
         } catch (err) {
-            if (err.code !== 'ENOENT') {
-                log(`[settings] unreadable ${file} (${err.message}); using defaults`);
-            }
+            if (err.code === 'ENOENT') return { state: 'absent', data: null };
+            return { state: 'unreadable', data: null, why: `${err.code || 'read-failed'}: ${err.message}` };
+        }
+        try {
+            return { state: 'ok', data: JSON.parse(text) };
+        } catch (err) {
+            return { state: 'unreadable', data: null, why: `parse: ${err.message}` };
+        }
+    }
+
+    // Move the unreadable file aside so nothing can ever copy it over a good
+    // backup, and so the operator (or a bench session) still has the bytes.
+    // Best-effort: a rename failure must not stop the app from launching —
+    // backupCurrent()'s own parse guard is the second belt.
+    function quarantineBadFile() {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const dest = `${file}.corrupt-${stamp}`;
+        try {
+            fs.renameSync(file, dest);
+            return dest;
+        } catch {
             return null;
         }
+    }
+
+    // Read the backup and, if it is usable, put it back as settings.json so the
+    // recovery is DURABLE: load() runs on every settings:get, and without the
+    // rewrite the second call would find no file at all and hand back defaults.
+    // The .bak itself is never touched here.
+    function restoreFromBackup() {
+        let text;
+        let parsed;
+        try {
+            text = fs.readFileSync(bak, 'utf8');
+            parsed = JSON.parse(text);
+        } catch {
+            return null; // no usable backup
+        }
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(tmp, text, 'utf8');
+            fs.renameSync(tmp, file);
+        } catch { /* the in-memory recovery still stands even if the rewrite failed */ }
+        return parsed;
+    }
+
+    // The raw on-disk object for load(), with the unreadable case recovered.
+    // Returns null when defaults are the honest answer (absent, or corrupt with
+    // no usable backup).
+    function readRawRecovering() {
+        const r = readRaw();
+        if (r.state === 'ok') return r.data;
+        if (r.state === 'absent') return null;
+
+        const quarantinedAs = quarantineBadFile();
+        const restored = restoreFromBackup();
+        recovery = {
+            state: restored ? 'restored-from-backup' : 'reset-to-defaults',
+            quarantinedAs: quarantinedAs ? path.basename(quarantinedAs) : null,
+            restoredFrom: restored ? path.basename(bak) : null,
+            at: new Date().toISOString(),
+        };
+        // ONE line, never the file contents (they may carry a legacy plaintext
+        // credential): what broke, where it went, and what was done about it.
+        log(`[settings] unreadable ${file} (${r.why}); moved aside as `
+            + `${recovery.quarantinedAs || '(rename failed)'}; `
+            + (restored ? `restored from ${recovery.restoredFrom}` : 'no usable backup — using defaults'));
+        return restored;
     }
 
     // Decide the effective plaintext + status from what's on disk, the in-memory
@@ -136,6 +224,16 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
     function backupCurrent() {
         let cur;
         try { cur = fs.readFileSync(file, 'utf8'); } catch { return; } // nothing to back up
+        // Second belt for review correctness-2: NEVER let unparseable content
+        // become the backup. readRawRecovering() already moves a corrupt file
+        // aside on load, but a save can also follow a load that never ran (or a
+        // rename that failed), and one such copy destroys the only good config.
+        try {
+            JSON.parse(cur);
+        } catch {
+            log('[settings] current settings.json is not readable JSON — keeping the existing .bak untouched');
+            return;
+        }
         fs.writeFileSync(bak, sanitizeForBackup(cur), 'utf8');
     }
 
@@ -166,7 +264,7 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
     }
 
     function load() {
-        const raw = readRaw();
+        const raw = readRawRecovering();
         const rawHotspot = raw && raw.network && typeof raw.network === 'object'
             && raw.network.hotspot && typeof raw.network.hotspot === 'object'
             ? raw.network.hotspot : {};
@@ -219,7 +317,14 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
         return { ...credStatus };
     }
 
-    return { load, save, credentialStatus, file };
+    // Non-secret recovery status for the renderer (review correctness-2).
+    // state: 'ok' | 'restored-from-backup' | 'reset-to-defaults'. Carries file
+    // NAMES only — never settings content, never a credential.
+    function recoveryStatus() {
+        return { ...recovery };
+    }
+
+    return { load, save, credentialStatus, recoveryStatus, file };
 }
 
 module.exports = { createSettingsStore };

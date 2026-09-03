@@ -445,6 +445,14 @@ body{background:#000;color:var(--silver);
 .viewernote{color:var(--muted);font-size:clamp(9px,1.1vw,12px);letter-spacing:.08em;line-height:1.5;
   max-width:70ch;text-align:left;border-left:2px solid var(--teal);padding-left:.8em}
 .viewernote.hidden{display:none}
+/* Settings-recovery line on GARAGE (review correctness-2). AMBER left rule, not
+   teal: unlike the viewer-only disclaimer this IS an alarm — something on disk
+   was broken and the configuration on screen may not be the one the operator
+   left. Same in-flow, no-overlay treatment; .hidden is element-scoped for the
+   same reason (hud.css has no generic `.hidden` rule). */
+.recoverynote{color:var(--amber);font-size:clamp(10px,1.2vw,13px);letter-spacing:.08em;line-height:1.5;
+  max-width:70ch;text-align:left;border-left:2px solid var(--amber);padding-left:.8em;margin-bottom:.6em}
+.recoverynote.hidden{display:none}
 .modecard{font-family:inherit;cursor:pointer;background:var(--panel);border:1px solid var(--panel-edge);
   color:var(--silver);padding:clamp(1.1em,2vw,1.6em) clamp(1.6em,2.4vw,2.4em);text-align:left;
   flex:1 1 20em;min-width:min(20em,100%);max-width:32em;

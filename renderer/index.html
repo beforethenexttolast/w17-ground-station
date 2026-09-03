@@ -168,6 +168,16 @@
 
     <section class="setup-screen" data-step="garage">
       <div class="stepname">GARAGE · SELECT SESSION</div>
+      <!-- Settings-recovery line (review correctness-2). Hidden unless this run
+           found settings.json unreadable and had to restore it from the backup
+           (or start from defaults). Deliberately the FIRST thing on the landing
+           screen and NOT once-per-session like #viewerOnlyNote: a configuration
+           that silently reset is the one failure a giftee cannot diagnose, and
+           the RACE DAY button lives inside the returning-user card that a reset
+           makes disappear. Carries NO focusable control, so GARAGE's document
+           order and the fast-path card's boot-only focus are untouched. Text is
+           filled by setupFlow.js from the main-process recovery status. -->
+      <div class="recoverynote hidden" id="settingsRecoveryNote"></div>
       <!-- Returning-user fast path (Batch 8a / flow chrome, design bundle §3):
            a completed prior session lands here on GARAGE with this green-accent
            actionable row (what will be reused: mode · controller · telemetry

@@ -2739,3 +2739,76 @@ describe('controller-driven UI navigation (Batch 9)', () => {
     }
   });
 });
+
+// --- review correctness-2: the settings-recovery line on GARAGE --------------
+// The main process may have had to restore settings.json from its backup (or
+// start from defaults) before the renderer ever ran. That must be visible: a
+// silently reset configuration is the one failure a giftee cannot diagnose, and
+// a full reset is exactly what makes the RACE DAY button disappear (it lives in
+// the returning-user card, which only renders when setupCompleted survives).
+
+describe('GARAGE settings-recovery line (review correctness-2)', () => {
+  const withRecovery = (recovery, settings = defaultSettings()) => mockGs({
+    getSettings: vi.fn(async () => ({ settings, envOverridden: {}, recovery })),
+  });
+
+  it('a healthy load shows NO line (and an older main-process surface with no field is silent)', async () => {
+    await loadRenderer(withRecovery({ state: 'ok', quarantinedAs: null, restoredFrom: null, at: null }));
+    expect(el('settingsRecoveryNote').classList.contains('hidden')).toBe(true);
+    await loadRenderer(mockGs()); // no `recovery` key at all
+    expect(el('settingsRecoveryNote').classList.contains('hidden')).toBe(true);
+  });
+
+  it('a restored config shows the line AND still renders the RACE DAY card from the restored settings', async () => {
+    const settings = { ...defaultSettings(), setupCompleted: true, fpvMode: 'solo' };
+    await loadRenderer(withRecovery(
+      { state: 'restored-from-backup', quarantinedAs: 'settings.json.corrupt-2026-09-03T10-00-00-000Z', restoredFrom: 'settings.json.bak', at: '2026-09-03T10:00:00.000Z' },
+      settings,
+    ));
+    expect(activeStep()).toBe('garage');
+    const note = el('settingsRecoveryNote');
+    expect(note.classList.contains('hidden')).toBe(false);
+    expect(note.textContent).toMatch(/RESTORED FROM THE BACKUP/);
+    // The whole point of restoring rather than resetting: the returning-user
+    // card — and with it the RACE DAY button — is still there.
+    expect(el('fastPath').classList.contains('hidden')).toBe(false);
+    expect(el('raceDayBtn')).not.toBeNull();
+    expect(document.activeElement).toBe(el('fastPathBtn')); // boot focus unchanged
+  });
+
+  it('a reset-to-defaults says so in plain language and tells the operator what to do', async () => {
+    await loadRenderer(withRecovery({ state: 'reset-to-defaults', quarantinedAs: 'settings.json.corrupt-x', restoredFrom: null, at: 'x' }));
+    const note = el('settingsRecoveryNote');
+    expect(note.classList.contains('hidden')).toBe(false);
+    expect(note.textContent).toMatch(/STARTING FROM DEFAULTS/);
+    expect(note.textContent).toMatch(/Re-run setup/);
+    // A fresh-looking config: no fast-path card, which is exactly why the line
+    // has to explain where the old one went.
+    expect(el('fastPath').classList.contains('hidden')).toBe(true);
+  });
+
+  it('the line is NOT once-per-session: it comes back on every GARAGE entry, unlike the viewer-only note', async () => {
+    const settings = { ...defaultSettings(), setupCompleted: true };
+    await loadRenderer(withRecovery({ state: 'restored-from-backup', quarantinedAs: 'c', restoredFrom: 'b', at: 'x' }, settings));
+    expect(el('settingsRecoveryNote').classList.contains('hidden')).toBe(false);
+    expect(el('viewerOnlyNote').classList.contains('hidden')).toBe(false);
+
+    el('fastPathBtn').click(); // GARAGE -> GRID
+    await tick();
+    expect(activeStep()).toBe('grid');
+    expect(el('settingsRecoveryNote').classList.contains('hidden')).toBe(true);
+
+    el('changeSetup').click(); // back to GARAGE
+    await tick();
+    expect(activeStep()).toBe('garage');
+    expect(el('settingsRecoveryNote').classList.contains('hidden')).toBe(false); // still shown
+    expect(el('viewerOnlyNote').classList.contains('hidden')).toBe(true);        // once per session
+  });
+
+  it('the line adds no focusable control to GARAGE (document order is untouched)', async () => {
+    await loadRenderer(withRecovery({ state: 'restored-from-backup', quarantinedAs: 'c', restoredFrom: 'b', at: 'x' }));
+    const note = el('settingsRecoveryNote');
+    expect(note.querySelectorAll('button, a, input, select, textarea, [tabindex]')).toHaveLength(0);
+    expect(note.getAttribute('tabindex')).toBeNull();
+  });
+});

@@ -47,6 +47,7 @@ const lightsEl = el('lights');
 const stepRail = el('stepRail');
 const fastPath = el('fastPath'), fastPathBtn = el('fastPathBtn'), fastPathSummary = el('fastPathSummary');
 const viewerNote = el('viewerOnlyNote');
+const recoveryNote = el('settingsRecoveryNote');
 
 // Step rail (Batch 8a / flow chrome): the FIXED canonical display order + labels
 // (design bundle §1). Numbers/labels never change; only each step's STATE is
@@ -71,6 +72,7 @@ let settings = null;
 let envOverridden = {};
 let envEffective = {}; // effective values for env-locked ⚙ controls (audit C3)
 let credential = null; // non-secret hotspot-credential status from main (audit E1)
+let recovery = null;   // non-secret settings-recovery status from main (review correctness-2)
 let mode = 'solo';
 let step = 'garage';
 let lightsRunning = false;
@@ -283,6 +285,31 @@ function updateViewerNote() {
   if (show) viewerNoteShown = true; // shown once; every later GARAGE entry hides it
 }
 
+// Settings-recovery line on GARAGE (review correctness-2). NOT once-per-session
+// like the disclaimer above: an unreadable settings.json means the configuration
+// on screen may not be the one the operator left, and the fast-path card that
+// carries RACE DAY is exactly what a reset makes vanish — so the line stays on
+// GARAGE for the whole run. Wording is plain and says what to DO. The status
+// carries file names only, never settings content, and is absent on older/faked
+// main-process surfaces, which reads as "nothing to report".
+const RECOVERY_TEXT = {
+  'restored-from-backup':
+    'SETUP FILE WAS DAMAGED — RESTORED FROM THE BACKUP. Check the summary below before you drive; '
+    + 'anything changed since the last save may need setting again.',
+  'reset-to-defaults':
+    'SETUP FILE WAS DAMAGED AND THE BACKUP WAS UNUSABLE — STARTING FROM DEFAULTS. Re-run setup.',
+};
+function recoveryNoteText(status) {
+  return (status && RECOVERY_TEXT[status.state]) || '';
+}
+function updateRecoveryNote() {
+  if (!recoveryNote) return;
+  const text = recoveryNoteText(recovery);
+  const show = step === 'garage' && !!text;
+  if (text) recoveryNote.textContent = text;
+  recoveryNote.classList.toggle('hidden', !show);
+}
+
 const FASTPATH_MODE = { solo: 'DESKTOP FPV', 'iphone-hud': 'IPHONE COCKPIT' };
 function fastPathSummaryText(s) {
   const modeLabel = FASTPATH_MODE[s?.fpvMode] || FASTPATH_MODE.solo;
@@ -303,6 +330,7 @@ function showStep(next) {
   renderStepRail();
   updateFastPath();
   updateViewerNote();
+  updateRecoveryNote();
   // Keep the GARAGE VIDEO STYLE pills current on every (re)entry — cheap, and
   // the row only renders on GARAGE anyway. (Defined below in the GARAGE
   // section; showStep never runs before module eval completes.)
@@ -2035,6 +2063,7 @@ async function boot() {
   envOverridden = res.envOverridden || {};
   envEffective = res.effective || {};
   credential = res.credential || null;
+  recovery = res.recovery || null;
   mode = settings.fpvMode;
   setSoundEnabled(settings.soundEnabled);
   applyDriveMode(settings.drivingMode); // seed the HUD preview even on the GRID fast-path

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import * as fsReal from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -206,6 +207,149 @@ describe('settingsStore — atomic, corruption-proof persistence', () => {
     const bak = JSON.parse(readFileSync(`${store.file}.bak`, 'utf8'));
     expect(bak.fpvMode).toBe('iphone-hud');
     expect(store.load().fpvMode).toBe('solo');
+  });
+});
+
+// --- review correctness-2 (gift-blocking) ------------------------------------
+// readRaw() used to flatten "unreadable" into "absent", so a corrupt file
+// silently became defaults — and the next save's backupCurrent() then copied
+// the corrupt bytes over the settings.json.bak that nothing ever read. One bad
+// write took the gift configuration AND the RACE DAY button (it lives in the
+// returning-user card, which only renders when setupCompleted survives).
+
+describe('settingsStore — corruption recovery (review correctness-2)', () => {
+  const freshDir = () => mkdtempSync(join(tmpdir(), 'w17-corrupt-'));
+  const corrupt = (store) => writeFileSync(store.file, '{ "fpvMode": "iphone-h', 'utf8');
+  const bakOf = (store) => `${store.file}.bak`;
+  const quarantined = (dir) => readdirSync(dir).filter((f) => f.includes('.corrupt-'));
+
+  // A store with one save of history: settings.json holds CONFIGURED, .bak
+  // holds the state before it — the shape a returning user actually has.
+  function configured(dir, log = () => {}) {
+    const store = createSettingsStore({ dir, log });
+    store.save({ fpvMode: 'iphone-hud', iphoneAddr: '192.168.4.2', setupCompleted: true });
+    store.save({ elrsPath: 'C:/elrs/elrs-joystick-control.exe' });
+    return store;
+  }
+
+  it('an ABSENT file is still just defaults — the tri-state must not cry wolf', () => {
+    const dir = freshDir();
+    const store = createSettingsStore({ dir });
+    expect(store.load()).toEqual(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)));
+    expect(store.recoveryStatus()).toMatchObject({ state: 'ok', quarantinedAs: null });
+    expect(quarantined(dir)).toEqual([]);
+    expect(existsSync(store.file)).toBe(false);
+  });
+
+  it('an UNREADABLE file is restored from .bak — the prior configuration survives', () => {
+    const dir = freshDir();
+    const store = configured(dir);
+    corrupt(store);
+
+    const loaded = store.load();
+    expect(loaded.fpvMode).toBe('iphone-hud');      // NOT the default 'solo'
+    expect(loaded.iphoneAddr).toBe('192.168.4.2');
+    expect(loaded.setupCompleted).toBe(true);        // the RACE DAY card still renders
+
+    expect(store.recoveryStatus()).toMatchObject({
+      state: 'restored-from-backup',
+      restoredFrom: 'settings.json.bak',
+    });
+    expect(store.recoveryStatus().quarantinedAs).toMatch(/^settings\.json\.corrupt-/);
+  });
+
+  it('the corrupt file is QUARANTINED, not deleted, and settings.json is healthy again', () => {
+    const dir = freshDir();
+    const store = configured(dir);
+    corrupt(store);
+    store.load();
+
+    expect(quarantined(dir)).toHaveLength(1);
+    // The bad bytes are kept for a bench session, not thrown away.
+    expect(readFileSync(join(dir, quarantined(dir)[0]), 'utf8')).toContain('iphone-h');
+    // …and the recovery is DURABLE: a second load (settings:get runs load() on
+    // every call) must not fall back to defaults because the file went missing.
+    expect(JSON.parse(readFileSync(store.file, 'utf8')).fpvMode).toBe('iphone-hud');
+    expect(store.load().fpvMode).toBe('iphone-hud');
+  });
+
+  it('corrupt-then-save restores from .bak and NEVER overwrites a good .bak', () => {
+    const dir = freshDir();
+    const store = configured(dir);
+    const goodBak = readFileSync(bakOf(store), 'utf8');
+    expect(JSON.parse(goodBak).fpvMode).toBe('iphone-hud');
+
+    corrupt(store);
+    const saved = store.save({ soundEnabled: true });
+
+    // The save merged onto the RESTORED configuration, not onto defaults.
+    expect(saved.fpvMode).toBe('iphone-hud');
+    expect(saved.setupCompleted).toBe(true);
+    expect(saved.soundEnabled).toBe(true);
+    // The backup is still parseable and still the prior good configuration —
+    // the exact byte-for-byte destruction the finding described.
+    const bakNow = readFileSync(bakOf(store), 'utf8');
+    expect(() => JSON.parse(bakNow)).not.toThrow();
+    expect(JSON.parse(bakNow).fpvMode).toBe('iphone-hud');
+    expect(bakNow).not.toContain('iphone-h"'); // no truncated garbage rode in
+  });
+
+  it('even with the quarantine rename BLOCKED, a good .bak survives the next save', () => {
+    // Second belt: backupCurrent() refuses to copy unparseable content. This is
+    // what covers a locked/permission-denied rename on Windows.
+    const dir = freshDir();
+    const store = configured(dir);
+    const goodBak = readFileSync(bakOf(store), 'utf8');
+    corrupt(store);
+
+    const blocked = createSettingsStore({
+      dir,
+      fs: { ...fsReal, renameSync: (from, to) => {
+        if (String(to).includes('.corrupt-')) throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+        return fsReal.renameSync(from, to);
+      } },
+    });
+    blocked.load();
+    expect(blocked.recoveryStatus()).toMatchObject({ state: 'restored-from-backup', quarantinedAs: null });
+    blocked.save({ soundEnabled: true });
+    expect(readFileSync(bakOf(store), 'utf8')).toBe(goodBak);
+  });
+
+  it('an unusable .bak degrades to defaults, still quarantines, and says so', () => {
+    const dir = freshDir();
+    const log = vi.fn();
+    const store = createSettingsStore({ dir, log });
+    store.save({ fpvMode: 'iphone-hud', setupCompleted: true });
+    writeFileSync(bakOf(store), 'also not json', 'utf8');
+    corrupt(store);
+
+    expect(store.load()).toEqual(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)));
+    expect(store.recoveryStatus()).toMatchObject({ state: 'reset-to-defaults', restoredFrom: null });
+    expect(quarantined(dir)).toHaveLength(1);
+    expect(log).toHaveBeenCalledOnce();
+    expect(log.mock.calls[0][0]).toMatch(/no usable backup/);
+  });
+
+  it('the recovery status is STICKY for the run and never carries settings content', () => {
+    const dir = freshDir();
+    const store = configured(dir);
+    corrupt(store);
+    store.load();
+    store.load(); // a healthy read now — the evidence must not be erased
+    const st = store.recoveryStatus();
+    expect(st.state).toBe('restored-from-backup');
+    expect(typeof st.at).toBe('string');
+    // File NAMES only: no directory path, no settings values, no credential.
+    expect(Object.keys(st).sort()).toEqual(['at', 'quarantinedAs', 'restoredFrom', 'state']);
+    expect(JSON.stringify(st)).not.toContain('192.168.4.2');
+    expect(JSON.stringify(st)).not.toContain(dir);
+  });
+
+  it('recoveryStatus() is a copy — a caller cannot mutate the store\u2019s state', () => {
+    const store = createSettingsStore({ dir: freshDir() });
+    const st = store.recoveryStatus();
+    st.state = 'tampered';
+    expect(store.recoveryStatus().state).toBe('ok');
   });
 });
 

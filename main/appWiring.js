@@ -236,6 +236,12 @@ function registerIpcHandlers({ ipcMain, services }) {
             // migration-failed, plus whether OS encryption is available and
             // whether a password is set. NEVER the ciphertext or the value.
             credential: settingsStore.credentialStatus(),
+            // Non-secret settings-recovery status (review correctness-2): 'ok',
+            // or what was done about an unreadable settings.json on this run.
+            // File NAMES only — never settings content, never a credential. The
+            // renderer prints it as a GARAGE line so a configuration that had to
+            // be restored (or reset) is never a silent surprise.
+            recovery: settingsStore.recoveryStatus(),
             envOverridden: effective ? effective.envOverridden : {},
             // Effective values for the env-locked ⚙ controls (audit C3): the ⚙
             // menu shows THESE (not the ignored persisted values) when locked.
