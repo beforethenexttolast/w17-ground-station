@@ -9,12 +9,14 @@ checkpoints/status live in `../CURRENT_STATUS.md`, never here.
 - Electron ground-station app; runs on Windows (the deployment target), also macOS/Linux.
 - Integrates **video** (RTSP → mediamtx → WebRTC/WHEP), the **HUD**, and **telemetry**.
 - **Windows is the control/integration authority.** The iPhone is a thin HUD/client only.
-- This app is a **viewer** — it does not drive the car. The GRID launch of
-  elrs-joystick-control (DualShock → CRSF → ELRS) is detached and fire-and-forget: this app
-  starts it but has no kill/stop/restart path to it (`main/elrsLauncher.js`). Race day
-  separately may *manage* the mapper binary's PROCESS lifecycle (start/liveness/stop) —
-  managing a process is not driving the car; see the guardrail below for what that still
-  forbids.
+- This app is a **viewer** — it does not drive the car; control stays with
+  elrs-joystick-control. The GRID launch of elrs-joystick-control (DualShock → CRSF → ELRS)
+  is detached and fire-and-forget: this app starts it but has no kill/stop/restart path to it
+  (`main/elrsLauncher.js`). Race day separately may *manage* the mapper binary's PROCESS
+  lifecycle (start/liveness/stop) — the mapper binary IS elrs-joystick-control, launched
+  through a second, separately-manageable contract (`main/mapperRunner.js` vs
+  `main/elrsLauncher.js`); managing a process is not driving the car; see the guardrail below
+  for what that still forbids.
 - **Firmware is a separate concern** (own repos: `w17-control-fw`, `w17-soundlight-fw`)
   and is never edited or reached from here.
 
@@ -45,12 +47,16 @@ checkpoints/status live in `../CURRENT_STATUS.md`, never here.
   wrong, not the test.
 - Race day may **manage the mapper PROCESS** — start, liveness, stop
   (`main/mapperRunner.js`, `main/raceDayOrchestrator.js`) — but must never **send it
-  anything**: no stdin (the child's input stream is closed outright), no IPC/RPC, nothing on
-  UDP 5602; argv is limited to `MAPPER_ARG_WHITELIST` and the child env is scrubbed of the
-  entire `W17_*` namespace. This is a deliberate evolution of the launch-only doctrine above,
-  not an exception to it — the GRID launcher stays detached and unstoppable.
-  `test/noControlPath.test.js:116-151` pins it structurally; if a change trips it, the change
-  is wrong.
+  commands**: no stdin (the child's input stream is closed outright), no control RPC, no IPC
+  channel, nothing on UDP 5602; argv is limited to `MAPPER_ARG_WHITELIST` and the child env
+  is scrubbed of the entire `W17_*` namespace. **Read-only stream subscriptions are viewer
+  consumers, not a control path**, and stay allowed: subscribing to one of the mapper's
+  server-streaming gRPC endpoints on `127.0.0.1:10000` and only rendering what it returns is
+  the sanctioned pattern (`main/HeadIntentDiagnosticsClient.js` — it opens and cancels the
+  stream and does nothing else). This is a deliberate evolution of the launch-only doctrine
+  above, not an exception to it — the GRID launcher stays detached and unstoppable.
+  `test/noControlPath.test.js:116-151` pins the process contract structurally; if a change
+  trips it, the change is wrong.
 - Never route head-tracking intent (`main/HeadTrackingReceiver.js`,
   `shared/headTracking.js`) into any control output.
 - Do not casually change the bridge contract. `iPhone_rc` (Claude-owned since 2026-08-17,
