@@ -66,15 +66,18 @@
   not after it exits. 40-mdns-udp.ps1 covers 5601/5602/5353 (ports it owns
   before the mapper exists).
 
-  boundaries-4 (medium, GS repo) — GRID's convenience launch
-  (main/elrsLauncher.js) spawns the mapper with an UN-scrubbed environment,
-  reopening the very env bypass race day's own managed launch closes.
-  boundaries-5 (low, GS repo) — that scrub (both race day's real one and, if
-  written naively, a validation script's own) is case-sensitive while
-  Windows environment-variable names are not. Both are documented below as
-  code facts (data.gridLaunchEnvScrubGap); see that section and
-  .DESCRIPTION further down for why boundaries-4 is not live-exercised, and
-  how boundaries-5 is avoided in THIS script's own launch env.
+  boundaries-4 / boundaries-5 — BOTH FIXED ON MAIN by the GS fix wave, and
+  this script no longer claims otherwise (it previously described them as
+  live gaps). Verified at HEAD: main/elrsLauncher.js:55 now spawns with
+  `env: scrubW17Env(this._env)` — the GRID convenience launch is scrubbed,
+  closing boundaries-4 — and the scrub itself moved into
+  shared/childEnv.js:32-35, where it matches the prefix case-INSENSITIVELY
+  (`String(k).toUpperCase().startsWith(...)`), closing boundaries-5. Race
+  day's managed launch uses the same shared helper
+  (main/mapperRunner.js:68-70 `_childEnv() { return scrubW17Env(this._env) }`),
+  so there is now ONE scrub at BOTH spawn sites. What remains recorded below
+  (data.gridLaunchEnvScrubGap) is the CLOSED state plus the one residual the
+  review left open.
 
   How the mapper is driven: lib/race-day-probe.js, run under the installed
   exe in Node mode (ELECTRON_RUN_AS_NODE=1 — a plain node.exe cannot resolve
@@ -98,14 +101,14 @@
   (winTreeKillArgs, main/runCommand.js:14), applied to the real installed
   main/main.js entry point instead.
 
-  GRID-launch env-scrub gap (brief callout: "GRID LAUNCH spawns with an
-  un-scrubbed env"): documented below as a CODE fact
-  (data.gridLaunchEnvScrubGap), not live-exercised. main/elrsLauncher.js's
-  launchDetached() spawns the REAL control-path binary DETACHED, with stdio
-  ignored and NO pid returned, and has no kill/stop/restart function by
-  design (its own header: "this app will never stop it") — safe for a human
-  operator to clean up by process name/launch time, not safe for an
-  unattended VM session to clean up with confidence. Left as a
+  GRID-launch env scrub: still not live-exercised here, and now for a
+  different reason. The GAP is closed (see above), so there is nothing left
+  to reproduce; but the launch itself is still the one thing an unattended
+  session must not start. main/elrsLauncher.js's launchDetached() spawns the
+  REAL control-path binary DETACHED, with stdio ignored and NO pid returned,
+  and has no kill/stop/restart function by design (its own header: "this app
+  will never stop it") — safe for a human operator to clean up by process
+  name/launch time, not safe for an unattended VM session. It stays a
   human-supervised runbook step.
 
 .PARAMETER InstallDir
@@ -181,31 +184,36 @@ if (-not $prepMapperPath -or -not $prepProfilePath) {
     exit (Write-W17Result $r)
 }
 
-# --- GRID-launch env-scrub gap: documented as a code fact, not live-exercised
-# (see .DESCRIPTION for why). boundaries-4 (the gap itself) is CONFIRMED in
-# w17-ground-station.v2report.json; boundaries-5 (the scrub is ALSO
-# case-sensitive, which Windows env names are not) is UNVERIFIED-LOW there,
-# NOT confirmed — review finding N4. Its own residual says why: the Windows
-# case-insensitivity of os.LookupEnv on the mapper side
-# (w17-mapper/cmd/elrs-joystick-control/main.go:30-36) was reasoned from the
-# platform, not observed. THIS SUITE IS WHERE THAT COULD BE SETTLED: on the
-# guest, `setx w17_headtrack_ingest 1`, open a new shell, and re-run this step
-# — if the mapper picks the flag up, boundaries-5 is confirmed. That is a
-# deliberate one-line env experiment for a supervised run, not something this
-# script does on its own (it would leave a persistent user-environment
-# variable behind on the guest), so it stays [win-TBD] and is written up in
-# the workspace runbook rather than automated here. -------------------------
+# --- GRID-launch env scrub: CLOSED on main, recorded here as closed. -------
+# boundaries-4 (the GRID launch inherited an unscrubbed env) was CONFIRMED in
+# w17-ground-station.v2report.json; boundaries-5 (the scrub was case-sensitive
+# while Windows env names are not) was UNVERIFIED-LOW there, NOT confirmed —
+# review finding N4. Both are now fixed at HEAD by one shared helper
+# (shared/childEnv.js) used at BOTH spawn sites. The ids stay tagged so the
+# finding-to-evidence trail survives, with the state recorded, not asserted.
+#
+# ONE RESIDUAL SURVIVES THE FIX, and this VM is where it could be settled: the
+# JS side is now case-insensitive, but whether the MAPPER's Go-side
+# os.LookupEnv is case-insensitive on Windows
+# (w17-mapper/cmd/elrs-joystick-control/main.go:30-36) was always reasoned
+# from the platform, never observed — that was boundaries-5's own stated
+# residual. It no longer changes the GS's behaviour (nothing W17_-ish reaches
+# the child by either door now), so it is a curiosity rather than a risk; on
+# the guest, `setx w17_headtrack_ingest 1` + a new shell + a re-run would
+# answer it. A supervised experiment, not something this script does on its
+# own — it would leave a persistent user env var behind. [win-TBD]; written
+# up in the workspace runbook §5.1.
 $findings.Add('boundaries-4')
 $findings.Add('boundaries-5')
 $data.gridLaunchEnvScrubGap = [ordered]@{
-    claim                  = 'GRID launch (main/elrsLauncher.js launchDetached()) inherits this app''s FULL, unscrubbed process.env; race day''s managed launch (main/mapperRunner.js _childEnv()) strips the entire W17_* class first — and even that strip is CASE-SENSITIVE (boundaries-5) while Windows environment-variable names are not, so a mixed-case w17_headtrack_ingest could survive race day''s own scrub too.'
-    boundaries4Status      = 'CONFIRMED (w17-ground-station.v2report.json)'
-    boundaries5Status      = 'UNVERIFIED-LOW (w17-ground-station.v2report.json) — NOT confirmed. The case-sensitivity of the JS-side scrub is plain in the code; what is unobserved is whether the mapper''s Go-side os.LookupEnv is case-insensitive on Windows. Settling it needs `setx w17_headtrack_ingest 1` on the guest and a re-run — a supervised experiment, not part of this automated step. [win-TBD]'
-    evidenceGridLaunch     = 'main/elrsLauncher.js:30-35 — spawn(elrsPath, [], {detached:true, stdio:"ignore", cwd:path.dirname(elrsPath), windowsHide:false}) — no env key at all, so Node child_process defaults to inheriting process.env verbatim, and no argv either (nothing here is even whitelisted, unlike race day). boundaries-4.'
-    evidenceRaceDay        = 'main/mapperRunner.js _childEnv() — copies process.env but skips only keys whose name STARTS WITH the literal, uppercase "W17_" (ordinal StartsWith) before spawning — boundaries-5: a "w17_headtrack_ingest" would not match that check and would ride through even race day''s own scrub.'
-    onlyKnownAffectedFlag  = 'w17-mapper cmd/elrs-joystick-control/main.go — the -headtrack-ingest flag defaults from env W17_HEADTRACK_INGEST (envTruthy helper) when no CLI flag is given; GRID launch passes NO CLI flags at all, so an ambient W17_HEADTRACK_INGEST on this machine silently changes GRID''s launch in a way race day''s launch never can (LOG-ONLY receiver, CLAUDE.md safety boundary 5 — enabling it changes nothing control-relevant, but the SILENT, ambient-environment nature of the toggle is the gap being flagged).'
+    claim                  = 'CLOSED at HEAD. Both spawn sites now scrub the whole W17_* class through ONE shared, case-INSENSITIVE helper, so neither the GRID convenience launch (boundaries-4) nor a mixed-case spelling (boundaries-5) can carry a W17_* variable into the mapper any more.'
+    boundaries4Status      = 'was CONFIRMED (w17-ground-station.v2report.json); FIXED on main — main/elrsLauncher.js:55 now passes `env: scrubW17Env(this._env)` to the detached spawn.'
+    boundaries5Status      = 'was UNVERIFIED-LOW (w17-ground-station.v2report.json), NOT confirmed; the JS half is FIXED on main — shared/childEnv.js:35 matches with `String(k).toUpperCase().startsWith(...)`. RESIDUAL, unchanged and now harmless: whether the mapper''s Go-side os.LookupEnv is case-insensitive on Windows (w17-mapper/cmd/elrs-joystick-control/main.go:30-36) was reasoned from the platform, never observed. `setx w17_headtrack_ingest 1` on the guest + a re-run would settle it. [win-TBD]'
+    evidenceGridLaunch     = 'main/elrsLauncher.js:43-56 — spawn(elrsPath, [], {detached:true, stdio:"ignore", cwd:path.dirname(elrsPath), env: scrubW17Env(this._env), windowsHide:false}). Still no argv (nothing is whitelisted here, unlike race day) and still detached with no pid returned — but the environment is no longer inherited verbatim.'
+    evidenceRaceDay        = 'main/mapperRunner.js:68-70 — `_childEnv() { return scrubW17Env(this._env) }`, the SAME helper elrsLauncher uses; shared/childEnv.js:32-35 does the case-insensitive prefix match.'
+    onlyKnownAffectedFlag  = 'w17-mapper cmd/elrs-joystick-control/main.go — the -headtrack-ingest flag defaults from env W17_HEADTRACK_INGEST (envTruthy helper) when no CLI flag is given, and the GRID launch passes NO CLI flags at all. Before the fix an ambient W17_HEADTRACK_INGEST silently changed GRID''s launch; with the scrub at both sites it no longer can. (Even then it changed nothing control-relevant — W3 is LOG-ONLY, workspace CLAUDE.md safety boundary 5 — the SILENT, ambient nature of the toggle was the point.)'
     exercisedLive          = $false
-    whyNotExercisedLive    = 'launchDetached() spawns the REAL control-path binary DETACHED, stdio ignored, no pid returned, and elrsLauncher.js has no kill/stop/restart function by design ("this app will never stop it") — an unattended VM session cannot reliably identify and clean up the resulting orphan; left as a human-supervised runbook step (see the workspace runbook).'
+    whyNotExercisedLive    = 'nothing left to reproduce (the gap is closed), and starting it anyway is unsafe for an unattended session: launchDetached() spawns the REAL control-path binary DETACHED, stdio ignored, no pid returned, and elrsLauncher.js has no kill/stop/restart function by design ("this app will never stop it"). Left as a human-supervised runbook step.'
 }
 
 # --- scrubbed launch env for the probe, mirroring scripts/electron-smoke.js's

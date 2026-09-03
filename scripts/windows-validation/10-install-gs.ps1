@@ -2,26 +2,38 @@
 <#
 .SYNOPSIS
   W17 Windows-VM validation, step 10: install the ground station and verify
-  the deliverable — including CONFIRMED review finding boundaries-1 (the CI
-  NSIS installer ships without mediamtx.exe, so the giftee build has no video
-  relay).
+  that the installed tree really contains what the build config promises —
+  the video relay (mediamtx) and the runtime-loaded proto/.
 
 .DESCRIPTION
-  Runs the NSIS installer silently, then inventories the install directory
-  against what electron-builder.yml actually promises to ship:
-    - files: main/**, renderer/**, shared/**, package.json
-      (electron-builder.yml:5-9) -> everything else, INCLUDING proto/, is
-      absent from app.asar by construction. This script reports whether
-      proto/ is packaged from that static fact (a build-config read, not a
-      guess) and, when 7z.exe/asar tooling is available on the guest, backs
-      it with a real peek inside app.asar.
-    - extraResources: mediamtx -> mediamtx (electron-builder.yml:12-15) is
-      the ONLY way mediamtx.exe reaches the install directory. CI
-      (.github/workflows/ci.yml) never runs `node scripts/fetch-mediamtx.js`
-      before packaging, so mediamtx/ is empty at build time and the shipped
-      installer's resources\mediamtx\ directory is EMPTY. This step FAILS
-      LOUDLY on that — boundaries-1's exact failure mode — instead of the
-      silent "video just doesn't work" the giftee would otherwise hit.
+  WHAT CHANGED, AND WHY THIS SCRIPT'S MEANING FLIPPED. When this script was
+  written, boundaries-1 was live: CI packaged without ever running
+  `scripts/fetch-mediamtx.js`, so the shipped installer's
+  resources\mediamtx\ was EMPTY and the giftee build had no video relay;
+  and proto/ was excluded from the `files:` allowlist. BOTH ARE FIXED ON
+  MAIN as of the GS fix wave, verified here at HEAD:
+    - .github/workflows/ci.yml:79 now runs `node scripts/fetch-mediamtx.js`
+      BEFORE `npx electron-builder --dir` (:80), and :85 runs
+      `node scripts/assert-packaged.js dist/win-unpacked`, which asserts the
+      mediamtx executable, its mediamtx.yml, and the packaged proto/ —
+      "rather than trusting that the step above did its job".
+    - electron-builder.yml:14 now lists `proto/**` in `files:` (review
+      boundaries-6: main/headIntentGrpcConnect.js:23 loads it at RUNTIME).
+  So this step is NO LONGER a reproduction of a known defect. It is now a
+  REGRESSION CHECK on the guest, against the real installed tree rather than
+  against `dist\win-unpacked` in CI: if mediamtx.exe or proto/ is missing
+  here, either CI's assertion was bypassed or the NSIS packaging step drops
+  something `--dir` keeps. A FAIL from this script now means something NEW.
+
+  It still inventories the install directory against what
+  electron-builder.yml promises:
+    - files: main/**, renderer/**, shared/**, proto/**, package.json
+      (electron-builder.yml:5-15). This script reports whether proto/ is
+      packaged from that static fact (a build-config read, not a guess) and,
+      when asar tooling is available on the guest, backs it with a real peek
+      inside app.asar.
+    - extraResources: mediamtx -> mediamtx (electron-builder.yml:18-21) is
+      the ONLY way mediamtx.exe reaches the install directory.
 
   Verifies: install directory exists, the main exe exists
   ("W17 Ground Station.exe" — electron-builder.yml:2 productName), an
@@ -150,16 +162,26 @@ $data.mediamtxDirExists = Test-Path -LiteralPath $mediamtxDir
 $data.mediamtxExeExists = Test-Path -LiteralPath $mediamtxExe
 $data.mediamtxDirListing = if ($data.mediamtxDirExists) { @(Get-ChildItem -LiteralPath $mediamtxDir -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) } else { @() }
 
-# boundaries-1: the confirmed failure mode — installer ships, mediamtx does not.
+# boundaries-1 was FIXED on main (ci.yml:79 fetches, :85 asserts). A missing
+# mediamtx.exe here is therefore no longer the expected outcome — it is a
+# REGRESSION, or a difference between what CI asserts on dist\win-unpacked and
+# what the NSIS installer actually lays down on a guest. The id is still tagged
+# so the trail from finding to evidence stays intact, but the note says which
+# reading applies.
 if (-not $data.mediamtxExeExists) {
     $findings += 'boundaries-1'
+    $data.boundaries1Reading = 'boundaries-1 was FIXED on main (ci.yml:79 runs fetch-mediamtx.js before packaging; ci.yml:85 runs assert-packaged.js). Seeing mediamtx.exe missing HERE is not the old known defect reproducing — it is either a regression, or something the NSIS installer drops that CI''s dist\win-unpacked assertion does not catch. Investigate; do not file it as "expected".'
 }
 
 # --- proto/ packaging check --------------------------------------------
-# Static fact from electron-builder.yml:5-9's `files:` allowlist: proto/ is
-# not listed, so it is never asar-packed, independent of anything on disk.
-$data.protoPackagedByBuildConfig = $false
-$data.protoPackagingBasis = 'electron-builder.yml:5-9 files: allowlist (main/**, renderer/**, shared/**, package.json) does not include proto/'
+# Static fact from electron-builder.yml's `files:` allowlist. This flipped
+# with the GS fix wave: proto/** is now LISTED (electron-builder.yml:14), so
+# it IS asar-packed, and CI asserts its presence (ci.yml:85 ->
+# scripts/assert-packaged.js). The earlier version of this script recorded
+# $false here and called proto/ "absent by construction"; that was true when
+# it was written and is false now.
+$data.protoPackagedByBuildConfig = $true
+$data.protoPackagingBasis = 'electron-builder.yml:5-15 files: allowlist now includes proto/** (added for review boundaries-6: main/headIntentGrpcConnect.js:23 loads it at RUNTIME, so a build without it throws when the head-intent diagnostics consumer connects). CI asserts it at .github/workflows/ci.yml:85 via scripts/assert-packaged.js.'
 
 # Best-effort real peek inside app.asar, only if tooling exists on the guest
 # (never installed by this script — COMMON.md: no software installs on this
@@ -198,9 +220,15 @@ $ok = $data.exeExists -and $data.asarExists -and $data.mediamtxExeExists -and ($
 $summaryBits = @()
 if (-not $data.exeExists) { $summaryBits += 'main exe missing' }
 if (-not $data.asarExists) { $summaryBits += 'app.asar missing' }
-if (-not $data.mediamtxExeExists) { $summaryBits += 'mediamtx.exe MISSING (boundaries-1: CI never runs fetch-mediamtx.js before packaging — video relay is absent by construction)' }
+if (-not $data.mediamtxExeExists) { $summaryBits += 'mediamtx.exe MISSING — this is now a REGRESSION, not the known boundaries-1 defect: ci.yml:79 fetches it before packaging and ci.yml:85 asserts it is packaged. Either CI was bypassed for this artifact, or NSIS drops what --dir keeps' }
 if ($appList.Count -eq 0) { $summaryBits += 'no Uninstall registry entry found' }
-$summary = if ($ok) { "installed at $resolvedDir; mediamtx present; proto/ correctly absent (files: allowlist)" } else { $summaryBits -join '; ' }
+# proto/ is now EXPECTED to be present; flag its absence, and flag a mismatch
+# between the build config and what asar actually shows.
+if ($null -ne $data.protoPackagedObserved -and -not $data.protoPackagedObserved) {
+    $summaryBits += 'proto/ NOT found inside app.asar although electron-builder.yml:14 lists proto/** and ci.yml:85 asserts it — packaging regression'
+    $ok = $false
+}
+$summary = if ($ok) { "installed at $resolvedDir; mediamtx present; proto/ packaged as electron-builder.yml:14 requires" } else { $summaryBits -join '; ' }
 
 $result = New-W17Result -Script '10-install-gs' -Ok $ok -Summary $summary -Data $data -Findings $findings
 Save-W17Result -Result $result -ResultsDir $ResultsDir
