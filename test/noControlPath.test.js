@@ -103,6 +103,14 @@ describe('no-control-path regression (contract A + E)', () => {
     ]) {
       expect(src, `elrs launcher must not reference ${forbidden}`).not.toContain(forbidden);
     }
+    // Review boundaries-4: the GRID convenience launch starts the SAME program
+    // race day manages (and race day adopts an external instance as
+    // ok/'external'), so it must spawn through the SHARED scrub — never with
+    // the parent environment, and never with no `env` option at all, which is
+    // what verbatim inheritance looks like in source.
+    expect(src).toContain('scrubW17Env');
+    expect(src).toContain('env: scrubW17Env(this._env)');
+    expect(src, 'the GRID launch must never inherit the parent env verbatim').not.toContain('env: process.env');
   });
 
   // Race-day wave 2026-08-17: the orchestrator may manage the mapper PROCESS
@@ -131,9 +139,18 @@ describe('no-control-path regression (contract A + E)', () => {
     // vars, so un-scrubbed inheritance would be an env-shaped bypass of the
     // argv whitelist. Pins: the class-scrub mechanism exists, the spawn site
     // uses it, and no spawn option ever hands over process.env directly.
-    expect(runner).toContain("startsWith('W17_')");
+    expect(runner).toContain('scrubW17Env');
     expect(runner).toContain('env: this._childEnv()');
     expect(runner, 'spawn must never inherit the parent env verbatim').not.toContain('env: process.env');
+
+    // The shared helper itself is the mechanism both spawn sites rely on, so
+    // its two load-bearing properties are pinned HERE and not only in its own
+    // unit test: the whole W17_ CLASS (no enumerated name list can drift), and
+    // a CASE-INSENSITIVE match, because the gift target is Windows and its
+    // environment names are case-insensitive (review boundaries-5).
+    const childEnv = read('../shared/childEnv.js');
+    expect(childEnv).toContain("SCRUBBED_PREFIX = 'W17_'");
+    expect(childEnv).toMatch(/toUpperCase\(\)\.startsWith\(SCRUBBED_PREFIX\)/);
 
     // The orchestrator only sequences existing authorities and builds the
     // whitelisted argv. It must not even be ABLE to reach a process, stream,

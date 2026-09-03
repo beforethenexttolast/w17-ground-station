@@ -64,11 +64,17 @@ describe('MapperRunner — managed start', () => {
         expect(opts.detached).toBeUndefined();
     });
 
-    it('the child env is SCRUBBED: the whole W17_* class is stripped, everything else passes (review blocker 2)', () => {
+    it('the child env is SCRUBBED: the whole W17_* class is stripped in ANY letter case, everything else passes (review blocker 2 / boundaries-5)', () => {
         // The mapper's own experimental flags DEFAULT from W17_* env vars, so
         // inheriting the GS environment verbatim would be an env-shaped bypass
         // of the argv whitelist on any bench machine carrying such a var. The
         // scrub is by CLASS — a future W17_* knob is covered without a list edit.
+        //
+        // The case variants are the boundaries-5 regression: the gift target is
+        // Windows, whose environment names are case-INSENSITIVE, so
+        // `set w17_headtrack_ingest=1` reaches a Windows child as the same
+        // variable an uppercase spelling would. A case-SENSITIVE prefix test let
+        // exactly that spelling through.
         const { runner, spawned } = harness({
             env: {
                 PATH: '/usr/bin',
@@ -78,13 +84,17 @@ describe('MapperRunner — managed start', () => {
                 W17_IPHONE_BRIDGE: '1',
                 W17_WIFI_SIM: 'pixel',
                 W17_ANY_FUTURE_KNOB: 'x',
+                w17_headtrack_ingest: '1',
+                W17_HeadTrack_Ingest: '1',
+                w17_any_future_knob: 'x',
             },
         });
         runner.start({ binaryPath: '/opt/w17/mapper', argv: [] });
         const opts = spawned[0].opts;
         // An env option MUST be present — absence means full inheritance.
         expect(opts.env).toBeDefined();
-        expect(Object.keys(opts.env).filter((k) => k.startsWith('W17_'))).toEqual([]);
+        // Case-INSENSITIVE assertion: no spelling of the namespace survives.
+        expect(Object.keys(opts.env).filter((k) => k.toUpperCase().startsWith('W17_'))).toEqual([]);
         // Non-W17 vars survive (the mapper still needs PATH etc. to run).
         expect(opts.env.PATH).toBe('/usr/bin');
         expect(opts.env.HOME).toBe('/Users/pit');

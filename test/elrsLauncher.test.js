@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -10,6 +11,35 @@ function launcher(result, platform) {
   const calls = [];
   const run = async (cmd, args) => { calls.push({ cmd, args }); return result; };
   return { elrs: new ElrsLauncher({ run, platform }), calls };
+}
+
+// Fake child seam: NO real process is ever spawned in this suite (workspace
+// rule — the launcher's real child is the control path itself).
+function fakeChild() {
+  const child = new EventEmitter();
+  child.pid = 4242;
+  child.unref = vi.fn();
+  return child;
+}
+
+// A launcher whose spawn + existence checks are faked, so the spawn OPTIONS can
+// be inspected without starting anything.
+function spawnHarness({ env, exists = true } = {}) {
+  const spawned = [];
+  let child = null;
+  const logs = [];
+  const elrs = new ElrsLauncher({
+    platform: 'win32',
+    existsSync: () => exists,
+    log: (m) => logs.push(m),
+    env,
+    spawnFn: (bin, argv, opts) => {
+      child = fakeChild();
+      spawned.push({ bin, argv, opts, child });
+      return child;
+    },
+  });
+  return { elrs, spawned, logs, child: () => child };
 }
 
 describe('ElrsLauncher.detectRunning', () => {
@@ -54,5 +84,45 @@ describe('ElrsLauncher.launchDetached guard paths (no real spawn)', () => {
     const res = elrs.launchDetached('/definitely/not/here/elrs.exe');
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/not found/);
+  });
+});
+
+// --- review boundaries-4/5: the GRID convenience LAUNCH starts the SAME program
+// race day manages, and race day adopts an externally-launched instance as
+// ok/'external'. An un-scrubbed launch here would therefore survive as race
+// day's drive program, carrying exactly the W17_* flags the argv whitelist
+// refuses to pass. ------------------------------------------------------------
+
+describe('ElrsLauncher.launchDetached — child environment (boundaries-4/5)', () => {
+  it("the launched child carries NO W17_* variable, in any letter case", () => {
+    const { elrs, spawned } = spawnHarness({
+      env: {
+        PATH: 'C:\\Windows\\System32',
+        SystemRoot: 'C:\\Windows',
+        W17_HEADTRACK_INGEST: '1',
+        w17_headtrack_ingest: '1',
+        W17_HeadTrack_Ingest: '1',
+        W17_ANY_FUTURE_KNOB: 'x',
+      },
+    });
+    expect(elrs.launchDetached('C:\\Tools\\elrs\\elrs-joystick-control.exe')).toEqual({ ok: true });
+    const opts = spawned[0].opts;
+    // An env option MUST be present — its ABSENCE is the bug (full inheritance).
+    expect(opts.env).toBeDefined();
+    expect(Object.keys(opts.env).filter((k) => k.toUpperCase().startsWith('W17_'))).toEqual([]);
+    // Everything else the program needs still passes through.
+    expect(opts.env.PATH).toBe('C:\\Windows\\System32');
+    expect(opts.env.SystemRoot).toBe('C:\\Windows');
+  });
+
+  it("the rest of the deliberate 'launch it like a human would' contract is unchanged", () => {
+    const { elrs, spawned, child } = spawnHarness({ env: { PATH: '/usr/bin' } });
+    elrs.launchDetached('/opt/elrs/elrs-joystick-control');
+    const { opts } = spawned[0];
+    expect(opts.detached).toBe(true);      // it outlives this viewer
+    expect(opts.stdio).toBe('ignore');     // no pipes, no handle to talk through
+    expect(opts.windowsHide).toBe(false);  // it has its own UI/console — let it show
+    expect(opts.cwd).toBe('/opt/elrs');
+    expect(child().unref).toHaveBeenCalled();
   });
 });

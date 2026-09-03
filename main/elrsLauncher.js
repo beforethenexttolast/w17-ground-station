@@ -12,25 +12,47 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseTasklistCsv, parsePgrepOutput, imageNameFromPath } = require('../shared/processList.js');
+const { scrubW17Env } = require('../shared/childEnv.js');
 const { runCommand } = require('./runCommand.js');
 
 class ElrsLauncher {
-    constructor({ run = runCommand, log = () => {}, platform = process.platform } = {}) {
+    // spawnFn / env / existsSync are TEST SEAMS only (no real process is ever
+    // created in the suite); the defaults are the production wiring.
+    constructor({
+        run = runCommand,
+        log = () => {},
+        platform = process.platform,
+        spawnFn = spawn,
+        env = process.env,
+        existsSync = fs.existsSync,
+    } = {}) {
         this._run = run;
         this._log = log;
         this._platform = platform;
+        this._spawn = spawnFn;
+        this._env = env;
+        this._existsSync = existsSync;
     }
 
     // Fire-and-forget. The result only says whether the spawn call succeeded;
     // liveness afterwards is detectRunning()'s job (GRID re-polls it).
     launchDetached(elrsPath) {
         if (!elrsPath) return { ok: false, error: 'no elrs-joystick-control path configured' };
-        if (!fs.existsSync(elrsPath)) return { ok: false, error: `not found: ${elrsPath}` };
+        if (!this._existsSync(elrsPath)) return { ok: false, error: `not found: ${elrsPath}` };
         try {
-            const child = spawn(elrsPath, [], {
+            const child = this._spawn(elrsPath, [], {
                 detached: true,
                 stdio: 'ignore',
                 cwd: path.dirname(elrsPath),
+                // Scrubbed environment (review boundaries-4/5). This launch stays
+                // deliberately "like a human would start it" in every other
+                // respect — detached, own console, never stopped from here — but
+                // it starts the SAME program race day manages, so it must not be
+                // the one door through which a stray W17_* variable reaches the
+                // mapper. Race day adopts an externally-launched instance as
+                // ok/'external', so an un-scrubbed launch here would survive as
+                // race day's drive program.
+                env: scrubW17Env(this._env),
                 windowsHide: false, // it has its own UI/console — let it show
             });
             child.unref();

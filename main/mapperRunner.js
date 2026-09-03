@@ -31,6 +31,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { scrubW17Env } = require('../shared/childEnv.js');
 
 // Bounded diagnostics ring: enough tail to diagnose a bad profile path or a
 // port clash, small enough that a chatty child can never balloon memory.
@@ -59,12 +60,13 @@ class MapperRunner {
     // CLASS (not an enumerated name list) means a future W17_* knob on either
     // side cannot silently reopen the hole. The launched mapper runs on its
     // committed profile + built-in defaults, nothing inherited from this app.
+    //
+    // The scrub itself now lives in shared/childEnv.js so the GRID convenience
+    // launcher spawns with the SAME guarantee (review boundaries-4), and it
+    // matches the W17_ prefix case-INSENSITIVELY because Windows environment
+    // names are case-insensitive (review boundaries-5).
     _childEnv() {
-        const env = {};
-        for (const [k, v] of Object.entries(this._env)) {
-            if (!k.startsWith('W17_')) env[k] = v;
-        }
-        return env;
+        return scrubW17Env(this._env);
     }
 
     onChange(listener) {
