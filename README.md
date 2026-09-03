@@ -52,8 +52,11 @@ npm run assert:packaged     # after a build: assert dist/<...> really contains m
 npm run proto:check         # verify the head-intent proto mirror matches ../w17-mapper
                             #   (dev-only; not part of the hermetic test suite)
 npm run contract:check      # verify docs/windows_bridge_contract.md still reproduces the
-                            #   canonical iPhone_rc contract (hermetic; --sibling compares
-                            #   against a local iPhone_rc checkout at the recorded hash)
+                            #   canonical iPhone_rc contract (hermetic ALWAYS runs first;
+                            #   --sibling additionally compares against a local iPhone_rc
+                            #   checkout at the recorded hash, or --sync-hash <sha> for a
+                            #   specific one -- so local drift is caught even when no
+                            #   sibling checkout exists to run the second half)
 npm run feel:check          # verify the ERS/gearbox feel constants still match
                             #   ../w17-control-fw's headers (dev-only, cross-repo;
                             #   --strict makes an absent checkout fail instead of skip.
@@ -68,8 +71,14 @@ needs a sibling checkout: `test/protoDrift.test.js` for the mapper contract,
 `test/contractMirrorDrift.test.js` for the iPhone bridge contract (plus its own
 `contract-mirror` CI job). Adopt an intended upstream change with `npm run proto:sync` /
 `npm run feel:sync` / `npm run contract:sync`, then make the hermetic half green again.
-The bridge-contract snapshot can only be written from an `iPhone_rc` checkout at the
-recorded revision, so it can never be rubber-stamped from this repo's own copy.
+The bridge-contract snapshot can only be written from an `iPhone_rc` checkout, never
+rubber-stamped from this repo's own copy. The re-sync workflow: copy the changed
+sections into `docs/windows_bridge_contract.md` by hand, then run `npm run contract:sync`
+(`check-contract-mirror.js --write`) — with no `--sync-hash` it reads the sibling's
+*current* `main` tip (not whatever hash is already recorded, which is what used to force
+a manual edit of the record to pick up a new canonical commit), and it fails if what it
+just recorded still doesn't match your copy. Pass `--sync-hash <sha>` to pin the read to
+one exact commit instead.
 
 (Two different "demos": the floating **▶ HUD preview · simulated** button on the setup
 gate just plays simulated inputs/physics into the HUD, while `npm run demo` feeds the
