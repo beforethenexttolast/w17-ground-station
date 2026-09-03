@@ -8,11 +8,13 @@ needs zero setup. Sign only if you want that prompt gone.
 CI builds this exact same unsigned installer on every push to `main` (no `CSC_LINK` /
 `CSC_KEY_PASSWORD` secrets exist in CI, so signing is always skipped there) and uploads it
 as the `w17-ground-station-nsis-unsigned` artifact on the `package-smoke` job (`Actions` tab
-→ the run → `Artifacts`) — see the README CI section. That installer now contains the
-bundled `mediamtx.exe`: the job fetches it (SHA-256-pinned) before packaging and
-`scripts/assert-packaged.js` fails the build if it is missing (review boundaries-1 — every
-installer built before that fix had no working video relay). A locally-run `npm run build`
-still needs `npm run setup` first.
+→ the run → `Artifacts`) — see the README CI section. CI fetches mediamtx before
+packaging and asserts the `--dir` package contains it; the NSIS installer is built from
+that same output. `[ci-TBD]` no windows-latest run has executed this yet, so that chain
+is unobserved end to end (review boundaries-1 — every installer built before this fix had
+no working video relay, by construction: the binary is gitignored and nothing populated
+`mediamtx/` before packaging). A locally-run `npm run build` still needs `npm run setup`
+first.
 
 electron-builder signs automatically when a certificate is provided via the environment (no
 secrets committed):

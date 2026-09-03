@@ -91,9 +91,11 @@ machine.
 
 The windows-latest job runs `node scripts/fetch-mediamtx.js` **before** packaging and
 `node scripts/assert-packaged.js dist/win-unpacked` **after** the `--dir` build and before
-the NSIS step, so the uploaded installer is asserted to contain the video relay
-(`resources/mediamtx/mediamtx.exe` + `mediamtx.yml`) and the runtime-loaded `proto/`
-rather than merely assumed to. Until that fetch step landed (review boundaries-1) every
+the NSIS step: CI fetches mediamtx before packaging and asserts the `--dir` package
+contains the video relay (`resources/mediamtx/mediamtx.exe` + `mediamtx.yml`) and the
+runtime-loaded `proto/`; the NSIS installer is built from that same `--dir` output but is
+never separately inspected. `[ci-TBD]` no windows-latest run has executed this yet. Until
+that fetch step landed (review boundaries-1) every
 CI-built installer shipped **without** `mediamtx.exe` — the binary is gitignored and
 `electron-builder.yml`'s `extraResources` copies whatever is in `mediamtx/`, including
 nothing — on a green run. The fetch verifies a SHA-256 pin
