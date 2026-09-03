@@ -331,7 +331,14 @@ function Get-W17InstalledApps {
 # not something this (non-Windows) session could execute and confirm —
 # [win-TBD] until a script here actually observes it on the VM.
 function Get-W17DefaultUserDataDir {
-    return (Join-Path $env:APPDATA 'w17-ground-station')
+    # Guarded for the same reason as Get-W17TempDir: Windows always sets
+    # APPDATA, but `Join-Path $null` throws ("Cannot bind argument to parameter
+    # 'Path' because it is null") and that throw lands before any script can
+    # write an envelope. Off-Windows this returns a clearly-wrong-but-harmless
+    # path rather than killing the run; the caller can always pass
+    # -UserDataDir explicitly.
+    if ($env:APPDATA) { return (Join-Path $env:APPDATA 'w17-ground-station') }
+    return (Join-Path (Get-W17TempDir) 'w17-ground-station-NO-APPDATA')
 }
 
 # HID: DualShock 4 (VID 054C, PID 05C4 or 09CC). Shared between 00-inventory.ps1
