@@ -43,8 +43,17 @@ npm run demo:low-battery    # same replay backend on the low-battery timeline: t
                             #   draining a real pack
 npm run build               # package a Windows .exe (electron-builder; unsigned by
                             #   default -- code-signing is opt-in, see docs/CODESIGNING.md)
+npm run setup               # fetch Electron + the pinned mediamtx binary into mediamtx/
+                            #   (REQUIRED before the first `npm start` / `npm run build`:
+                            #   the binary is gitignored, and a build without it ships
+                            #   with no video relay -- review boundaries-1)
+npm run assert:packaged     # after a build: assert dist/<...> really contains mediamtx
+                            #   + its config + the runtime proto/ (CI runs this too)
 npm run proto:check         # verify the head-intent proto mirror matches ../w17-mapper
                             #   (dev-only; not part of the hermetic test suite)
+npm run contract:check      # verify docs/windows_bridge_contract.md still reproduces the
+                            #   canonical iPhone_rc contract (hermetic; --sibling compares
+                            #   against a local iPhone_rc checkout at the recorded hash)
 npm run feel:check          # verify the ERS/gearbox feel constants still match
                             #   ../w17-control-fw's headers (dev-only, cross-repo;
                             #   --strict makes an absent checkout fail instead of skip.
@@ -52,12 +61,15 @@ npm run feel:check          # verify the ERS/gearbox feel constants still match
                             #   control-fw's own tools/link2_copy_check.sh)
 ```
 
-Both cross-repo checks pair with a **hermetic** test that runs in every CI against a
+All three cross-repo checks pair with a **hermetic** test that runs in every CI against a
 checked-in snapshot, so the snapshot is the single point of coupling and the suite never
-needs a sibling checkout: `test/protoDrift.test.js` for the mapper contract and
-`test/feelConstantsDrift.test.js` for the firmware feel values. Adopt an intended
-upstream change with `npm run proto:sync` / `npm run feel:sync`, then make the hermetic
-half green again.
+needs a sibling checkout: `test/protoDrift.test.js` for the mapper contract,
+`test/feelConstantsDrift.test.js` for the firmware feel values, and
+`test/contractMirrorDrift.test.js` for the iPhone bridge contract (plus its own
+`contract-mirror` CI job). Adopt an intended upstream change with `npm run proto:sync` /
+`npm run feel:sync` / `npm run contract:sync`, then make the hermetic half green again.
+The bridge-contract snapshot can only be written from an `iPhone_rc` checkout at the
+recorded revision, so it can never be rubber-stamped from this repo's own copy.
 
 (Two different "demos": the floating **▶ HUD preview · simulated** button on the setup
 gate just plays simulated inputs/physics into the HUD, while `npm run demo` feeds the
@@ -75,12 +87,21 @@ upload separately as `electron-smoke-logs` on failure. So the deployment target 
 tests, runtime boot, packaging, and the installer every push. CI does **not** prove real
 Wi-Fi, camera, iPhone, ELRS, or Windows DPAPI behavior — those are bench items
 (`docs/setup_flow_bench_checklist.md`). The GUI + WebRTC video are verified on the target
-machine. `[fix-wave: boundaries-1]` the windows-latest job does not yet run
-`node scripts/fetch-mediamtx.js` before packaging, so today's CI-built installer ships
-**without** the bundled `mediamtx.exe` — the artifact currently has no working video relay
-until that fix lands; a local `npm run build` is unaffected as long as `npm run setup` (or
-`npm run fetch-mediamtx`) ran first, since that populates `mediamtx/` on disk before
-`electron-builder.yml` copies it in.
+machine.
+
+The windows-latest job runs `node scripts/fetch-mediamtx.js` **before** packaging and
+`node scripts/assert-packaged.js dist/win-unpacked` **after** the `--dir` build and before
+the NSIS step, so the uploaded installer is asserted to contain the video relay
+(`resources/mediamtx/mediamtx.exe` + `mediamtx.yml`) and the runtime-loaded `proto/`
+rather than merely assumed to. Until that fetch step landed (review boundaries-1) every
+CI-built installer shipped **without** `mediamtx.exe` — the binary is gitignored and
+`electron-builder.yml`'s `extraResources` copies whatever is in `mediamtx/`, including
+nothing — on a green run. The fetch verifies a SHA-256 pin
+(`scripts/mediamtx-pin.json`, owner ruling OD-15(a)) and fails on a mismatch; a platform
+with no recorded digest yet installs with a loud `RECORD THIS` line carrying the observed
+value. **A local `npm run build` still needs `npm run setup` (or `npm run fetch-mediamtx`)
+first** — that is what populates `mediamtx/` on disk before `electron-builder.yml` copies
+it in. `npm run assert:packaged` runs the same check over a local build.
 
 ### Pre-ride setup flow (pit wall)
 

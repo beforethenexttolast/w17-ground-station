@@ -44,9 +44,13 @@ different mediamtx source). Confirm which, and the exact path.
 
 ## 3. mediamtx / WHEP
 
-`npm run fetch-mediamtx` pins **v1.9.3**. Confirm the WHEP endpoint answers at
-`http://127.0.0.1:8889/cam/whep` once a source is publishing. If you bump the version, re-check
-the `webrtc*` keys in `mediamtx.yml` against that release's docs.
+`npm run fetch-mediamtx` pins **v1.9.3** — the version tag AND a SHA-256 digest of the
+extracted binary (`scripts/mediamtx-pin.json`, owner ruling OD-15(a)). A digest mismatch
+deletes the download and fails; a platform with no recorded digest yet installs and prints
+a `RECORD THIS` line with the observed value to paste into the pin file. Bumping the
+version means re-recording every digest and re-checking the `webrtc*` keys in
+`mediamtx.yml` against that release's docs. Confirm the WHEP endpoint answers at
+`http://127.0.0.1:8889/cam/whep` once a source is publishing.
 
 ## 4. Telemetry (battery + link quality, over the ELRS backchannel)
 
