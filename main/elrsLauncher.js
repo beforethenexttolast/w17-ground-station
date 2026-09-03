@@ -55,6 +55,27 @@ class ElrsLauncher {
                 env: scrubW17Env(this._env),
                 windowsHide: false, // it has its own UI/console — let it show
             });
+            // Review correctness-3 (the same shape as correctness-4 on the
+            // mediamtx supervisor): spawn() returns cleanly and reports a
+            // START failure asynchronously as an 'error' event — EACCES,
+            // ENOEXEC, UNKNOWN: a program that is PRESENT (existsSync above
+            // passed) but cannot be executed, e.g. quarantined by Defender or
+            // carrying the mark-of-the-web. An 'error' event with no listener
+            // is an uncaught exception, so the try/catch around spawn does NOT
+            // cover it and the GRID's convenience button would take the whole
+            // viewer down. This listener is the entire fix: log it and let the
+            // GRID's own re-poll (detectRunning) report the program as not
+            // running, which is the truth.
+            //
+            // Nothing is "settled" here the way the mapper runner settles
+            // state: this launcher deliberately keeps NO handle on the child
+            // (that is the launch-only contract), so the closure's own `child`
+            // is the only identity involved and a late event can clobber
+            // nothing.
+            child.on('error', (err) => {
+                const code = (err && (err.code || err.message)) || 'unknown';
+                this._log(`[elrs] could not start ${elrsPath} (${code}); it is not running`);
+            });
             child.unref();
             this._log(`[elrs] launched detached: ${elrsPath} (this app will never stop it)`);
             return { ok: true };

@@ -49,16 +49,42 @@ class MediamtxSupervisor {
       // bench session can see exactly which knobs the running process carries.
       this._log(`[mediamtx] profile overrides: ${Object.entries(this._extraEnv).map(([k, v]) => `${k}=${v}`).join(' ')}`);
     }
-    this._proc = this._spawnFn(this._binaryPath, [this._configPath], {
+    const child = this._spawnFn(this._binaryPath, [this._configPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
       // Conditional spread: with no overrides the options object stays exactly
       // the historical literal (no `env` key), inheriting the parent env the
       // same implicit way it always did.
       ...(this._extraEnv ? { env: { ...this._baseEnv, ...this._extraEnv } } : {}),
     });
-    this._proc.stdout.on('data', (d) => this._log(`[mediamtx] ${d.toString().trimEnd()}`));
-    this._proc.stderr.on('data', (d) => this._log(`[mediamtx] ${d.toString().trimEnd()}`));
-    this._proc.on('exit', (code) => {
+    this._proc = child;
+    child.stdout.on('data', (d) => this._log(`[mediamtx] ${d.toString().trimEnd()}`));
+    child.stderr.on('data', (d) => this._log(`[mediamtx] ${d.toString().trimEnd()}`));
+    // Review correctness-4: 'error' fires when the child could not be STARTED
+    // and the failure surfaces asynchronously — EACCES / ENOEXEC / UNKNOWN, i.e.
+    // a binary that is PRESENT but unrunnable (Defender quarantine,
+    // mark-of-the-web, a wrong-arch download). spawn() itself returns cleanly in
+    // that case, so the try-free existsSync guard in start() does not cover it,
+    // and an 'error' event with no listener is an UNCAUGHT EXCEPTION: the
+    // documented soft-fail ("video disabled; HUD + telemetry still work",
+    // start() above and main/appWiring.js:166-167) became a main-process crash.
+    // For THIS failure Node never fires 'exit' either, so the restart timer has
+    // to be armed here.
+    //
+    // Identity-guarded exactly like main/mapperRunner.js:136-143: a late event
+    // from a replaced child (stop() ran, or a profile switch built a new one)
+    // must never clobber a newer run's state or arm a second timer.
+    child.on('error', (err) => {
+      if (this._proc !== child) return;
+      this._proc = null;
+      const code = (err && (err.code || err.message)) || 'unknown';
+      if (this._stopping) return;
+      this._log(`[mediamtx] could not start (${code}); video is off — retrying in 2s`);
+      this._restartTimer = setTimeout(() => this._spawn(), 2000);
+    });
+    child.on('exit', (code) => {
+      // The 'error' path above may have settled this child already, and after a
+      // restart `this._proc` is a NEWER child — never touch another run's state.
+      if (this._proc !== child) return;
       this._proc = null;
       if (this._stopping) return;
       this._log(`[mediamtx] exited (code ${code}); restarting in 2s`);

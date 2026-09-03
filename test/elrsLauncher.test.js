@@ -14,7 +14,10 @@ function launcher(result, platform) {
 }
 
 // Fake child seam: NO real process is ever spawned in this suite (workspace
-// rule — the launcher's real child is the control path itself).
+// rule — the launcher's real child is the control path itself). A REAL
+// EventEmitter, so an 'error' emit with no listener THROWS exactly as it does
+// in production — that is what makes the correctness-3 test below a genuine
+// regression proof rather than a restatement of the fix.
 function fakeChild() {
   const child = new EventEmitter();
   child.pid = 4242;
@@ -124,5 +127,30 @@ describe('ElrsLauncher.launchDetached — child environment (boundaries-4/5)', (
     expect(opts.windowsHide).toBe(false);  // it has its own UI/console — let it show
     expect(opts.cwd).toBe('/opt/elrs');
     expect(child().unref).toHaveBeenCalled();
+  });
+});
+
+// --- review correctness-3 (re-opened; the same shape as correctness-4 on the
+// mediamtx supervisor): spawn() returns cleanly and reports a START failure
+// asynchronously. An 'error' event with no listener is an uncaught exception,
+// so the try/catch around spawn does not cover it and the GRID's convenience
+// button would take the whole viewer down. ------------------------------------
+
+describe('ElrsLauncher.launchDetached — asynchronous spawn failure (correctness-3)', () => {
+  it('a present-but-unrunnable program is handled, not thrown, and is reported as not running', () => {
+    const { elrs, spawned, logs } = spawnHarness({ env: { PATH: '/usr/bin' } });
+    // existsSync passed (the file IS there) — this is the quarantined /
+    // wrong-arch / EACCES case that only surfaces after spawn returns.
+    expect(elrs.launchDetached('C:\\Tools\\elrs\\elrs-joystick-control.exe')).toEqual({ ok: true });
+    const err = Object.assign(new Error('spawn EACCES'), { code: 'EACCES' });
+    expect(() => spawned[0].child.emit('error', err)).not.toThrow();
+    expect(logs.join('\n')).toMatch(/could not start .*\(EACCES\); it is not running/);
+  });
+
+  it('the launcher still keeps no handle on the child: no kill/stop path is introduced', () => {
+    const { elrs } = spawnHarness({ env: {} });
+    expect(elrs.stop).toBeUndefined();
+    expect(elrs.kill).toBeUndefined();
+    expect(elrs.restart).toBeUndefined();
   });
 });

@@ -38,15 +38,17 @@ they do:
   (WHEP/HTTP, what the HUD's video element actually connects to), and UDP `8189` (WebRTC
   ICE). This is what makes the video pipeline work at all — if this prompt is dismissed
   with "Cancel" instead of "Allow access," the picture will not appear (a soft-fail, not a
-  crash — the HUD, controller, and telemetry keep working). `[fix-wave: correctness-4]`
-  **Today's truth, a narrower case than the firewall prompt above:** that soft-fail only
-  covers a *missing* binary (`main/mediamtx.js` checks `existsSync` before spawning) or one
-  that spawns and later exits (auto-restarted). A binary that is *present but cannot run at
-  all* — e.g. quarantined by antivirus/SmartScreen without being deleted — hits a spawn
-  that fails asynchronously with an `'error'` event, and `MediamtxSupervisor._spawn()`
-  (`main/mediamtx.js:52-58`) attaches `stdout`/`stderr`/`exit` handlers but no `'error'`
-  handler. That is an uncaught exception in the main process today, not the soft-fail
-  described above — do not assume this shape degrades gracefully until that fix lands.
+  crash — the HUD, controller, and telemetry keep working). The soft-fail covers all three
+  shapes of "no video": a *missing* binary (`main/mediamtx.js` checks `existsSync` before
+  spawning), one that spawns and later exits (auto-restarted every 2 s), and — since the
+  correctness-4 fix — one that is *present but cannot run at all*, e.g. quarantined by
+  antivirus/SmartScreen without being deleted, or carrying the mark-of-the-web. That last
+  shape fails asynchronously with an `'error'` event after `spawn()` has already returned
+  cleanly; `MediamtxSupervisor._spawn()` now attaches an identity-guarded `'error'` handler
+  beside the `stdout`/`stderr`/`exit` ones, logs `could not start (<code>); video is off`,
+  and re-tries every 2 s. Before that handler existed it was an uncaught exception in the
+  main process — the whole viewer died — so this is the shape to re-check on the bench if
+  the app ever disappears at launch (`test/mediamtxSupervisor.test.js` pins it).
 
 **Tell the giftee in advance:** click **Allow access** (Private networks is enough — the
 gift's use case is a private/hotspot network, never a public one) for both prompts if they
