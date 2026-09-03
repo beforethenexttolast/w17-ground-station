@@ -24,7 +24,7 @@
 
 # W17 iPhone <-> Windows Bridge Contract
 
-Last updated: 2026-08-17 (Discovery: explicit receiver acceptance policy, v1-compatible clarification)
+Last updated: 2026-09-04 (Future Video Path: names the phone's chosen v1.0 video path per owner decision OD-16 — clarification, no schema or wire change)
 
 This document defines the W17 integration contract between the existing iPhone FPV HUD / head-tracking app and the future Windows ground-station bridge.
 
@@ -95,6 +95,8 @@ APFPV/OpenIPC camera — approved baseline H.264 1280×720 60 fps
 ```
 
 Windows does not forward or re-encode the preferred iPhone path. APFPV diagnostics are packet-statistics only until the native decoder milestone. If hardware cannot sustain the baseline on both clients, the limitation must be escalated; it must not silently become H.265-only, RTP-push-only, or single-receiver behavior. Video remains outside the W2/W3 schema and authority paths.
+
+As of owner decision OD-16 (2026-09-03), the iPhone's v1.0 video path is a read-only WHEP/WebRTC pull of the ground station's already-published mediamtx stream rather than the direct RTP path diagrammed above, which is retained as the recorded fallback; this changes no schema, adds no field, creates no authority, and leaves video outside W2/W3 exactly as stated above — the phone consumes pictures from a viewer server and sends nothing but its own SDP offer.
 
 ### Forbidden Path
 
@@ -272,6 +274,17 @@ The iPhone must not know or parse those raw upstream protocols.
 ### Nullable And Unknown Values
 
 The preferred full snapshot is complete and non-null for required fields. For bench compatibility, the current iPhone parser tolerates missing fields and merges partial packets with the previous raw telemetry state.
+
+**The baseline before any packet is unknown, never demo (contract step, 2026-09-03).** The
+merge is against what the car has actually said so far. Before the first packet there is
+nothing to merge against: every field is unknown, and the iPhone renders the placeholder
+tokens below (`--.- V`, `--`, `-- km/h`) rather than inheriting values from the app's own
+demo/showcase state. This holds per field and independently of link health — a field
+Windows has never sent stays a placeholder even while the link reads healthy. A partially
+populated dash is correct; an invented number is not, and a fabricated pack voltage must
+never be able to arm (or silence) the iPhone's low-battery banner. This is a clarification
+of the honesty policy already ratified below: no wire change, no schema change, no new
+field.
 
 Safety rule for Windows: do not keep publishing old values as fresh. If Windows loses a source, it should either:
 
