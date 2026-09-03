@@ -9,8 +9,12 @@ checkpoints/status live in `../CURRENT_STATUS.md`, never here.
 - Electron ground-station app; runs on Windows (the deployment target), also macOS/Linux.
 - Integrates **video** (RTSP → mediamtx → WebRTC/WHEP), the **HUD**, and **telemetry**.
 - **Windows is the control/integration authority.** The iPhone is a thin HUD/client only.
-- This app is a **viewer** — it does not drive the car; control stays with
-  elrs-joystick-control (DualShock → CRSF → ELRS).
+- This app is a **viewer** — it does not drive the car. The GRID launch of
+  elrs-joystick-control (DualShock → CRSF → ELRS) is detached and fire-and-forget: this app
+  starts it but has no kill/stop/restart path to it (`main/elrsLauncher.js`). Race day
+  separately may *manage* the mapper binary's PROCESS lifecycle (start/liveness/stop) —
+  managing a process is not driving the car; see the guardrail below for what that still
+  forbids.
 - **Firmware is a separate concern** (own repos: `w17-control-fw`, `w17-soundlight-fw`)
   and is never edited or reached from here.
 
@@ -39,6 +43,14 @@ checkpoints/status live in `../CURRENT_STATUS.md`, never here.
 - Keep the `noControlPath`-style tests green (`test/noControlPath.test.js`) — they assert
   head-tracking intent never reaches control outputs. If a change trips them, the change is
   wrong, not the test.
+- Race day may **manage the mapper PROCESS** — start, liveness, stop
+  (`main/mapperRunner.js`, `main/raceDayOrchestrator.js`) — but must never **send it
+  anything**: no stdin (the child's input stream is closed outright), no IPC/RPC, nothing on
+  UDP 5602; argv is limited to `MAPPER_ARG_WHITELIST` and the child env is scrubbed of the
+  entire `W17_*` namespace. This is a deliberate evolution of the launch-only doctrine above,
+  not an exception to it — the GRID launcher stays detached and unstoppable.
+  `test/noControlPath.test.js:116-151` pins it structurally; if a change trips it, the change
+  is wrong.
 - Never route head-tracking intent (`main/HeadTrackingReceiver.js`,
   `shared/headTracking.js`) into any control output.
 - Do not casually change the bridge contract. `iPhone_rc` (Claude-owned since 2026-08-17,
