@@ -63,19 +63,35 @@ replay **telemetry** source — live-looking car data, no car.)
 Runs on Windows, macOS and Linux (Electron is cross-platform; the `.exe` is just the
 deployment target). CI runs the full suite on Ubuntu (fast gate) and, on windows-latest,
 runs the suite **plus** `npm run smoke:electron` (a real boot of the app under a scrubbed,
-Wi-Fi-simulated environment) **plus** an `electron-builder --dir` package build — so the
-deployment target proves tests, runtime boot, and packaging every push. CI does **not**
-prove real Wi-Fi, camera, iPhone, ELRS, or Windows DPAPI behavior — those are bench items
+Wi-Fi-simulated environment) **plus** an `electron-builder --dir` package build, **plus**
+the unsigned NSIS installer (`npx electron-builder --win nsis --publish never`,
+`.github/workflows/ci.yml:67`) — **this is the gift-kit deliverable**, uploaded on every
+green run as the `w17-ground-station-nsis-unsigned` artifact (`.exe` + `.blockmap`,
+`if-no-files-found: error` so a silent packaging regression fails loudly); smoke logs
+upload separately as `electron-smoke-logs` on failure. So the deployment target proves
+tests, runtime boot, packaging, and the installer every push. CI does **not** prove real
+Wi-Fi, camera, iPhone, ELRS, or Windows DPAPI behavior — those are bench items
 (`docs/setup_flow_bench_checklist.md`). The GUI + WebRTC video are verified on the target
-machine.
+machine. `[fix-wave: boundaries-1]` the windows-latest job does not yet run
+`node scripts/fetch-mediamtx.js` before packaging, so today's CI-built installer ships
+**without** the bundled `mediamtx.exe` — the artifact currently has no working video relay
+until that fix lands; a local `npm run build` is unaffected as long as `npm run setup` (or
+`npm run fetch-mediamtx`) ran first, since that populates `mediamtx/` on disk before
+`electron-builder.yml` copies it in.
 
 ### Pre-ride setup flow (pit wall)
 
-The app opens into a four-step, F1-styled setup instead of a bare start button:
+The app opens into a five-step, F1-styled setup for an *iPhone Cockpit* session (four for
+*Desktop FPV* — PIT WALL is skipped entirely, per `shared/setupSteps.mjs`) instead of a
+bare start button. `boot()` always lands on GARAGE first, even for a returning driver —
+there is no direct-to-GRID boot path; see the returning-driver card below.
 
 1. **GARAGE** — pick the session: *Desktop FPV* (laptop only) or *iPhone Cockpit* (adds
    the telemetry bridge + network step; live HUD on the iPhone today, the planned FPV/VR
    view later). Persisted values stay `solo` / `iphone-hud` — display labels only.
+   A completed prior session shows a **WELCOME BACK — LAST SESSION READY** card here with
+   a **STRAIGHT TO THE GRID ▸** button (resumes directly, re-running the GRID checks) and,
+   beside it, the **RACE DAY ▸ BRING EVERYTHING UP** control described below.
 2. **PIT WALL** *(iPhone mode, Windows)* — scan and join a WiFi network, or start a local
    hotspot (SSID `W17-GRID` by default; Mobile Hotspot backend preferred, legacy
    `hostednetwork` fallback for the RT5370 dongle). Each scanned network is classified by
@@ -115,12 +131,71 @@ The app opens into a four-step, F1-styled setup instead of a bare start button:
    **steering / throttle / brake only** on the HUD (camera pan/tilt stays gamepad-only); it
    is a display mirror like everything else here — no control path. Activation always boots
    GAMEPAD and is never saved; only the calibrated wheel profile persists.
-4. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
+4. **SETUP** — mode & camera display preferences, split from SEAT FIT
+   (`renderer/index.html` `data-step="setup"`): **DRIVE MODE** is a persisted *display*
+   preference for how the HUD previews throttle/gears/energy (NORMAL/SIMULATION/FULL SIM)
+   — not a control command, the car's own reported drive mode always wins in the HUD once
+   telemetry is live. **CAMERA MODE** shows the setup-time AVAILABLE/REQUESTED default
+   (manual, right-stick) beside an ACTIVE AUTHORITY line that stays "NOT REPORTED BY
+   MAPPER" — this viewer never observes which source the mapper actually picks. Head
+   Tracking is listed but LOCKED (no safe control path yet).
+5. **GRID** — pre-race checklist: video lock, controller, telemetry (when configured),
    iPhone reachability (iPhone mode), elrs-joystick-control detected (with a LAUNCH
    button). A summary strip shows what's configured (mode · network · adapter · pad) and
    every failing check carries a one-line fix hint. START enables when required checks
    pass; an amber **START ANYWAY** always works — the viewer must never lock you out of
    driving. Then five red lights… lights out.
+
+### RACE DAY (one-action bring-up, GARAGE)
+
+Alongside the returning-driver **STRAIGHT TO THE GRID** card, GARAGE also shows a
+**RACE DAY ▸ BRING EVERYTHING UP** control (`main/raceDayOrchestrator.js`,
+`shared/raceDayView.mjs` for the plain-language step lines). One press sequences three
+existing authorities in order — nothing here is a new one:
+
+1. **Car Wi-Fi** — if the saved network plan is the hotspot, starts (or re-verifies) it
+   through the same hotspot lifecycle PIT WALL uses.
+2. **Drive program** — starts the configured drive program (the mapper /
+   elrs-joystick-control binary) as a **managed child** (`main/mapperRunner.js`) with the
+   saved controller profile, *if* it isn't already running (either race-day-managed or
+   detected running externally, e.g. launched from GRID's own LAUNCH button).
+3. **Phone link** — switches on the W2 telemetry bridge per settings, for iPhone sessions
+   that opted in.
+
+The drive-program location, the saved controller-profile path, and the "switch the phone
+link on too" checkbox are set once in the ⚙ **RACE DAY** fields (see the ⚙ inventory
+below) — the giftee only ever presses the one GARAGE button. The sequence halts at the
+first failing step (nothing already up is wound back); pressing RACE DAY again re-runs
+idempotently. **STOP RACE DAY** appears only while race day's own managed drive-program
+child is running, and stops *only* that child — the hotspot stays governed by PIT WALL /
+the quit dialog, exactly as before this feature.
+
+**Command-line policy (the line this feature deliberately draws, and no further):** race
+day may manage the drive program's **process** — start, liveness, stop — but never *sends*
+it anything. The child's stdin is closed outright (no writable handle exists), there is no
+IPC/RPC channel to it and nothing is ever written to the mapper's diagnostic UDP port
+(W3 stays exactly as documented above). The **only** command-line flag race day can ever
+pass is `-config-file-path <saved profile>` — `MAPPER_ARG_WHITELIST` in
+`raceDayOrchestrator.js` is a closed list of exactly that one flag, and the child's
+environment is scrubbed of the entire `W17_*` namespace before spawn
+(`main/mapperRunner.js` `_childEnv()`) so an experimental mapper flag can never reach it
+by inheritance either. `test/noControlPath.test.js` and `test/raceDayOrchestrator.test.js`
+pin both the whitelist and the closed-stdin/no-IPC shape structurally — if a change trips
+them, the change is wrong.
+
+This is a **different contract** from the GRID's own **ELRS CONTROL** row further down:
+that row's LAUNCH button starts the drive program *detached* and is structurally unable to
+stop it or talk to it (the launch-only doctrine, unchanged) — a bug in this app can never
+stop a program launched that way. RACE DAY's managed child is the opposite case: this app
+started it, so this app (STOP RACE DAY, or app teardown) can and does stop it again. Only
+one of the two launch paths applies to any given running instance.
+
+`[fix-wave: SYN-2]` **Today's truth:** starting the drive program is not the same as
+confirming the actual radio link to the car is up — race day's MAPPER step turns "ok" once
+the process is running (or was already running), but nothing in this sequence confirms a
+CRSF frame is actually leaving the PC over the station-box serial link. Do not read a green
+RACE DAY card as proof the car will respond to the controller; that gap is a tracked,
+gift-blocking fix (`SYN-2`) still open as of this pass.
 
 Choices persist in `settings.json` under Electron's userData dir; **env vars always
 override persisted settings** (dev/CI behavior unchanged). The one persisted secret — the
@@ -128,14 +203,35 @@ hotspot password — is **encrypted at rest** via Electron `safeStorage` (Window
 macOS Keychain / Linux libsecret); it is never written to disk in plaintext (including the
 `.bak`), there is no app-managed key, and when secure storage is unavailable the password
 is kept for the session only rather than persisted. Transient Wi-Fi *join* passwords are
-never persisted at all. The ⚙ menu is a modal
-(backdrop click / Escape closes) holding radio-sound (off by default), the start-lights
-countdown toggle (on by default; off = straight into the HUD), the log-only head-track
-toggle, the elrs-joystick-control path (launch-only: this app starts it detached and can
-never stop it), and telemetry source/COM port. Zero-config iPhone discovery
-(`_w17hud._udp.local.`) is implemented — see `docs/proposals/iphone_mdns_discovery.md`
-"As built". It queries only while PIT WALL is the active step, adds no dependency, and
-produces user-confirmed hints only; real-device verification is still pending.
+never persisted at all. The ⚙ menu (`RACE OPS · SETTINGS`, `renderer/index.html`
+`#settingsMenu`) is a modal (backdrop click / Escape closes) holding, top to bottom:
+
+- **RADIO SOUNDS** — off by default.
+- **START LIGHTS** — the five-red-lights countdown before the HUD. **Off by default**
+  (`shared/settings.js` `startLightsEnabled: false`) — the gift-day handover checklist is
+  what switches it on; off = straight into the HUD.
+- **HEAD-TRACK LOGGING** — diagnostic only, no camera control (W3, see above); off by
+  default, an env badge shows when `W17_HEADTRACK` overrides it.
+- **ELRS PATH** — where the GRID's own convenience LAUNCH button finds the drive program
+  (launch-only: this app starts *that* instance detached and structurally cannot stop or
+  talk to it — see the RACE DAY subsection above for the *different*, managed launch path).
+- **TELEMETRY** — source (`none` / `replay` / `crsf-serial`) and COM port, each with an env
+  badge when `W17_TELEMETRY_SOURCE` / `W17_TELEMETRY_PORT` locks it.
+- **LOW BATTERY** — warn/critical pack-voltage thresholds for the HUD banner (defaults suit
+  a 2S LiPo: warn 7.0 V, critical 6.6 V; `shared/lowBattery.mjs`). Rehearse the banner with
+  `npm run demo:low-battery` (below) without draining a real pack.
+- **VIDEO STYLE** — the same DRIVE/SHOWPIECE choice as the GARAGE selector, reachable
+  mid-session; switching restarts the video feed (`docs/video_profiles.md`).
+- **RACE DAY** — the drive-program location and the saved controller-profile path that the
+  one-action RACE DAY button (above) launches with; set once during gift-kit install.
+- **PHONE LINK ON RACE DAY** — whether RACE DAY also switches the phone telemetry bridge on
+  (iPhone sessions only).
+- **RE-RUN SETUP** button — re-enters the setup flow from GARAGE without losing settings.
+
+Zero-config iPhone discovery (`_w17hud._udp.local.`) is implemented — see
+`docs/proposals/iphone_mdns_discovery.md` "As built". It queries only while PIT WALL is the
+active step, adds no dependency, and produces user-confirmed hints only; real-device
+verification is still pending.
 
 The OS-touching pieces (netsh scan/join, both hotspot backends, elrs detection) are
 unit-tested against canned command output but **not yet validated on the Windows
@@ -229,6 +325,30 @@ W17_MAPPER_GRPC_ADDR=127.0.0.1:10000 # mapper gRPC endpoint (default loopback)
   `RECONNECTING`), never crashes — and never affect the elrs launcher.
 - The HUD session panel shows a `HEAD-INTENT · <state> · NO CONTROL` chip while the
   consumer is enabled; hidden otherwise. See `docs/head_intent_diagnostics.md`.
+
+### Other environment variables (dev/ops)
+
+Env-only knobs (never persisted settings), on top of `W17_WIFI_SIM`,
+`W17_IPHONE_BRIDGE*`, `W17_HEADTRACK*`, `W17_MAPPER_HEADINTENT*` and
+`W17_TELEMETRY_SOURCE`/`W17_TELEMETRY_PORT` documented above:
+
+```
+W17_FULLSCREEN=1            # force the main window full screen (dev); 0 forces
+                            #   it windowed even on a packaged build. Unset:
+                            #   packaged = full screen, dev run = windowed
+                            #   (main/appWiring.js resolveFullscreen)
+W17_MEDIAMTX_DIR=/path/dir  # look for mediamtx(.exe) + mediamtx.yml in this
+                            #   directory instead of the usual dev/packaged
+                            #   location (used by the smoke test to exercise
+                            #   the missing-binary soft-fail deterministically)
+W17_WHEP_URL=http://host:8889/cam/whep  # override the WHEP endpoint the HUD
+                            #   connects to (default 127.0.0.1:8889/cam/whep)
+W17_REPLAY_TIMELINE=low-battery  # which scripted timeline W17_TELEMETRY_SOURCE=replay
+                            #   plays (an unknown name falls back to the
+                            #   standard demo loop, logged, not a hard error);
+                            #   `npm run demo:low-battery` sets this for you —
+                            #   see the Run section above
+```
 
 ### Troubleshooting (dev environment)
 
