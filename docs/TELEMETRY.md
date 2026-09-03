@@ -89,11 +89,34 @@ On Windows a COM port opens for **exclusive access** by default (`CreateFile` `d
 so only one process holds it — and `elrs-joystick-control` holds it to *write* control. The
 telemetry comes back *in* on that same port, but our app can't open it a second time. Resolve
 by "one owner redistributes" (SETUP.md §4):
-1. **elrs-joystick-control forwards telemetry** (a UDP/log/stdout flag) → point the source at
-   that. Verify whether it can.
-2. **com0com/hub4com virtual-COM splitter** → one owner mirrors the physical port; elrs-jc opens
-   one virtual port, our app opens another to read. `W17_TELEMETRY_PORT` = the reader end.
-3. (Not recommended) our app owns the port — reverses the viewer-only safety choice.
+1. **Read it from the drive program's own stream** — `W17_TELEMETRY_SOURCE=mapper-grpc`, and what
+   race day now selects for itself. THE SHIPPED ANSWER (owner decision OD-4); see below.
+2. ~~elrs-joystick-control forwards telemetry (a UDP/log/stdout flag)~~ — **it cannot.**
+   `cmd/elrs-joystick-control/main.go` has no such flag; the old "verify whether it can" line is
+   settled, in the negative. Option 1 is the same idea done over the interface it does have.
+3. **com0com/hub4com virtual-COM splitter** → one owner mirrors the physical port; elrs-jc opens
+   one virtual port, our app opens another to read. `W17_TELEMETRY_PORT` = the reader end. A
+   hobbyist install; not on the gift kit's path.
+4. (Not recommended) our app owns the port — reverses the viewer-only safety choice.
+
+### The shipped answer: `mapper-grpc` (owner decision OD-4)
+
+The drive program already decodes these frames for its own UI and publishes them on a **read-only
+server stream**, so the ground station reads them from there instead of fighting for the port.
+`main/MapperTelemetrySource.js` consumes `getTelemetryStream` (mirrored in
+`proto/mapper_readonly_streams.proto` from `w17-mapper/pkg/proto/server.proto:575`) on
+`127.0.0.1:10000` and feeds the ordinary snapshot path, so BATT, the low-battery banner and the
+send-only phone bridge all work with no other change. It is read-only by construction — the
+mirrored service declares no mutating RPC at all — and `test/noControlPath.test.js` pins that.
+
+**Two unit differences from the serial path**, both handled in `shared/mapperTelemetry.js` and
+both pinned by `test/mapperTelemetry.test.js`, because they come from upstream assuming a
+Betaflight flight controller rather than this car:
+- **Speed.** The mapper divides the raw CRSF groundspeed by 100 and documents it as m/s; the car
+  encodes the standard 0.1 km/h unit, so the conversion is **×10, not ×3.6**. A golden test feeds
+  the same wire bytes through both readers and requires the same km/h.
+- **SNR.** The mapper reads the uplink SNR byte unsigned, so −6 dB arrives as 250; it is
+  reinterpreted as the signed byte it is.
 
 ### Frame → Telemetry mapping (`shared/crsfTelemetry.js`, unit-tested)
 - **Battery 0x08** (8-byte BE payload) → `batteryV` / `batteryPct` via `decodeBattery`.
