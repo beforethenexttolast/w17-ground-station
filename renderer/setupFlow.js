@@ -193,6 +193,10 @@ function updateFastPath() {
 const raceDayBtn = el('raceDayBtn'), raceDayStopBtn = el('raceDayStopBtn');
 const raceDayStepsEl = el('raceDaySteps'), raceDayHeadlineEl = el('raceDayHeadline');
 let raceDaySnap = null;
+// Owner decision OD-6: set by a SUCCESSFUL race-day press, consumed by the
+// GRID's first all-green check, and cleared by leaving the GRID. Nothing else
+// arms it — a pushed snapshot, a manual visit, or a failed bring-up never do.
+let autoStartArmed = false;
 
 // Same snapshot-adoption gate as the hotspot/adapter mirrors: pushes carry the
 // authority's monotonic seq, and anything older than the newest held is
@@ -259,7 +263,17 @@ if (raceDayBtn) {
     // Every state change arrives via the push; the awaited answer only
     // backstops an IPC rejection with an honest radio line (audit N1 shape).
     const res = await ipc(gs.raceDayStart(), null, 'raceday:start');
-    if (!res) radio('RACE DAY: COULD NOT START — TRY AGAIN');
+    if (!res) { radio('RACE DAY: COULD NOT START — TRY AGAIN'); return; }
+    // Owner decision OD-6. The booklet promises ONE press; the shipped flow was
+    // three (RACE DAY, then STRAIGHT TO THE GRID, then START). A bring-up that
+    // succeeded walks the operator the rest of the way itself: on to the GRID,
+    // and — once its own checks come back green — into the session. A bring-up
+    // that FAILED does nothing of the sort: the card is showing what went wrong
+    // and the operator is needed there.
+    if (res.ok) {
+      autoStartArmed = true;
+      showStep('grid');
+    }
   });
   raceDayStopBtn.addEventListener('click', async () => {
     sounds.uiTick();
@@ -1743,6 +1757,9 @@ function leaveGrid() {
   clearInterval(gridTimer);
   gridTimer = null;
   announced.clear();
+  // Leaving the GRID cancels the automatic press (OD-6): whatever the operator
+  // did instead, they are steering now.
+  autoStartArmed = false;
 }
 
 async function gridTick() {
@@ -1816,6 +1833,17 @@ function renderChecks() {
   }));
   startBtn.disabled = !ready;
   startAnywayBtn.classList.toggle('hidden', ready);
+  // OD-6, second half: the last press of the three. Only ever from a race-day
+  // success (a deliberate visit to this screen keeps its manual START), only
+  // when every REQUIRED check is green — canStart is the same gate the button
+  // uses, so auto-start can never do what the button would refuse — and only
+  // once, because the arm is cleared before the session begins. START ANYWAY
+  // stays exactly as it was, for the operator who wants to drive past a red row.
+  if (ready && autoStartArmed && !lightsRunning) {
+    autoStartArmed = false;
+    radio('ALL CHECKS GREEN — GOING RACING');
+    beginStart();
+  }
 }
 
 el('changeSetup').addEventListener('click', () => { sounds.uiTick(); showStep('garage'); });

@@ -70,8 +70,11 @@ function mockGs(overrides = {}) {
     probeHost: vi.fn(async () => ({ ok: false, error: 'no reply' })),
     elrsStatus: vi.fn(async () => ({ configured: false, detected: false })),
     elrsLaunch: vi.fn(async () => ({ ok: true })),
-    // One-action race day (2026-08-17 wave): idle orchestrator by default.
-    raceDayStart: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+    // One-action race day (2026-08-17 wave): idle orchestrator by default, and
+    // a bring-up that did NOT fully succeed — this double has no world to bring
+    // up, and a success now walks the operator on to the GRID (OD-6), which the
+    // GARAGE-card tests below are not about.
+    raceDayStart: vi.fn(async () => ({ ok: false, snapshot: raceDayIdleSnap() })),
     raceDayStop: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
     raceDayStatus: vi.fn(async () => raceDayIdleSnap()),
     onRaceDayState: vi.fn(() => () => {}),
@@ -512,6 +515,111 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     await tick();
     expect(el('raceDayBtn').disabled).toBe(false); // still the seq-5 state
     expect([...el('raceDaySteps').children][1].querySelector('span').textContent).toBe('running');
+  });
+
+  // Owner decision OD-6. The booklet promises ONE press; the shipped flow was
+  // three. A bring-up that succeeded now walks the rest of the way itself.
+  it('a SUCCESSFUL race day goes straight on to the GRID', async () => {
+    const { gs } = await loadReturningUser({
+      raceDayStart: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+    });
+    expect(activeStep()).toBe('garage');
+    el('raceDayBtn').click();
+    await tick();
+    expect(gs.raceDayStart).toHaveBeenCalledTimes(1);
+    expect(activeStep()).toBe('grid');
+  });
+
+  it('a FAILED bring-up stays on the card, where the operator is needed', async () => {
+    await loadReturningUser({
+      raceDayStart: vi.fn(async () => ({ ok: false, snapshot: raceDayIdleSnap() })),
+    });
+    el('raceDayBtn').click();
+    await tick();
+    expect(activeStep()).toBe('garage');
+  });
+
+  it('an IPC rejection stays put and says so, rather than advancing on nothing', async () => {
+    await loadReturningUser({
+      raceDayStart: vi.fn(async () => { throw new Error('main is gone'); }),
+    });
+    el('raceDayBtn').click();
+    await tick();
+    expect(activeStep()).toBe('garage');
+  });
+
+  // OD-6, the last of the three presses. The auto-START is gated on exactly the
+  // check that gates the button, so it can never do what the button refuses.
+  it('once the GRID checks come back green the session starts itself, with no third press', async () => {
+    const settings = {
+      ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', startLightsEnabled: false,
+    };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      setSettings: vi.fn(async (patch) => { Object.assign(settings, patch); return settings; }),
+      raceDayStart: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+    });
+    await loadRenderer(gs);
+    // The two REQUIRED checks in this mode: a live picture and a controller.
+    Object.defineProperty(window.navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [{
+        id: 'DualShock 4', index: 0, connected: true, mapping: 'standard',
+        axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })),
+      }],
+    });
+    el('feed').dispatchEvent(new Event('playing'));
+
+    el('raceDayBtn').click();
+    // One press: on to the GRID, whose own immediate check finds everything
+    // green and goes. (No 'grid' assertion in between — by design the screen is
+    // already handing over to the session by the next tick.)
+    await vi.waitFor(() => {
+      expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(false);
+    });
+    expect(gs.raceDayStart).toHaveBeenCalledTimes(1);
+    expect(settings.setupCompleted).toBe(true);
+  });
+
+  it('a red check does NOT start itself — START ANYWAY stays the operator\'s call', async () => {
+    const settings = {
+      ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', startLightsEnabled: false,
+    };
+    const gs = mockGs({
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      raceDayStart: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+    });
+    await loadRenderer(gs);
+    // No gamepad, no picture: both required checks are red.
+    el('raceDayBtn').click();
+    await tick(); await tick(); await tick();
+    expect(activeStep()).toBe('grid');
+    expect(el('startBtn').disabled).toBe(true);
+    expect(el('startAnywayBtn').classList.contains('hidden')).toBe(false);
+    expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(true);
+  });
+
+  it('a MANUAL trip to the GRID keeps its manual START (the arming is race day\'s alone)', async () => {
+    const settings = {
+      ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', startLightsEnabled: false,
+    };
+    const gs = mockGs({ getSettings: vi.fn(async () => ({ settings, envOverridden: {} })) });
+    await loadRenderer(gs);
+    Object.defineProperty(window.navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [{
+        id: 'DualShock 4', index: 0, connected: true, mapping: 'standard',
+        axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })),
+      }],
+    });
+    el('feed').dispatchEvent(new Event('playing'));
+    el('fastPathBtn').click(); // STRAIGHT TO THE GRID, by hand
+    await tick(); await tick(); await tick();
+    expect(activeStep()).toBe('grid');
+    expect(el('startBtn').disabled).toBe(false);   // ready…
+    expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(true); // …but not taken
   });
 
   it('a fresh user has no race-day surface at all (the card itself is hidden)', async () => {
