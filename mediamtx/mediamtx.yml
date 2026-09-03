@@ -22,12 +22,20 @@ webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 # ICE HOST CANDIDATES. This list is what mediamtx ADVERTISES as reachable
 # addresses; a viewer that cannot reach any advertised candidate gets signalling
-# and then silence. 127.0.0.1 serves the laptop's own renderer. 192.168.137.1 is
-# the Windows ICS gateway address the hotspot always takes (main/hotspot.js
-# icsHostIp() looks for exactly that /24, and main/hotspotVerify.js checks the
-# same interface), so it is the address the phone sees this laptop at -- listed
-# explicitly rather than trusting interface auto-detection to have enumerated an
-# ICS adapter that may have appeared after mediamtx started.
+# and then silence. 127.0.0.1 serves the laptop's own renderer.
+#
+# 192.168.137.1 is the address the phone is EXPECTED to see this laptop at.
+# [win-TBD] -- that expectation is not verified here and has never been observed
+# on real Windows. What this repo actually checks is the /24, not the .1:
+# main/hotspot.js icsHostIp() returns the first non-internal IPv4 starting
+# "192.168.137." (whatever the last octet turns out to be), and
+# main/hotspotVerify.js icsGateway() matches the same prefix on the same
+# interface. ".1" is Windows ICS convention, not something this code asserts, so
+# a host that lands on another address in that /24 would be advertised wrongly
+# here. It is listed explicitly rather than trusting interface auto-detection to
+# have enumerated an ICS adapter that may have appeared after mediamtx started.
+# docs/GIFTEE_FIRST_LAUNCH.md hedges the same fact the same way; WS3 is where it
+# gets settled.
 # Harmless with no hotspot up: an unreachable candidate simply loses the ICE
 # race, and the loopback one still wins for the local renderer.
 webrtcAdditionalHosts: [127.0.0.1, 192.168.137.1]

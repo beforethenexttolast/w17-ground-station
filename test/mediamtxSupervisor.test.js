@@ -151,16 +151,22 @@ describe('mediamtx.yml — reachable from the hotspot, not only from loopback', 
 
   it('the ICE host candidates include the hotspot address the phone sees, and still loopback', () => {
     const hosts = value('webrtcAdditionalHosts');
-    // 127.0.0.1 serves the laptop's own renderer; 192.168.137.1 is the Windows
-    // ICS gateway address the hotspot always takes — the same /24
-    // main/hotspot.js icsHostIp() looks for. Without it the phone can complete
+    // 127.0.0.1 serves the laptop's own renderer; 192.168.137.1 is the address
+    // the phone is expected to see. Without it the phone can complete
     // signalling and then receive nothing.
     expect(hosts).toContain('127.0.0.1');
     expect(hosts).toContain('192.168.137.1');
   });
 
-  it('the ICS address the config advertises is the one this app itself looks for', () => {
+  it('the ICS address the config advertises is in the /24 this app itself looks for — and says the .1 is unverified', () => {
     const hotspotSrc = readFileSync(new URL('../main/hotspot.js', import.meta.url), 'utf8');
-    expect(hotspotSrc).toContain('192.168.137.');
+    // Review finding 8: what the code checks is the PREFIX, not the last octet.
+    // The config used to claim the hotspot "always takes" .1 and cite this
+    // function as support; it does not support that.
+    expect(hotspotSrc).toContain("startsWith('192.168.137.')");
+    expect(value('webrtcAdditionalHosts')).toContain('192.168.137.');
+    // So the claim is hedged where it is made, the way the giftee doc hedges it.
+    expect(yml).toContain('[win-TBD]');
+    expect(yml).not.toContain('the hotspot always takes');
   });
 });

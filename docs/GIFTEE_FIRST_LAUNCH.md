@@ -54,8 +54,11 @@ they do:
   cover the hotspot adapter, not only the laptop's own loopback: **Allow access** with
   **Private networks** ticked. `mediamtx/mediamtx.yml` already binds `:8889` on every
   interface (a bare `:port` is all interfaces), and now advertises `192.168.137.1` — the
-  Windows ICS gateway address the hotspot always takes — as an ICE host candidate beside
-  `127.0.0.1`, so the phone is offered an address it can actually reach. If this prompt is
+  address the phone is *expected* to see this laptop at — as an ICE host candidate beside
+  `127.0.0.1`, so the phone is offered an address it can actually reach. `[win-TBD]` the
+  `.1` itself is Windows ICS convention, not something this repo checks: `main/hotspot.js`
+  `icsHostIp()` and `main/hotspotVerify.js` `icsGateway()` both match the **`192.168.137.`
+  /24**, whatever the last octet turns out to be. If this prompt is
   declined, the laptop's own picture still works and the PHONE's does not, which is the
   confusing failure to watch for. `[win-TBD]` not yet observed on real Windows.
 - **the drive program** (`elrs-joystick-control.exe` — the one that actually drives the
