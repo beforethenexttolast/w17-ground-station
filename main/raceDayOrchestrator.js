@@ -102,12 +102,18 @@ const LINK_UP_WAIT_MS = 5000;
 const LINK_BEARING_KINDS = new Set(['running', 'already-running', 'external', 'link-unknown']);
 
 // Credential states race day refuses to write settings under (owner decision
-// OD-19). The narrow store method below cannot destroy the hotspot password by
-// construction, but the ruling asks for the guard as well: on a computer whose
-// stored credential is unreadable or session-only, the honest answer is "the
-// readings could not be switched on", not an automatic rewrite of the file that
-// holds it.
-const CREDENTIAL_UNSAFE_STATES = new Set(['undecryptable', 'session-only', 'unavailable']);
+// OD-19, refined 2026-09-04). The narrow store method below cannot destroy the
+// hotspot password by construction, but the ruling asks for the guard as well:
+// on a computer whose stored credential is unreadable, or is being held for
+// this session only, the honest answer is "the readings could not be switched
+// on", not an automatic rewrite of the file that holds it.
+//
+// 'unavailable' is deliberately NOT here (the refinement): that state means
+// nothing is stored AND there is no OS encryption — there is no credential to
+// lose, so the one-key write proceeds and the giftee still gets a battery
+// number. The two states below are the only ones where a credential exists and
+// could be harmed.
+const CREDENTIAL_UNSAFE_STATES = new Set(['undecryptable', 'session-only']);
 
 class RaceDayOrchestrator {
     constructor({

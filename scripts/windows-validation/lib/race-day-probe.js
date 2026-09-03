@@ -112,6 +112,19 @@ const log = (m) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
+  // THIS PROBE WRITES ONE KEY. Race day's car-readings step persists
+  // telemetry.source = 'mapper-grpc' once, through the store's narrow
+  // patchTelemetrySource() (owner decision OD-19, refined 2026-09-04), and this
+  // probe drives the REAL orchestrator against the REAL store — so the
+  // settings.json 20-mapper-stage.ps1 staged will come back with that key set.
+  // Expected, and accepted as a consequence of the refinement: under
+  // ELECTRON_RUN_AS_NODE there is no safeStorage, so with nothing stored the
+  // credential state is 'unavailable' — nothing to lose, and the write goes
+  // ahead. It rewrites ONLY telemetry.source; every other byte, a stored
+  // credential included, is copied through verbatim, and the write is refused
+  // outright if the file still holds an unsecured plaintext password. Re-running
+  // 20-mapper-stage.ps1 restores a pristine staging file if a later step wants
+  // one.
   const settingsStore = createSettingsStore({ dir: userDataDir, log });
   let settings;
   try {

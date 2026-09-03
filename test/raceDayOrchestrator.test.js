@@ -854,7 +854,8 @@ describe('RaceDayOrchestrator — the car-readings step (OD-4)', () => {
   });
 
   it('a credential this computer cannot read stops the write before it starts (OD-19)', async () => {
-    for (const state of ['undecryptable', 'session-only', 'unavailable']) {
+    // Exactly the two states where a credential EXISTS and could be harmed.
+    for (const state of ['undecryptable', 'session-only']) {
       const store = fakeSettingsStore(settingsWith());
       store.credentialStatus = () => ({ state, encryptionAvailable: true, hasPassword: false });
       const { orch } = harness({
@@ -866,6 +867,22 @@ describe('RaceDayOrchestrator — the car-readings step (OD-4)', () => {
       expect(stepOf(res.snapshot, 'telemetry'), state).toMatchObject({ status: 'skipped', kind: 'unavailable' });
       expect(res.snapshot.telemetrySelected, state).toBe(false);
     }
+  });
+
+  // OD-19 refinement (2026-09-04): 'unavailable' means nothing is stored AND
+  // there is no OS encryption — there is no credential to lose, so refusing the
+  // write there only cost the giftee a battery number for nothing.
+  it("'unavailable' has nothing to protect, so the write goes ahead (OD-19 refinement)", async () => {
+    const store = fakeSettingsStore(settingsWith());
+    store.credentialStatus = () => ({ state: 'unavailable', encryptionAvailable: false, hasPassword: false });
+    const { orch } = harness({
+      settingsStore: store,
+      telemetryStatus: () => ({ source: 'none', receiving: false }),
+    });
+    const res = await orch.start();
+    expect(store.patchTelemetrySource).toHaveBeenCalledWith('mapper-grpc');
+    expect(stepOf(res.snapshot, 'telemetry').status).toBe('ok');
+    expect(res.snapshot.telemetrySelected).toBe(true);
   });
 
   it('a store that REFUSES the patch is reported, not assumed to have worked', async () => {
@@ -999,21 +1016,50 @@ describe('RaceDayOrchestrator — race day never destroys the saved hotspot pass
   });
 
   it('a password kept for THIS SESSION only is not written away either', async () => {
-    const dir = seed(SEEDED());
+    // No OS encryption at all, and a password entered THIS session: the store
+    // holds it in memory and disk carries neither plaintext nor a token. Race
+    // day must not rewrite the file that would have to carry it.
+    const dir = seed(SEEDED({ network: { kind: 'hotspot', hotspot: { ssid: 'W17-GRID', password: '' } } }));
     const store = createSettingsStore({
       dir,
-      // No OS encryption at all: the token on disk cannot be read this session.
       credentialStore: createCredentialStore({ safeStorage: { isEncryptionAvailable: () => false } }),
     });
-    store.load();
-    expect(['session-only', 'undecryptable', 'unavailable']).toContain(store.credentialStatus().state);
+    store.save({ network: { hotspot: { password: 'entered-this-session' } } });
+    expect(store.credentialStatus().state).toBe('session-only');
+    const before = readFileSync(store.file, 'utf8');
 
     const st = { source: 'none', receiving: false };
     const { orch } = harness({ settingsStore: store, telemetryStatus: () => st });
     const res = await orch.start();
 
-    expect(onDisk(store).network.hotspot.passwordEnc).toBe('w17cred:v1:AAAA');
     expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'unavailable' });
+    expect(readFileSync(store.file, 'utf8')).toBe(before);        // nothing written at all
+    expect(onDisk(store).network.hotspot.password).toBe('');      // and never the plaintext
+    expect(onDisk(store).telemetry.source).toBe('none');
+  });
+
+  // The refined half of the same ruling: nothing stored, no OS encryption. The
+  // write proceeds, and it must not invent a credential key on its way through.
+  it("with NOTHING stored the write proceeds and invents no credential key (OD-19 refinement)", async () => {
+    const dir = seed(SEEDED({ network: { kind: 'hotspot', hotspot: { ssid: 'W17-GRID', password: '' } } }));
+    const store = createSettingsStore({
+      dir,
+      credentialStore: createCredentialStore({ safeStorage: { isEncryptionAvailable: () => false } }),
+    });
+    store.load();
+    expect(store.credentialStatus().state).toBe('unavailable');
+
+    const st = { source: 'none', receiving: false };
+    const { orch } = harness({ settingsStore: store, telemetryStatus: () => st });
+    const res = await orch.start();
+
+    const after = onDisk(store);
+    expect(after.telemetry.source).toBe('mapper-grpc');            // the giftee gets a battery number
+    expect(after.network.hotspot.passwordEnc).toBeUndefined();     // no key invented
+    expect(after.network.hotspot.password).toBe('');               // and still no plaintext
+    expect(after.network.hotspot.ssid).toBe('W17-GRID');
+    expect(stepOf(res.snapshot, 'telemetry').status).toBe('ok');
+    expect(res.snapshot.telemetrySelected).toBe(true);
   });
 
   it('with a READABLE credential the source IS written — and the ciphertext is copied through, never re-encrypted', async () => {
