@@ -50,9 +50,9 @@ sessions identically.
   wrong, not the test.
 - Never route head-tracking intent (`main/HeadTrackingReceiver.js`,
   `shared/headTracking.js`) into any control output.
-- Do not casually change the bridge contract. `iPhone_rc` (Codex-owned) owns the
-  **canonical** schemas/examples/contract; this repo keeps an **implementation copy only**
-  (`docs/windows_bridge_contract.md`).
+- Do not casually change the bridge contract. `iPhone_rc` (Claude-owned since 2026-08-17,
+  relocated into this workspace) owns the **canonical** schemas/examples/contract; this repo
+  keeps an **implementation copy only** (`docs/windows_bridge_contract.md`).
 - Any contract change must be deliberate and **mirrored on both sides** (this repo and
   `iPhone_rc`), not made unilaterally here.
 - **Camera-aim depiction (relaxed 2026-07-16, reviewed):** the UI **may** draw right-stick
