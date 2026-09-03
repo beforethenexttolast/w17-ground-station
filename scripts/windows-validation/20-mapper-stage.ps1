@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
   W17 Windows-VM validation, step 20: stage the drive program (the mapper)
@@ -119,7 +119,11 @@ if (-not $pathCheck.ok) {
 $placeholders = @()
 if ($profileExists) {
     try {
-        $lines = Get-Content -LiteralPath $Profile
+        # @(): Get-Content yields a bare STRING for a one-line file, and
+        # `.Count` on a scalar THROWS under `Set-StrictMode -Version Latest`
+        # (measured) — a minified one-line profile would have crashed the
+        # placeholder check instead of reporting MAP-5.
+        $lines = @(Get-Content -LiteralPath $Profile)
         for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -match 'REPLACE-WITH-[A-Z0-9-]*') {
                 $placeholders += [pscustomobject]@{ line = $i + 1; text = $lines[$i].Trim(); token = $Matches[0] }
@@ -140,9 +144,15 @@ if ($mapperExists) {
     $helpRes = Invoke-W17Command -FilePath $MapperExe -ArgumentList @('-h') -TimeoutSec 10
     $helpText = "$($helpRes.stdout)`n$($helpRes.stderr)"
     $data.mapperHelpText = $helpText.Trim()
-    $validationLike = [regex]::Matches($helpText, '(?im)^\s*-([a-z0-9-]*(validate|lint|dry-run|check|list-devices)[a-z0-9-]*)') |
-        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
-    $data.mapperValidationFlagsFound = @($validationLike)
+    # @() around the whole pipeline, not just the assignment to $data:
+    # `Select-Object -Unique` returns $null when nothing matches and a bare
+    # string when exactly one thing does, and `.Count` throws on BOTH under
+    # `Set-StrictMode -Version Latest` (measured). Nothing matching is the
+    # EXPECTED result here — MAP-5's refusal is not implemented at w17-mapper
+    # HEAD — so the old form crashed the script on its own expected path.
+    $validationLike = @([regex]::Matches($helpText, '(?im)^\s*-([a-z0-9-]*(validate|lint|dry-run|check|list-devices)[a-z0-9-]*)') |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    $data.mapperValidationFlagsFound = $validationLike
     if ($validationLike.Count -eq 0) {
         $data.mapperValidationFlagNote = 'no validate/lint/dry-run/check/list-devices flag in the live -h output — confirms MAP-5/MAP-9''s "not implemented today" rather than assuming it from source alone'
     }
@@ -165,29 +175,53 @@ $racePrep = [ordered]@{
 }
 $data.stagedRacePrep = $racePrep
 
+# B8 (found by running this script, not in the review): the write guard used
+# to be `$pathCheck.ok -and $mapperExists -and $profileExists`, which does NOT
+# include the MAP-5 placeholder check. So a profile still carrying
+# REPLACE-WITH- tokens was reported as a FAIL *and staged into settings.json
+# anyway* — measured: exit code 1, "profile still carries 2 unfilled
+# REPLACE-WITH- placeholder(s)", and settings.json written with that profile's
+# path in racePrep. That is precisely the outcome this step's own header
+# promises to prevent ("FAILS this step when found, rather than letting a
+# bench-unfilled profile silently reach race day"), and it is worse than not
+# checking at all: the operator sees a red line, fixes nothing, and race day
+# still finds a staged racePrep pointing at the broken profile.
+# The guard is now the full failure set, so NOTHING is staged unless every
+# precondition passed.
 $stageOk = $true
-if ($pathCheck.ok -and $mapperExists -and $profileExists) {
+if ($failures.Count -eq 0 -and $pathCheck.ok -and $mapperExists -and $profileExists) {
     try {
         New-Item -ItemType Directory -Force -Path $UserDataDir | Out-Null
         $existing = @{}
         if (Test-Path -LiteralPath $settingsPath) {
-            # -AsHashtable is PS 6+ only; on 5.1 fall back to a manual
-            # PSCustomObject -> ordered-hashtable walk so an existing
-            # settings.json's OTHER keys are never dropped on a 5.1 host.
-            if ($PSVersionTable.PSVersion.Major -ge 6) {
-                try { $existing = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable } catch { $existing = @{} }
-            } else {
-                try {
-                    $obj = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
-                    $existing = @{}
-                    foreach ($p in $obj.PSObject.Properties) { $existing[$p.Name] = $p.Value }
-                } catch { $existing = @{} }
-            }
+            # -AsHashtable needs PS 6+; the whole suite now requires PS 7
+            # (`#Requires -Version 7.0`), so the old Windows-PowerShell-5.1
+            # fallback branch that walked PSObject.Properties by hand is gone.
+            try { $existing = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable } catch { $existing = @{} }
         }
         if ($null -eq $existing) { $existing = @{} }
         $existing['racePrep'] = $racePrep
-        ($existing | ConvertTo-Json -Depth 12) + "`n" | Set-Content -LiteralPath $settingsPath -Encoding utf8 -NoNewline
+
+        # B4 — BOM-LESS UTF-8, stated in code rather than left to a host
+        # default. The app reads this file with
+        # `JSON.parse(fs.readFileSync(file, 'utf8'))` (main/settingsStore.js:63)
+        # and strips no BOM; readRaw() swallows the throw and returns null, so
+        # load() would quietly fall back to DEFAULTS and the racePrep subtree
+        # staged here would simply not exist. Worse, the failure hides itself:
+        # PowerShell's own `Get-Content -Raw` strips a BOM on read, so this
+        # script's and 50-race-day.ps1's precondition checks would still see
+        # racePrep and pass, and only the probe would report `not-staged`.
+        # `Set-Content -Encoding utf8` is BOM-less on PowerShell 7 but writes a
+        # BOM on Windows PowerShell 5.1, so it is exactly the kind of
+        # host-dependent default that must not sit in front of a silent
+        # failure — WriteAllText with UTF8Encoding($false) cannot drift.
+        # Shape matches main/settingsStore.js:144
+        # (`JSON.stringify(onDisk, null, 2)` + "\n"): 2-space indent, one
+        # trailing LF, no BOM.
+        $json = ($existing | ConvertTo-Json -Depth 12) + "`n"
+        [System.IO.File]::WriteAllText($settingsPath, $json, (New-Object System.Text.UTF8Encoding $false))
         $data.settingsWritten = $true
+        $data.settingsEncoding = 'UTF-8 without BOM, LF-terminated (main/settingsStore.js:63 JSON.parse does not strip a BOM)'
     } catch {
         $stageOk = $false
         $failures.Add("could not write settings.json: $($_.Exception.Message)")
@@ -195,6 +229,7 @@ if ($pathCheck.ok -and $mapperExists -and $profileExists) {
 } else {
     $stageOk = $false
     $data.settingsWritten = $false
+    $data.settingsNotWrittenBecause = 'a precondition failed (see summary) — settings.json is deliberately left untouched so a bad profile can never reach race day through this step'
 }
 
 $ok = ($failures.Count -eq 0) -and $stageOk
