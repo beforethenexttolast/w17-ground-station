@@ -477,6 +477,48 @@ describe('RaceDayOrchestrator — stop and liveness', () => {
     expect(stepOf(last, 'mapper')).toMatchObject({ status: 'fail', kind: 'spawn-failed' });
   });
 
+  // The drive program refuses a saved controller setup whose per-computer
+  // values are still unfilled: it prints ONE plain sentence and exits 1. Race
+  // day must show that sentence — "stopped on its own — press RACE DAY to
+  // bring it back" would send the operator round a loop that cannot succeed.
+  it('a self-death WITH the child\'s own line maps to fail/exited-with-message and carries the sentence', async () => {
+    const { orch, rn, pushes } = harness();
+    await orch.start();
+    rn._running = false;
+    rn.status = vi.fn(() => ({
+      running: false, pid: 7, exitCode: 1, stoppedByUs: false,
+      exitMessage: 'this saved profile has not been matched to this computer yet',
+    }));
+    rn.emit({
+      running: false, stoppedByUs: false, exitCode: 1,
+      exitMessage: 'this saved profile has not been matched to this computer yet',
+    });
+    const last = pushes[pushes.length - 1];
+    expect(stepOf(last, 'mapper')).toMatchObject({ status: 'fail', kind: 'exited-with-message' });
+    // The snapshot carries the child's words to the renderer verbatim.
+    expect(last.mapper.exitMessage).toBe('this saved profile has not been matched to this computer yet');
+  });
+
+  it('a silent self-death still maps to the plain fail/exited line', async () => {
+    const { orch, rn, pushes } = harness();
+    await orch.start();
+    rn._running = false;
+    rn.emit({ running: false, stoppedByUs: false, exitCode: 1, exitMessage: null });
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'fail', kind: 'exited' });
+  });
+
+  // Review correctness-5, second half: the runner escalated the stop and the
+  // child outlived it. The card must go BACK to saying the program is there.
+  it('a stop that never took flips the step to fail/stop-failed even from idle', async () => {
+    const { orch, rn, pushes } = harness();
+    await orch.start();
+    rn._running = false;
+    orch.stop(); // winds every step to idle
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'idle' });
+    rn.emit({ running: true, stoppedByUs: true, exitCode: null, stopFailed: true });
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'fail', kind: 'stop-failed' });
+  });
+
   it('dispose() stops a running child and unsubscribes the liveness mirror (teardown path)', async () => {
     const { orch, rn, pushes } = harness();
     await orch.start();

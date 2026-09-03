@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  raceDayStepLines, raceDayHeadline, raceDayControls, RACE_DAY_STEP_LABELS,
+  raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage,
+  RACE_DAY_STEP_LABELS,
 } from '../shared/raceDayView.mjs';
 
 const snap = (steps, { running = false, mapper = { running: false } } = {}) => ({
@@ -26,7 +27,8 @@ const EMITTABLE = {
     ok: ['running', 'already-running', 'external'],
     skipped: [],
     fail: ['not-configured', 'no-profile', 'bad-profile-path', 'profile-not-found',
-      'not-found', 'spawn-failed', 'exited', 'unexpected'],
+      'not-found', 'spawn-failed', 'exited', 'exited-with-message', 'stop-failed',
+      'unexpected'],
   },
   bridge: {
     idle: [null],
@@ -92,6 +94,20 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
     expect(l.text).toBe('stopped on its own — press RACE DAY to bring it back');
   });
 
+  it('a death the program EXPLAINED points at its own words, never at a retry loop', () => {
+    // The drive program refuses a controller setup whose per-computer values
+    // are unfilled: it says so and stops. "press RACE DAY to bring it back"
+    // would be a loop that can never succeed, so this line differs on purpose.
+    const [l] = raceDayStepLines(snap([step('mapper', 'fail', 'exited-with-message')]));
+    expect(l.text).toBe('stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)');
+  });
+
+  it('a stop that did not take says the program is STILL RUNNING (review correctness-5)', () => {
+    const [l] = raceDayStepLines(snap([step('mapper', 'fail', 'stop-failed')]));
+    expect(l.text).toBe('it would not stop when asked and is still running — close the app and open it again');
+    expect(l.tone).toBe('fail');
+  });
+
   it('an instance running OUTSIDE race day is stated as such, green, not claimed as ours (review minor 5)', () => {
     const [l] = raceDayStepLines(snap([step('mapper', 'ok', 'external')]));
     expect(l.tone).toBe('ok');
@@ -153,5 +169,37 @@ describe('raceDayHeadline / raceDayControls', () => {
     expect(raceDayControls(snap(allOk, { running: true, mapper: { running: true } })))
       .toEqual({ startDisabled: true, stopVisible: false });
     expect(raceDayControls(null)).toEqual({ startDisabled: false, stopVisible: false });
+  });
+});
+
+// The one row on the card whose words the ground station did NOT choose: the
+// drive program's own last sentence, quoted. main/mapperRunner.js cleans and
+// caps it; this view only decides whether it is shown and how it is framed.
+describe('raceDayMapperMessage — the child\'s own last words', () => {
+  const withMapper = (mapper) => ({ seq: 1, running: false, steps: [], mapper });
+
+  it('is shown, labelled as a quotation, when the program died explaining itself', () => {
+    const said = raceDayMapperMessage(withMapper({
+      running: false,
+      exitMessage: 'this saved profile has not been matched to this computer yet',
+    }));
+    expect(said).toEqual({
+      label: 'IT SAID',
+      text: 'this saved profile has not been matched to this computer yet',
+      tone: 'fail',
+    });
+  });
+
+  it('is absent for a stop we asked for, an empty message, or a snapshot without one', () => {
+    expect(raceDayMapperMessage(withMapper({ running: true, exitMessage: null }))).toBeNull();
+    expect(raceDayMapperMessage(withMapper({ running: false, exitMessage: '   ' }))).toBeNull();
+    expect(raceDayMapperMessage(withMapper({ running: false }))).toBeNull();
+    expect(raceDayMapperMessage({ seq: 1, steps: [] })).toBeNull();
+    expect(raceDayMapperMessage(null)).toBeNull();
+  });
+
+  it('a non-string message is refused rather than rendered (a hostile/odd snapshot draws nothing)', () => {
+    expect(raceDayMapperMessage(withMapper({ exitMessage: { toString: () => 'x' } }))).toBeNull();
+    expect(raceDayMapperMessage(withMapper({ exitMessage: 42 }))).toBeNull();
   });
 });

@@ -102,12 +102,26 @@ class RaceDayOrchestrator {
         // A stop WE requested winds the step back to idle instead — a
         // requested shutdown is not a failure.
         this._unsubRunner = this._runner.onChange((st) => {
+            // A stop we asked for was forced and STILL did not take: the drive
+            // program is alive. This one is set from ANY step state (the stop
+            // path already wound the card to idle) — a stopped-looking card
+            // over a live program is the single worst thing race day can draw.
+            if (st.stopFailed) {
+                this._set('mapper', 'fail', 'stop-failed');
+                return;
+            }
             if (st.running || this._steps.mapper.status !== 'ok') return;
             if (st.stoppedByUs) this._set('mapper', 'idle', null);
             // A failed spawn surfaces asynchronously as the runner's
             // 'spawn-error' exit (review blocker 1): the honest line is the
             // check-the-⚙-location one, not "stopped on its own".
-            else this._set('mapper', 'fail', st.exitCode === 'spawn-error' ? 'spawn-failed' : 'exited');
+            else if (st.exitCode === 'spawn-error') this._set('mapper', 'fail', 'spawn-failed');
+            // It died on its own AND said why. The drive program refuses a
+            // saved controller setup whose per-computer values are still
+            // unfilled, printing one plain sentence and stopping — for THAT,
+            // "press RACE DAY to bring it back" is a loop that can never end,
+            // so the card points at the program's own words instead.
+            else this._set('mapper', 'fail', st.exitMessage ? 'exited-with-message' : 'exited');
         });
     }
 

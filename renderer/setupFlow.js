@@ -32,7 +32,7 @@ import {
   videoProfileFor, normalizeVideoSettings, VIDEO_PROFILE_IDS, VIDEO_PROFILE_RESTART_NOTE,
 } from '../shared/videoProfiles.mjs';
 import { normalizeRacePrepSettings } from '../shared/racePrep.mjs';
-import { raceDayStepLines, raceDayHeadline, raceDayControls } from '../shared/raceDayView.mjs';
+import { raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage } from '../shared/raceDayView.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
 
@@ -218,7 +218,7 @@ function renderRaceDay() {
   // button tells the whole story until it is pressed.
   const allIdle = lines.every((l) => l.tone === 'muted' && l.text === 'waiting…');
   raceDayStepsEl.classList.toggle('hidden', !lines.length || allIdle);
-  raceDayStepsEl.replaceChildren(...lines.map(({ label, text, tone }) => {
+  const mkRow = ({ label, text, tone }) => {
     const row = document.createElement('div');
     row.className = `rdrow ${tone}`;
     const b = document.createElement('b');
@@ -227,7 +227,13 @@ function renderRaceDay() {
     span.textContent = text;
     row.append(b, span);
     return row;
-  }));
+  };
+  // The drive program's OWN sentence, when it died explaining itself. It is a
+  // QUOTATION, not our copy (main/mapperRunner.js already cleaned and capped
+  // it), so it is set as text — never markup — and it is the one row on this
+  // card whose words the ground station did not choose.
+  const said = raceDayMapperMessage(raceDaySnap);
+  raceDayStepsEl.replaceChildren(...lines.map(mkRow), ...(said ? [mkRow(said)] : []));
 }
 
 async function seedRaceDay() {

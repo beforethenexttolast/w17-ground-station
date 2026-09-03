@@ -70,6 +70,14 @@ const TEXT = {
             'not-found': 'not found where ⚙ points — fix the location in ⚙ (RACE DAY)',
             'spawn-failed': 'could not start — check its location in ⚙, then press RACE DAY again',
             exited: 'stopped on its own — press RACE DAY to bring it back',
+            // It died AND told us why (the drive program prints one plain
+            // sentence and stops when the saved controller setup has not been
+            // matched to this computer yet). Pressing RACE DAY again could
+            // never fix that, so this line points at the message instead.
+            'exited-with-message': 'stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)',
+            // The stop was asked for, forced, and did not take: the program is
+            // STILL RUNNING. Never draw a stopped card over a live one.
+            'stop-failed': 'it would not stop when asked and is still running — close the app and open it again',
             '*': 'something went wrong here — press RACE DAY to try again',
         },
     },
@@ -113,6 +121,22 @@ export function raceDayStepLines(snap) {
             : (byStatus && (byStatus[kind] || byStatus['*'])) || 'waiting…';
         return { id, label, text, tone: toneFor(status) };
     });
+}
+
+// The drive program's OWN last words, for the row under the step lines. The
+// main process already cleaned and capped the string (main/mapperRunner.js
+// _lastLine); this view only decides whether to show it and how it is
+// introduced. Shown ONLY for a death the program explained itself — a stop we
+// asked for carries no message, and there is nothing to explain about it.
+//
+// This is the one line on the card that is NOT our copy: it is quoted from the
+// program, so the giftee-vocabulary bar cannot apply to it. That is deliberate
+// — the alternative is inventing a cause we do not know. The label frames it
+// as a quotation so it never reads as the ground station's own instruction.
+export function raceDayMapperMessage(snap) {
+    const msg = snap && snap.mapper && snap.mapper.exitMessage;
+    if (typeof msg !== 'string' || !msg.trim()) return null;
+    return { label: 'IT SAID', text: msg.trim(), tone: 'fail' };
 }
 
 // The at-a-glance line above the step rows. null while the card is idle (the

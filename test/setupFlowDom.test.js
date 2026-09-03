@@ -404,6 +404,47 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     expect(el('raceDayBtn').disabled).toBe(false); // the retry press stays available
   });
 
+  // Orchestrator addition (mapper branch A): the drive program refuses a saved
+  // controller setup whose per-computer values are unfilled — it prints ONE
+  // plain sentence and exits 1. The card must show that sentence; the generic
+  // "press RACE DAY to bring it back" would be a loop that cannot succeed.
+  it("a death the program explained renders ITS OWN sentence as an extra quoted row", async () => {
+    const { push } = await loadReturningUser();
+    const snap = rdSnap([
+      { id: 'hotspot', status: 'ok', kind: 'verified' },
+      { id: 'mapper', status: 'fail', kind: 'exited-with-message' },
+      { id: 'bridge', status: 'pending', kind: null },
+    ], { seq: 2 });
+    snap.mapper.exitMessage = 'this saved profile has not been matched to this computer yet';
+    push(snap);
+    await tick();
+    const rows = [...el('raceDaySteps').children];
+    expect(rows).toHaveLength(4); // three steps + the quoted line
+    expect(rows[1].querySelector('span').textContent)
+      .toBe('stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)');
+    expect(rows[3].querySelector('b').textContent).toBe('IT SAID');
+    expect(rows[3].querySelector('span').textContent)
+      .toBe('this saved profile has not been matched to this computer yet');
+    expect(rows[3].className).toBe('rdrow fail');
+    // It is TEXT, never markup: a child that printed a tag cannot inject one.
+    expect(rows[3].querySelector('span').children).toHaveLength(0);
+  });
+
+  it('a stop that did not take puts STOP back and says the program is still running', async () => {
+    const { push } = await loadReturningUser();
+    push(rdSnap([
+      { id: 'hotspot', status: 'ok', kind: 'verified' },
+      { id: 'mapper', status: 'fail', kind: 'stop-failed' },
+      { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+    ], { seq: 4, mapperRunning: true }));
+    await tick();
+    const rows = [...el('raceDaySteps').children];
+    expect(rows).toHaveLength(3); // no quoted row: nothing was said
+    expect(rows[1].querySelector('span').textContent)
+      .toBe('it would not stop when asked and is still running — close the app and open it again');
+    expect(el('raceDayStopBtn').classList.contains('hidden')).toBe(false);
+  });
+
   it('STOP invokes payload-free and an out-of-order (stale-seq) push is dropped', async () => {
     const { gs, push } = await loadReturningUser();
     push(rdSnap([
