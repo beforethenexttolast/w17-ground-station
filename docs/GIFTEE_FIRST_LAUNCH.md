@@ -25,7 +25,7 @@ flow and has not been screenshotted against this specific installer yet.
 
 ## 2. First network prompts — Windows Firewall
 
-Two separate processes open network sockets and each can independently trigger a
+Three separate processes open network sockets and each can independently trigger a
 **"Windows Defender Firewall has blocked some features of this app"** dialog the first time
 they do:
 
@@ -49,10 +49,20 @@ they do:
   and re-tries every 2 s. Before that handler existed it was an uncaught exception in the
   main process — the whole viewer died — so this is the shape to re-check on the bench if
   the app ever disappears at launch (`test/mediamtxSupervisor.test.js` pins it).
+- **the drive program** (`elrs-joystick-control.exe` — the one that actually drives the
+  car) — started either by the GRID's **LAUNCH** button or by **RACE DAY**, and it opens
+  two listeners of its own: a gRPC port and an HTTP/grpc-web port. `[fix-wave: MAP-8]`
+  **Today's truth:** it binds them on ALL interfaces
+  (`w17-mapper/pkg/server/controller.go` listens on `":10000"` and
+  `pkg/http/controller.go` serves on `":3000"`, i.e. `[::]`), which on race day is the
+  laptop that the phone's hotspot has joined; the ruled fix (OD-8) makes `127.0.0.1` the
+  default. Every legitimate client already dials localhost — this ground station uses
+  `127.0.0.1:10000` — so **Private networks** is the only answer this prompt ever needs,
+  and declining it does not stop the car being driven.
 
 **Tell the giftee in advance:** click **Allow access** (Private networks is enough — the
-gift's use case is a private/hotspot network, never a public one) for both prompts if they
-appear. `[win-TBD]` whether both processes actually prompt, in what order, and the exact
+gift's use case is a private/hotspot network, never a public one) for the prompts if they
+appear. `[win-TBD]` whether all three processes actually prompt, in what order, and the exact
 dialog text — not yet observed on real Windows; the sockets each process opens are the
 code-verified fact above, not the OS's prompting behavior around them.
 
