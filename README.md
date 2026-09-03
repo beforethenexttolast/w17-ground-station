@@ -203,7 +203,7 @@ link on too" checkbox are set once in the ⚙ **RACE DAY** fields (see the ⚙ i
 below) — the giftee only ever presses the one GARAGE button. The sequence halts at the
 first failing step (nothing already up is wound back); pressing RACE DAY again re-runs
 idempotently. **STOP RACE DAY** is keyed on the managed drive-program child appearing to
-run (`shared/raceDayView.mjs:135` `stopVisible`) and stops *only* that child — the
+run (`shared/raceDayView.mjs:269` `stopVisible`) and stops *only* that child — the
 hotspot stays governed by PIT WALL / the quit dialog, exactly as before this feature.
 
 **The button reports the press, not the exit** (review lifecycle-concurrency-3 /
@@ -229,6 +229,13 @@ environment is scrubbed of the entire `W17_*` namespace before spawn
 by inheritance either. `test/noControlPath.test.js` and `test/raceDayOrchestrator.test.js`
 pin both the whitelist and the closed-stdin/no-IPC shape structurally — if a change trips
 them, the change is wrong.
+
+The one thing race day is allowed to change on disk (owner decision OD-19): it may write
+`telemetry.source` in `settings.json`, exactly once per app session, through the narrow
+`patchTelemetrySource()` method in `main/settingsStore.js` — never any other key, and never
+the saved Wi-Fi credential (`passwordEnc` is copied through byte-for-byte, untouched). The
+GARAGE states it happened (`shared/raceDayView.mjs` `raceDaySettingsNote`); see
+`docs/TELEMETRY.md` for why the shipped default needed a source at all.
 
 This is a **different contract** from the GRID's own **ELRS CONTROL** row further down:
 that row's LAUNCH button starts the drive program *detached* and is structurally unable to
