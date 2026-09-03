@@ -6,6 +6,12 @@ files:
   - main/**
   - renderer/**
   - shared/**
+  # proto/** is RUNTIME code, not a build input (review boundaries-6):
+  # main/headIntentGrpcConnect.js:23 resolves ../proto/head_intent_diagnostics.proto
+  # and @grpc/proto-loader reads it when the head-intent diagnostics consumer
+  # connects, so a packaged build without it throws at that moment. Asserted by
+  # scripts/assert-packaged.js in CI, not by this comment.
+  - proto/**
   - package.json
 # mediamtx ships as an unpacked resource (a native binary spawned by absolute
 # path from process.resourcesPath -- it cannot run from inside the asar).

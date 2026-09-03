@@ -51,7 +51,22 @@ jobs:
           path: smoke-logs
           if-no-files-found: ignore
       - run: npm run app:rebuild
+      # The video relay (review boundaries-1, owner ruling OD-15(a)). mediamtx
+      # is gitignored and electron-builder's extraResources copies whatever is
+      # in mediamtx/ — including nothing — so without this step every installer
+      # this job has ever produced shipped with no video relay at all, silently,
+      # on a green run. Deliberately AFTER the boot smoke above, which exercises
+      # the missing-binary soft-fail. The fetch verifies the SHA-256 pin in
+      # scripts/mediamtx-pin.json and fails on a mismatch; a platform with no
+      # recorded digest yet prints a RECORD line with the observed value (paste
+      # it into the pin file, then add --require-pin here).
+      - run: node scripts/fetch-mediamtx.js
       - run: npx electron-builder --dir
+      # Assert what the package actually CONTAINS, rather than trusting that the
+      # step above did its job: the mediamtx executable + its config, and the
+      # runtime-loaded proto/ (review boundaries-6). A silent packaging
+      # regression fails the build here instead of reaching the gift kit.
+      - run: node scripts/assert-packaged.js dist/win-unpacked
       # The giftee NSIS installer (vision gift kit; 2026-08-16 audit defect
       # 10: CI only ever ran --dir, so the installer the vision leans on had
       # never been built). electron-builder.yml already targets nsis — this

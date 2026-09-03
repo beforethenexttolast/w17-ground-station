@@ -18,6 +18,7 @@
     "app:rebuild": "electron-rebuild -f -w serialport",
     "build": "npm run app:rebuild && electron-builder --win",
     "fetch-mediamtx": "node scripts/fetch-mediamtx.js",
+    "assert:packaged": "node scripts/assert-packaged.js",
     "icon": "node scripts/render-icon.js"
   },
   "build": {
