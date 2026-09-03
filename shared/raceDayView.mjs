@@ -72,6 +72,13 @@ const TEXT = {
             // the radio is actually transmitting. Honest partial success, the
             // same shape as the hotspot's 'unverified' line.
             'link-unknown': 'started (could not double-check the radio on this computer)',
+            // Review blocking 2. The program is up and the radio has not come
+            // on YET — on a first bring-up that is a slow start, not a fault,
+            // and the wait before this line is [bench-TBD]. It must not read as
+            // an accusation: the line below upgrades itself to 'running' the
+            // moment the radio answers, and only a radio that HAS answered once
+            // this session can turn into the cable line.
+            'link-not-yet': 'running — the radio is not on yet, give it a moment',
             '*': 'running',
         },
         skipped: { '*': 'not needed this time' },

@@ -84,7 +84,16 @@ const TELEMETRY_FIRST_READING_MS = 3000;
 // How long the mapper step waits for the RF link to come UP before deciding
 // (review SYN-2). The mapper answers the moment the stream opens and then every
 // 500 ms, so this is a window for the transmitter port to open, not a poll
-// budget: a healthy bring-up resolves in well under a second.
+// budget.
+//
+// [bench-TBD] — this value is NOT validated. Nothing in this chain has run on
+// any machine yet (A2 NOT-EXECUTED), so how long a cold Go binary takes to
+// enumerate SDL devices and open the FTDI port on a giftee laptop, behind an AV
+// scan, is unknown. The review's warning is the reason for the asymmetry below:
+// a window that closes too early must never produce a confident accusation
+// about a cable that is fine, so the FIRST bring-up reports 'link-not-yet'
+// instead. WS3 script 50 (scripts/windows-validation/50-race-day.ps1) records
+// the real port-open latency; this constant is settled only after that.
 const LINK_UP_WAIT_MS = 5000;
 
 // Mapper-step kinds that CLAIM the drive program is up and driving. A link that
@@ -184,13 +193,21 @@ class RaceDayOrchestrator {
         // transmitter port shut, in which case no CRSF frame leaves the PC. If
         // that happens AFTER the bring-up said the link was up, the card must
         // stop claiming it — and must take the claim back when it returns.
+        //
+        // Review blocking 2: escalation to 'link-down' is what a LIVE claim
+        // buys. Until the mapper has actually said the link is up once, a
+        // not-connected answer is a bring-up still in progress ('link-not-yet'),
+        // and this mirror only ever moves it FORWARD to the real success kind.
         this._unsubLink = (this._linkProbe && this._linkProbe.onChange)
             ? this._linkProbe.onChange((snap) => {
                 const step = this._steps.mapper;
+                if (snap.up === true) this._linkEverUp = true;
                 if (step.status === 'ok' && LINK_BEARING_KINDS.has(step.kind) && snap.up === false) {
                     this._set('mapper', 'fail', 'link-down');
-                } else if (step.status === 'fail' && step.kind === 'link-down' && snap.up === true) {
-                    this._set('mapper', 'ok', 'running');
+                } else if (snap.up === true
+                    && ((step.status === 'fail' && step.kind === 'link-down')
+                        || (step.status === 'ok' && step.kind === 'link-not-yet'))) {
+                    this._set('mapper', 'ok', this._linkOkKind || 'running');
                 }
             })
             : null;
@@ -404,12 +421,26 @@ class RaceDayOrchestrator {
     // claim on this screen the giftee acts on. So every success path converges
     // here and asks the mapper.
     //
-    // Three outcomes, because "not up" and "we could not look" are different
-    // things to tell an operator: up -> the given ok kind; down -> an honest
-    // failure that names the cable; unknown (nothing answered within the
-    // window — no probe wired, or no mapper on a dev host) -> ok, and SAYS it
-    // could not be checked, exactly as the hotspot's 'unverified' does.
+    // FOUR outcomes, because "not up", "not up YET" and "we could not look" are
+    // different things to tell an operator:
+    //   up            -> the given ok kind;
+    //   unknown        -> ok, and SAYS it could not be checked (no probe wired,
+    //                    or no mapper on a dev host), like the hotspot's
+    //                    'unverified';
+    //   not up, first  -> ok/'link-not-yet'. Review blocking 2: LINK_UP_WAIT_MS
+    //     bring-up        is unvalidated, and the mapper answers "not connected"
+    //                    from the instant the stream opens, so a window that
+    //                    closes before a cold binary has opened the transmitter
+    //                    port produced a DEFINITE false. Halting there told the
+    //                    giftee to check a cable that is fine, on the one press
+    //                    the booklet promises. Nothing is claimed about the
+    //                    radio, the sequence carries on, and the onChange mirror
+    //                    above upgrades the line the moment the link comes up;
+    //   not up, after  -> fail/'link-down', which halts (OD-5). The mapper has
+    //     a live claim     demonstrated it can raise the link this session, so
+    //                    "not up" is now a positive report, not a slow start.
     async _linkCheck(okKind) {
+        this._linkOkKind = okKind;
         if (!this._linkProbe) {
             this._set('mapper', 'ok', okKind);
             return true;
@@ -423,11 +454,17 @@ class RaceDayOrchestrator {
         }
         const up = await this._awaitLink();
         if (up === true) {
+            this._linkEverUp = true;
             this._set('mapper', 'ok', okKind);
             return true;
         }
         if (up === null) {
             this._set('mapper', 'ok', 'link-unknown');
+            return true;
+        }
+        if (!this._linkEverUp) {
+            this._log('[raceday] the drive program has not raised the radio yet — reporting "not yet", not a fault');
+            this._set('mapper', 'ok', 'link-not-yet');
             return true;
         }
         this._set('mapper', 'fail', 'link-down');
@@ -444,7 +481,7 @@ class RaceDayOrchestrator {
                 let snap;
                 try { snap = this._linkProbe.snapshot() || {}; } catch { snap = {}; }
                 const up = snap.up === true ? true : (snap.up === false ? false : null);
-                if (up === true) { resolve(true); return; }
+                if (up === true) { this._linkEverUp = true; resolve(true); return; }
                 waited += stepMs;
                 if (waited >= totalMs) { resolve(up); return; }
                 this._schedule(tick, stepMs);

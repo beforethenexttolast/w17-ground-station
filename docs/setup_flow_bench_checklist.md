@@ -217,27 +217,29 @@ prereq above (a saved controller profile + the ⚙ RACE DAY paths set).
       PROGRAM shows "starting…" then "running" (`tasklist`/Task Manager confirms the process
       exists), PHONE LINK shows "on — pick up the phone" (iPhone sessions with the checkbox
       on) or "not needed this time" otherwise.
-- [ ] **`[fix-wave: SYN-2]`** — a "running" DRIVE PROGRAM step is **not** proof the radio
-      link to the car is up: with the GCS box's serial link deliberately unplugged, confirm
-      today's behavior is that the step still reports "running" (the process started; it
-      does not probe the link). This is a known, tracked gap (`SYN-2`, gift-blocking) — do
-      not treat a green RACE DAY card as proof the car will respond until that fix lands.
-      Record whether the process nonetheless exits/crashes on its own with the link absent
-      (a different, informative signal from the honest "running" one above).
+- [ ] **The radio, not just the process (SYN-2 — fixed; this is now a verification, not a
+      known gap).** With the GCS box's serial link deliberately unplugged, confirm the
+      DRIVE PROGRAM step does **not** say plain "running". On a first bring-up expect
+      "running — the radio is not on yet, give it a moment" (green, and the rest of the
+      sequence still runs); after a run in which the radio HAS been up, expect "started,
+      but the radio is not transmitting — check the cable to the little radio box" and the
+      sequence halting there. **Record the time from the drive program's launch to the
+      first link-up answer** — that number is what settles `LINK_UP_WAIT_MS = 5000`
+      (`[bench-TBD]`, `main/raceDayOrchestrator.js`); WS3
+      `scripts/windows-validation/50-race-day.ps1` records the same latency. Also record
+      whether the process exits/crashes on its own with the link absent.
 - [ ] Press RACE DAY again while everything is already up → idempotent re-run: each step
       re-verifies/no-ops (hotspot re-verified, mapper shows "already running", bridge
       re-applies) rather than restarting anything.
 - [ ] **STOP RACE DAY** (visible while the managed process appears to be running) → press
       it, confirm the process exits (Task Manager confirms) and the DRIVE PROGRAM step
       returns to "waiting…"; the hotspot and phone link are **not** touched by this button
-      (PIT WALL / the quit dialog still own those, unchanged). `[fix-wave:
-      lifecycle-concurrency-3]` **Today's truth:** immediately after pressing it, expect the
-      button to possibly still be visible for a moment — `MapperRunner.stop()`
-      (`main/mapperRunner.js:162-172`) leaves `_proc` set until the child's own `exit` event
-      fires, and the orchestrator's liveness mirror (`main/raceDayOrchestrator.js:104-111`)
-      does not re-emit once its own step is already `idle`, so the stale "running" state can
-      linger in the renderer past the actual stop. Record how long the button visibly lags
-      the real process exit.
+      (PIT WALL / the quit dialog still own those, unchanged). **lifecycle-concurrency-3 /
+      correctness-5 are fixed:** the button should disappear on the press, not on the
+      child's `exit`. Record any lag you still see, and — the case worth hunting — whether
+      a stop that does NOT take (kill a process the app cannot signal, or one that ignores
+      the request) surfaces as "it would not stop when asked and is still running" with
+      STOP back on screen, rather than an idle-looking card over a live process.
 - [ ] Launch the SAME drive-program executable from GRID's own **LAUNCH** button first
       (the detached, launch-only path), then press RACE DAY → DRIVE PROGRAM shows "already
       running (started outside RACE DAY)" and STOP RACE DAY does **not** appear for it (race

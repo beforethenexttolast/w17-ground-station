@@ -206,15 +206,16 @@ idempotently. **STOP RACE DAY** is keyed on the managed drive-program child appe
 run (`shared/raceDayView.mjs:135` `stopVisible`) and stops *only* that child — the
 hotspot stays governed by PIT WALL / the quit dialog, exactly as before this feature.
 
-`[fix-wave: lifecycle-concurrency-3]` **Today's truth:** the button is not a live gauge
-in the moment right after you press it. `MapperRunner.stop()` (`main/mapperRunner.js:
-162-172`) signals the child but leaves `_proc` set until the child's own `exit` event
-fires later; the orchestrator winds its own step to `idle` synchronously
-(`main/raceDayOrchestrator.js` `stop()`), so by the time that real `exit` event arrives
-the liveness mirror's guard (`:104-111`, `this._steps.mapper.status !== 'ok'`) is already
-true and it never re-emits. So a fresh snapshot pushed to the renderer right after STOP
-can still report the child as running, and **STOP RACE DAY** can stay visible for a
-window after the stop was requested rather than disappearing immediately.
+**The button reports the press, not the exit** (review lifecycle-concurrency-3 /
+correctness-5, both fixed on this branch). `MapperRunner.stop()` (`main/mapperRunner.js`
+`stop()`) marks the stop as in flight and `status().running` goes false **on the press**,
+so STOP disappears immediately rather than lagging the child's own `exit` event. A stop
+that does not take is the case that stays visible: an undelivered signal
+(`child.kill() === false`) is reported as failed at once, and a signal the child ignores
+is escalated (SIGKILL, or `taskkill /t /f` on Windows) and then reported as failed if the
+child outlives it — the DRIVE PROGRAM line reads "it would not stop when asked and is
+still running". A stopped-looking card over a live process is the one thing race day must
+never draw.
 
 **Command-line policy (the line this feature deliberately draws, and no further):** race
 day may manage the drive program's **process** — start, liveness, stop — but never *sends*
@@ -236,12 +237,24 @@ stop a program launched that way. RACE DAY's managed child is the opposite case:
 started it, so this app (STOP RACE DAY, or app teardown) can and does stop it again. Only
 one of the two launch paths applies to any given running instance.
 
-`[fix-wave: SYN-2]` **Today's truth:** starting the drive program is not the same as
-confirming the actual radio link to the car is up — race day's MAPPER step turns "ok" once
-the process is running (or was already running), but nothing in this sequence confirms a
-CRSF frame is actually leaving the PC over the station-box serial link. Do not read a green
-RACE DAY card as proof the car will respond to the controller; that gap is a tracked,
-gift-blocking fix (`SYN-2`) still open as of this pass.
+**The MAPPER step asks the radio, not just the process** (review SYN-2, fixed on this
+branch). Every success path converges on `_linkCheck()` in
+`main/raceDayOrchestrator.js`, which subscribes to the mapper's own **read-only**
+link-state stream (`main/MapperLinkStateClient.js`) and reports four different things,
+because "not up", "not up yet" and "we could not look" are different things to tell an
+operator: the radio up → "running"; nothing answering → "started (could not double-check
+the radio on this computer)"; not up on a **first** bring-up → "running — the radio is not
+on yet, give it a moment", which upgrades itself when the radio answers; not up after the
+radio has come up once this session → "started, but the radio is not transmitting — check
+the cable to the little radio box", which halts the sequence (OD-5). Subscribing is the
+only thing this app does to that stream — it never calls the mapper's link **control**
+RPCs (`test/noControlPath.test.js` pins the read-only method set by exact equality).
+
+`[bench-TBD]` the wait before that decision (`LINK_UP_WAIT_MS = 5000`) is **not
+validated** — nothing in this chain has run on any machine. That is precisely why a first
+bring-up says "not yet" rather than accusing a cable;
+`scripts/windows-validation/50-race-day.ps1` records the real port-open latency and the
+constant is settled only after that.
 
 Choices persist in `settings.json` under Electron's userData dir; **env vars always
 override persisted settings** (dev/CI behavior unchanged). The one persisted secret — the

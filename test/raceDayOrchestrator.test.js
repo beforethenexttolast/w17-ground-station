@@ -689,15 +689,56 @@ describe('RaceDayOrchestrator — the card says running only when the radio is u
     expect(res.snapshot.link).toEqual({ up: true });
   });
 
-  it('link DOWN: an honest failure that names the cable, and the sequence halts', async () => {
+  // Review blocking 2. The mapper answers "not connected" from the instant the
+  // stream opens, and LINK_UP_WAIT_MS is [bench-TBD] — so on a FIRST bring-up a
+  // closed window is a slow start, not a fault. Halting there told the giftee to
+  // check a cable that is fine, on the one press the booklet promises.
+  it('link NOT UP on a first bring-up: "not yet", ok-class, and the sequence carries on', async () => {
     const { orch, rn, ap } = harness({ linkProbe: fakeLinkProbe({ up: false }) });
     const res = await orch.start();
+    expect(res.ok).toBe(true);
+    expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'link-not-yet' });
+    // The program itself was started, and the rest of the bring-up still ran.
+    expect(rn.start).toHaveBeenCalledTimes(1);
+    expect(ap.apply).toHaveBeenCalled();
+    expect(stepOf(res.snapshot, 'telemetry').status).not.toBe('pending');
+  });
+
+  it('the "not yet" line upgrades itself the moment the radio answers', async () => {
+    const probe = fakeLinkProbe({ up: false });
+    const { orch, pushes } = harness({ linkProbe: probe });
+    await orch.start();
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'ok', kind: 'link-not-yet' });
+    probe.set(true);
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'ok', kind: 'running' });
+  });
+
+  it('and it keeps the kind it was standing in for (an external instance stays external)', async () => {
+    const probe = fakeLinkProbe({ up: false });
+    const { orch, pushes } = harness({
+      elrsDetect: vi.fn(async () => ({ configured: true, detected: true })),
+      linkProbe: probe,
+    });
+    await orch.start();
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'ok', kind: 'link-not-yet' });
+    probe.set(true);
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'ok', kind: 'external' });
+  });
+
+  // The other half of blocking 2, and OD-5 unchanged: once the mapper has
+  // CLAIMED the link up in this session, "not up" is a positive report about a
+  // radio that can work — the cable line is earned, and the halt stands.
+  it('link DOWN after a live claim: the cable line, and the sequence halts (OD-5)', async () => {
+    const probe = fakeLinkProbe({ up: true });
+    const { orch, ap } = harness({ linkProbe: probe });
+    await orch.start();                       // the radio answered: a live claim
+    probe.set(false);                         // and then went away
+    ap.apply.mockClear();
+    const res = await orch.start();           // the operator presses again
     expect(res.ok).toBe(false);
     expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
-    // The program itself was started — it is the RADIO that is not up.
-    expect(rn.start).toHaveBeenCalledTimes(1);
-    expect(ap.apply).not.toHaveBeenCalled();
     expect(stepOf(res.snapshot, 'telemetry').status).toBe('pending');
+    expect(ap.apply).not.toHaveBeenCalled();
   });
 
   it('no answer at all: honest partial success, said out loud, never a silent "running"', async () => {
@@ -715,15 +756,22 @@ describe('RaceDayOrchestrator — the card says running only when the radio is u
   });
 
   it('an ALREADY-RUNNING or EXTERNAL instance is link-checked too — not trusted on sight', async () => {
+    // Neither is reported as plainly 'running'/'already-running': the radio has
+    // to answer first. (On a first bring-up "no answer yet" is 'link-not-yet' —
+    // see blocking 2 above; the point here is that the check happens at all.)
     const rn = fakeRunner({ running: true });
-    const { orch } = harness({ runner: rn, linkProbe: fakeLinkProbe({ up: false }) });
-    expect(stepOf((await orch.start()).snapshot, 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
+    const probeA = fakeLinkProbe({ up: false });
+    const { orch } = harness({ runner: rn, linkProbe: probeA });
+    expect(stepOf((await orch.start()).snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'link-not-yet' });
+    expect(probeA.start).toHaveBeenCalled();
 
+    const probeB = fakeLinkProbe({ up: false });
     const { orch: orch2 } = harness({
       elrsDetect: vi.fn(async () => ({ configured: true, detected: true })),
-      linkProbe: fakeLinkProbe({ up: false }),
+      linkProbe: probeB,
     });
-    expect(stepOf((await orch2.start()).snapshot, 'mapper')).toMatchObject({ status: 'fail', kind: 'link-down' });
+    expect(stepOf((await orch2.start()).snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'link-not-yet' });
+    expect(probeB.start).toHaveBeenCalled();
   });
 
   it('a link that drops mid-drive takes the claim back, and returns it when the radio comes back', async () => {

@@ -24,7 +24,7 @@ const EMITTABLE = {
     idle: [null],
     pending: [null],
     running: ['starting'],
-    ok: ['running', 'already-running', 'external', 'link-unknown'],
+    ok: ['running', 'already-running', 'external', 'link-unknown', 'link-not-yet'],
     skipped: [],
     fail: ['not-configured', 'no-profile', 'bad-profile-path', 'profile-not-found',
       'not-found', 'spawn-failed', 'link-down', 'exited', 'exited-with-message',
@@ -122,6 +122,18 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
     // would be a loop that can never succeed, so this line differs on purpose.
     const [l] = raceDayStepLines(snap([step('mapper', 'fail', 'exited-with-message')]));
     expect(l.text).toBe('stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)');
+  });
+
+  it('a radio that has not come on YET is not a cable accusation (review blocking 2)', () => {
+    const [l] = raceDayStepLines(snap([step('mapper', 'ok', 'link-not-yet')]));
+    expect(l.tone).toBe('ok'); // ok-class: nothing has failed
+    expect(l.text).toBe('running — the radio is not on yet, give it a moment');
+    // It must NOT carry the cable line; that one belongs to a radio that
+    // answered once and then went away.
+    expect(l.text).not.toContain('cable');
+    const [down] = raceDayStepLines(snap([step('mapper', 'fail', 'link-down')]));
+    expect(down.text).toContain('check the cable to the little radio box');
+    expect(down.tone).toBe('fail');
   });
 
   it('a stop that did not take says the program is STILL RUNNING (review correctness-5)', () => {

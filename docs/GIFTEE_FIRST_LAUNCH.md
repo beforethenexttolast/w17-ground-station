@@ -123,9 +123,21 @@ amber **START ANYWAY** always lets the giftee drive past a check that refuses to
 Once a session has been completed once, later launches land on GARAGE's **WELCOME BACK**
 card, and the **RACE DAY ▸ BRING EVERYTHING UP** button (README "RACE DAY" section) is the
 one-press path a helper sets up in advance so the giftee's own day-to-day routine is just
-that one button, not the full setup flow. `[fix-wave: SYN-2]` a green RACE DAY card today
-confirms the drive program started, not that the car's radio link is up — see the README
-RACE DAY section and the bench checklist §12 for the current, tracked gap.
+that one button, not the full setup flow. The RACE DAY card no longer confirms only that the
+drive program started: the DRIVE PROGRAM line reads the mapper's own read-only link-state
+stream and says "running" only while that stream reports the radio up
+(`main/raceDayOrchestrator.js` `_linkCheck`).
+
+`[bench-TBD]` the wait before that decision (`LINK_UP_WAIT_MS = 5000`,
+`main/raceDayOrchestrator.js`) is **not validated** — nothing in this chain has run on any
+machine (A2 NOT-EXECUTED), so how long a cold drive program takes to enumerate its controller
+and open the transmitter's serial port on the gift laptop is unknown. Because of that, a
+**first** bring-up whose window closes with the radio still off reports "running — the radio
+is not on yet, give it a moment" (green, sequence carries on) and upgrades itself the moment
+the radio answers; only a radio that has come up once in this session can produce the
+red "check the cable to the little radio box" line, which still halts the sequence (OD-5).
+`scripts/windows-validation/50-race-day.ps1` (WS3) is where the real port-open latency gets
+recorded; the constant is settled only after that.
 
 If anything above goes wrong, the **zero-code fallback** always exists and needs none of
 this app: `elrs-joystick-control` for control plus VLC (or a browser) pointed at the
