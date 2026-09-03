@@ -75,8 +75,10 @@ jobs:
       # the missing-binary soft-fail. The fetch verifies the SHA-256 pin in
       # scripts/mediamtx-pin.json and fails on a mismatch; a platform with no
       # recorded digest yet prints a RECORD line with the observed value (paste
-      # it into the pin file, then add --require-pin here).
-      - run: node scripts/fetch-mediamtx.js
+      # it into the pin file; --require-pin below then enforces it).
+      # --require-pin: windows_amd64's digest is recorded (2026-09-04), so an
+      # unrecorded or mismatching download is now a red run, not a warning.
+      - run: node scripts/fetch-mediamtx.js --require-pin
       - run: npx electron-builder --dir
       # Assert what the package actually CONTAINS, rather than trusting that the
       # step above did its job: the mediamtx executable + its config, and the

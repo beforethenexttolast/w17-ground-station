@@ -23,9 +23,6 @@
     "assert:packaged": "node scripts/assert-packaged.js",
     "icon": "node scripts/render-icon.js"
   },
-  "build": {
-    "icon": "build/icon.png"
-  },
   "author": "Vitaliy Khomenko",
   "license": "MIT",
   "optionalDependencies": {

@@ -250,6 +250,15 @@ describe('the CI wiring itself (the assertion is worthless if nothing calls it)'
     expect(assertAt).toBeLessThan(nsisAt);
   });
 
+  it('package.json has NO "build" field — electron-builder would prefer it and silently ignore electron-builder.yml', () => {
+    // windows-latest run 33810293868 logged: loaded configuration file=package.json ("build" field).
+    // With the yml ignored, extraResources never copied mediamtx and files: never applied.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    expect(pkg.build).toBeUndefined();
+    expect(builder).toMatch(/^icon: build\/icon\.png$/m); // the one thing that field used to carry
+    expect(builder).toMatch(/extraResources:\s*\n\s*- from: mediamtx/);
+  });
+
   it('electron-builder packages proto/** (boundaries-6)', () => {
     expect(builder).toMatch(/^\s*-\s*proto\/\*\*\s*$/m);
   });

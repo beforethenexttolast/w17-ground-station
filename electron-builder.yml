@@ -1,5 +1,12 @@
+# THIS FILE IS THE ONLY electron-builder configuration. electron-builder prefers a
+# "build" field in package.json when one exists and then IGNORES this file entirely --
+# a one-line {icon} field did exactly that until 2026-09-04 (windows-latest run
+# 33810293868 logged 'loaded configuration file=package.json ("build" field)'), so
+# extraResources never copied mediamtx and every installer shipped without the video
+# relay. test/packagingAssertion.test.js pins that package.json has no build field.
 appId: com.sineeng.w17groundstation
 productName: W17 Ground Station
+icon: build/icon.png
 directories:
   output: dist
 files:
