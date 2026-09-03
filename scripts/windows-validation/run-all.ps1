@@ -108,6 +108,16 @@ function Resolve-W17Shell {
 $shellExe = Resolve-W17Shell -Requested $Shell
 Write-Host "[run-all] using shell: $shellExe"
 
+# NOTE on List[object] and @(): this is a List[object], and `@($rows)`
+# THROWS "Argument types do not match" on pwsh 7.7.0-preview.4 (measured; the
+# same expression is fine for List[string] and List[int], and .ToArray(),
+# foreach, the pipeline and an [object[]] cast all work on the very same
+# List[object] — so it is a regression in the array-subexpression operator in
+# that preview build, not a defect in this logic). Whether it reproduces on
+# the 7.4/7.5 a guest gets from `winget install Microsoft.PowerShell` is
+# [win-TBD]. .ToArray() is used below instead: it is version-independent,
+# costs nothing, and keeps the suite off a construct that has proven
+# version-sensitive in at least one shipping PowerShell 7.
 $rows = New-Object System.Collections.Generic.List[object]
 
 function Invoke-W17Script {
@@ -211,7 +221,7 @@ $combined = [ordered]@{
         mdnsTimeoutMs = $MdnsTimeoutMs; mapperWaitMs = $MapperWaitMs
         includePadUnplug = [bool]$IncludePadUnplug
     }
-    results   = @($rows)
+    results   = $rows.ToArray()
 }
 $combinedPath = Join-Path $ResultsRoot "$stamp.json"
 ($combined | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath $combinedPath -Encoding utf8
@@ -226,5 +236,5 @@ Write-Host ''
 Write-Host "per-script JSON: $runResultsDir"
 Write-Host "combined JSON:   $combinedPath"
 
-$anyFail = @($rows | Where-Object { -not $_.skipped -and -not $_.ok }).Count -gt 0
+$anyFail = @($rows.ToArray() | Where-Object { -not $_.skipped -and -not $_.ok }).Count -gt 0
 exit ([int]$anyFail)

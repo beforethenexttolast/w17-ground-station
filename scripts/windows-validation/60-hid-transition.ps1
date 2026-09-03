@@ -1,20 +1,58 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
-  W17 Windows-VM validation, step 60: R15 (CURRENT_STATUS.md's bench-gate
-  checklist R1-R16) — physically unplug and replug the DualShock 4 while the
-  mapper is running, and record what Windows sees. PHYSICAL UNPLUG IS
+  W17 Windows-VM validation, step 60: HID TRANSITION + MAPPER-PROCESS
+  CONTINUITY across an operator-driven DualShock 4 unplug/replug. Records what
+  WINDOWS sees on the USB/HID bus and whether the already-running mapper
+  process survived it, unchanged, throughout. PHYSICAL UNPLUG IS
   HUMAN-IN-THE-LOOP: nothing in this suite can automate a hand pulling a USB
   cable, so this script blocks for an operator action by design (or, with
   -NonInteractive, opens a fixed timed window instead of a keypress — see
   below).
 
+  THIS SCRIPT DOES NOT TEST R15, AND NOTHING IN THIS SUITE DISCHARGES R15.
+  (Review finding B5; ruling 2026-09-03b. The file was previously named
+  60-r15-pad-unplug.ps1 and called R1–R16 a "bench-gate checklist", which was
+  wrong on both counts and could have been read as an unlock gate passing.)
+  R1–R16 is the **FIRST_ACTIVE unlock checklist** — CURRENT_STATUS.md
+  §2.3.11.6, the head-tracked-gimbal arbiter parked on the `u4-arbiter`
+  branch — not a bench-gate list. R15 specifically is defined at
+  CURRENT_STATUS.md:1356 as *device loss ⇒ ARBITER DISARM*: "demonstrated by
+  physically unplugging, from ARMING/ACTIVE/OVERRIDDEN, reconnect proves no
+  restore". Those are arbiter states, in arbiter code that is parked and
+  unmerged. CURRENT_STATUS.md:1375 records the standing verdict in as many
+  words: **"R15 remains NO-GO"**, and :1418 keeps it on the open list beside
+  R13 and R16.
+  What THIS script measures is Windows HID presence and mapper-process
+  liveness. That is a real, externally observable fact and worth having — it
+  is simply not R15 evidence, and a PASS here moves no gate. R15 stays NO-GO
+  after a green run of this script, exactly as before it.
+
 .DESCRIPTION
+  SAFETY PRECONDITION — READ BEFORE RUNNING (review finding W1). This step is
+  the ONLY one in the suite that involves a mapper the operator started BY
+  HAND, and a hand-started mapper that is actually driving was started with
+  `-tx-serial-port-name`, which means the COM port IS open and CRSF IS being
+  transmitted. That is outside the suite's "no script here opens a serial
+  port" claim: the claim remains true of every script (this one included —
+  it only reads the OS process table and the HID bus), and it was never a
+  claim about the operator's own mapper.
+  Therefore, before running this step:
+    - the CAR MUST BE UNPOWERED, or its RX UNBOUND;
+    - treat it as a bench procedure under FIRST_ACTIVE, which is NO-GO;
+    - it discharges nothing and unlocks nothing.
+  Why this matters concretely: CURRENT_STATUS.md:1373-1376 records that on
+  gamepad loss the mapper "still transmits at full rate … fail-to-neutral,
+  not fail-silent, so the firmware's radio-loss failsafe still does not fire"
+  — and switch channels latch downstream (RESIDUAL A). Pulling the pad on a
+  live transmitter with a powered car is exactly the situation that residual
+  describes.
+
   This does NOT launch the mapper itself (unlike 50-race-day.ps1's crash
-  test): R15 needs a mapper that is actually running and driving, which
-  today's -config-file-path path cannot reliably provide (MAP-1 — see
-  50-race-day.ps1). Point -MapperExe at whatever mapper build the operator
-  started by hand for the bench (configs/README.md's documented direct
+  test): a meaningful transition test needs a mapper that is actually running
+  and driving, which today's -config-file-path path cannot reliably provide
+  (MAP-1 — see 50-race-day.ps1). Point -MapperExe at whatever mapper build the
+  operator started by hand for the bench (configs/README.md's documented direct
   invocation, or a build with MAP-1 already fixed); this script only
   DETECTS and TRACKS that already-running process by image name, exactly
   like main/elrsLauncher.js's own detectRunning() does (tasklist by image
@@ -113,7 +151,13 @@ function Get-W17LogTail {
     try { return @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction Stop) } catch { return $null }
 }
 
+# r15Status is set HERE, not near the end, so it rides in EVERY result this
+# script can emit — including the early-exit FAILs. The whole point of B5 is
+# that a reader must never take a line from this script as an R15 verdict, and
+# the early exits are the results most likely to be skimmed.
 $data = [ordered]@{
+    r15Status       = 'R15 is NOT tested here and is NOT discharged by anything in this suite. It is a FIRST_ACTIVE unlock-checklist item (CURRENT_STATUS.md §2.3.11.6, defined at :1356 as device loss => ARBITER disarm from ARMING/ACTIVE/OVERRIDDEN with reconnect proving no restore), against arbiter code parked on the u4-arbiter branch. CURRENT_STATUS.md:1375: "R15 remains NO-GO". It remains NO-GO after a green run of this script.'
+    safetyPrecondition = 'Run only with the CAR UNPOWERED or its RX UNBOUND. This step tracks a mapper the OPERATOR started by hand; a mapper that is actually driving was started with -tx-serial-port-name, so the COM port is open and CRSF is transmitting. That is outside this suite''s "no script opens a serial port" claim (still true of every script, this one included), and CURRENT_STATUS.md:1373-1376 records that on gamepad loss the mapper keeps transmitting at full rate — fail-to-neutral, not fail-silent — so the firmware radio-loss failsafe does not fire (RESIDUAL A).'
     mapperExe       = $MapperExe
     mapperProcessName = (Get-W17MapperProcessName -Exe $MapperExe)
     nonInteractive  = [bool]$NonInteractive
@@ -129,12 +173,12 @@ $procs = @(Get-Process -Name $procName -ErrorAction SilentlyContinue)
 $data.mapperProcessesFound = @($procs | Select-Object Id, StartTime, Path)
 
 if ($procs.Count -eq 0) {
-    $r = New-W17Result -Script '60-r15-pad-unplug' -Ok $false -Summary "no running '$procName' process found — start the mapper by hand first (configs/README.md), then re-run. This script never launches the mapper itself." -Data $data
+    $r = New-W17Result -Script '60-hid-transition' -Ok $false -Summary "no running '$procName' process found — start the mapper by hand first (configs/README.md), then re-run. This script never launches the mapper itself." -Data $data
     Save-W17Result -Result $r -ResultsDir $ResultsDir
     exit (Write-W17Result $r)
 }
 if ($procs.Count -gt 1) {
-    $r = New-W17Result -Script '60-r15-pad-unplug' -Ok $false -Summary "$($procs.Count) '$procName' processes are running — ambiguous which one to track (a stray instance from an earlier 50-race-day.ps1 crash test, or a manual bench run left over). Close the extras so exactly one remains, then re-run." -Data $data
+    $r = New-W17Result -Script '60-hid-transition' -Ok $false -Summary "$($procs.Count) '$procName' processes are running — ambiguous which one to track (a stray instance from an earlier 50-race-day.ps1 crash test, or a manual bench run left over). Close the extras so exactly one remains, then re-run." -Data $data
     Save-W17Result -Result $r -ResultsDir $ResultsDir
     exit (Write-W17Result $r)
 }
@@ -147,7 +191,7 @@ $baseline = Get-W17Ds4Devices
 $data.baselineDevices = $baseline.devices
 if ($baseline.error) { $data.baselineError = $baseline.error }
 if (-not $baseline.devices -or $baseline.devices.Count -eq 0) {
-    $r = New-W17Result -Script '60-r15-pad-unplug' -Ok $false -Summary 'no DualShock 4 detected at baseline — connect the pad first, then re-run' -Data $data
+    $r = New-W17Result -Script '60-hid-transition' -Ok $false -Summary 'no DualShock 4 detected at baseline — connect the pad first, then re-run' -Data $data
     Save-W17Result -Result $r -ResultsDir $ResultsDir
     exit (Write-W17Result $r)
 }
@@ -207,12 +251,13 @@ $findings.Add('MAP-6')
 $data.map6Note = 'this script proves the Windows-visible HID transition and mapper-process continuity only. It cannot and does not claim whether CONTROL resumes after the replug — w17-mapper/pkg/devices/controller.go:43 (EnumerateDevices() runs once at boot; the poll loop at :139-149 discards every add/remove event) predicts it will not, until the mapper process itself is restarted. Pair this script''s result with a manual "does the car respond again" bench observation to close the loop; that observation is out of scope here by design (no control-path probe is built, and none should be — CLAUDE.md: never open a serial port).'
 
 $ok = $failures.Count -eq 0
+$replugMs = if ($null -ne $data.replugTransition) { $data.replugTransition.elapsedMs } else { 'n/a' }
 $summary = if ($ok) {
-    "HID transitions observed cleanly (unplug at $($unplug.elapsedMs)ms, replug at $($data.replugTransition.elapsedMs)ms) and the mapper process (pid $mapperPid) was continuously alive throughout — Windows-level recovery confirmed; MAP-6 (control-level recovery) remains open per the code citation, not something this script can settle"
+    "WINDOWS-LEVEL ONLY: HID transitions observed (unplug at $($unplug.elapsedMs)ms, replug at ${replugMs}ms) and the mapper process (pid $mapperPid) stayed alive with an unchanged StartTime throughout. This says nothing about whether CONTROL resumes (MAP-6 predicts it does not), and it is NOT R15 evidence — R15 is a FIRST_ACTIVE unlock item (CURRENT_STATUS.md:1356) and REMAINS NO-GO (:1375). This PASS moves no gate."
 } else {
     ($failures -join '; ')
 }
 
-$result = New-W17Result -Script '60-r15-pad-unplug' -Ok $ok -Summary $summary -Data $data -Findings ($findings | Select-Object -Unique)
+$result = New-W17Result -Script '60-hid-transition' -Ok $ok -Summary $summary -Data $data -Findings @($findings | Select-Object -Unique)
 Save-W17Result -Result $result -ResultsDir $ResultsDir
 exit (Write-W17Result $result)
