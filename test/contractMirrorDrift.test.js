@@ -40,6 +40,15 @@ describe('windows_bridge_contract mirror (cluster-5(e))', () => {
     expect(record.canonicalPath).toBe('docs/windows_bridge_contract.md');
   });
 
+  it('a CRLF checkout (Windows core.autocrlf) yields the same digest as LF', () => {
+    // windows-latest checks the repo out with CRLF line endings; the digest pins
+    // content, so the region hash must not depend on the checkout's line endings.
+    const crlf = mirrorText.replace(/\r?\n/g, '\r\n');
+    expect(crlf).not.toBe(mirrorText);
+    expect(sha256(mirroredRegion(crlf))).toBe(record.sha256);
+    expect(Buffer.byteLength(mirroredRegion(crlf), 'utf8')).toBe(record.bytes);
+  });
+
   it("this repo's own appendix is OUTSIDE the mirrored region — it may evolve freely", () => {
     expect(mirrorText).toContain(REGION_END); // the appendix exists…
     const region = mirroredRegion(mirrorText);

@@ -73,8 +73,12 @@ const REGION_END = '# Appendix: Windows implementation notes';
 
 // Pure: pull the mirrored region out of either document. Trailing whitespace and
 // the horizontal rule that introduces the appendix are normalized away, so the
-// two files' region text is comparable byte for byte.
-function mirroredRegion(text) {
+// two files' region text is comparable byte for byte. Line endings are normalized
+// to LF first: a Windows checkout with core.autocrlf rewrites the mirror to CRLF,
+// and the digest must describe the CONTENT, not the checkout (the windows-latest
+// package-smoke job went red on exactly this on 2026-09-03).
+function mirroredRegion(rawText) {
+    const text = rawText.replace(/\r\n?/g, '\n');
     const start = text.indexOf(REGION_START);
     if (start === -1) throw new Error(`contract title not found ("${REGION_START}")`);
     const end = text.indexOf(REGION_END);
