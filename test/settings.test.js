@@ -621,3 +621,121 @@ describe('settingsStore — hotspot credential encryption (audit E1 / Q6)', () =
     }
   });
 });
+
+// The reviewer's probe (scratchpad/rev_gsB_probe4.js), at the seam it belongs
+// to: race day's one automatic write must not be able to destroy the stored
+// hotspot credential even if every caller-side guard were wrong. save() COULD:
+// its load -> normalizeSettings -> serialize round trip drops passwordEnc and
+// re-writes it only from a plaintext it managed to decrypt.
+describe('settingsStore.patchTelemetrySource — the one narrow write (OD-19)', () => {
+  const freshDir = () => mkdtempSync(join(tmpdir(), 'w17-patch-'));
+  // A NON-deterministic seal, so a re-encryption round trip is visible as a
+  // changed token rather than hiding behind a stable fake.
+  let seals = 0;
+  const sealSafe = ({ decryptable = true } = {}) => ({
+    isEncryptionAvailable: () => true,
+    encryptString: (s) => { seals += 1; return Buffer.from(`seal${seals}:${String(s)}`, 'utf8'); },
+    decryptString: (b) => {
+      if (!decryptable) throw new Error('written by another machine');
+      const t = Buffer.from(b).toString('utf8');
+      return t.slice(t.indexOf(':') + 1);
+    },
+  });
+  const seed = (raw) => {
+    const dir = freshDir();
+    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+    return dir;
+  };
+  const WITH_TOKEN = {
+    fpvMode: 'iphone-hud',
+    iphoneAddr: '10.0.0.9',
+    network: { kind: 'hotspot', hotspot: { ssid: 'W17-CAR', password: '', passwordEnc: 'w17cred:v1:AAAA' } },
+    telemetry: { source: 'none', port: 'COM4' },
+  };
+
+  it('an UNREADABLE token is copied through verbatim — save() deletes it, this does not', () => {
+    const dir = seed(WITH_TOKEN);
+    const store = createSettingsStore({
+      dir, credentialStore: createCredentialStore({ safeStorage: sealSafe({ decryptable: false }) }),
+    });
+    store.load();
+    expect(store.credentialStatus().state).toBe('undecryptable');
+
+    const res = store.patchTelemetrySource('mapper-grpc');
+    expect(res).toEqual({ ok: true, changed: true });
+    const after = JSON.parse(readFileSync(store.file, 'utf8'));
+    expect(after.network.hotspot.passwordEnc).toBe('w17cred:v1:AAAA'); // the whole point
+    expect(after.telemetry.source).toBe('mapper-grpc');
+    expect(after.telemetry.port).toBe('COM4');   // sibling keys untouched
+    expect(after.fpvMode).toBe('iphone-hud');    // and every unrelated setting
+    expect(after.iphoneAddr).toBe('10.0.0.9');
+
+    // The contrast that makes this method exist: the full round trip on the
+    // SAME file loses the token.
+    store.save({ telemetry: { source: 'none' } });
+    expect(JSON.parse(readFileSync(store.file, 'utf8')).network.hotspot.passwordEnc).toBeUndefined();
+  });
+
+  it('a READABLE token is not re-encrypted: the ciphertext bytes are the same bytes', () => {
+    const dir = seed({
+      network: { kind: 'hotspot', hotspot: { ssid: 'W17-CAR', password: '', passwordEnc: 'w17cred:v1:c2VhbDA6cHc=' } },
+      telemetry: { source: 'none', port: '' },
+    });
+    const store = createSettingsStore({
+      dir, credentialStore: createCredentialStore({ safeStorage: sealSafe() }),
+    });
+    const before = JSON.parse(readFileSync(store.file, 'utf8')).network.hotspot.passwordEnc;
+    store.patchTelemetrySource('mapper-grpc');
+    const after = JSON.parse(readFileSync(store.file, 'utf8'));
+    expect(after.network.hotspot.passwordEnc).toBe(before);
+    expect(after.telemetry.source).toBe('mapper-grpc');
+  });
+
+  it('refuses what it must: an unknown source, no settings file, an unreadable one, and un-secured plaintext', () => {
+    const dir = seed(WITH_TOKEN);
+    const store = createSettingsStore({ dir, credentialStore: availStore() });
+    expect(store.patchTelemetrySource('http-post')).toEqual({ ok: false, kind: 'bad-source' });
+    expect(store.patchTelemetrySource('')).toEqual({ ok: false, kind: 'bad-source' });
+
+    // Nothing on disk yet: a fresh install goes through the normal setup save.
+    const empty = createSettingsStore({ dir: freshDir() });
+    expect(empty.patchTelemetrySource('mapper-grpc')).toEqual({ ok: false, kind: 'no-settings' });
+
+    // Unreadable belongs to the recovery path, not to this method.
+    const badDir = freshDir();
+    writeFileSync(join(badDir, 'settings.json'), '{not json', 'utf8');
+    const bad = createSettingsStore({ dir: badDir });
+    expect(bad.patchTelemetrySource('mapper-grpc')).toEqual({ ok: false, kind: 'unreadable' });
+    // and it did NOT overwrite the file it refused
+    expect(readFileSync(join(badDir, 'settings.json'), 'utf8')).toBe('{not json');
+
+    // A legacy plaintext still on disk: rewriting would re-persist it.
+    const legacyDir = seed({
+      network: { kind: 'hotspot', hotspot: { ssid: 'W17-CAR', password: 'still-plain' } },
+      telemetry: { source: 'none', port: '' },
+    });
+    const legacy = createSettingsStore({ dir: legacyDir });
+    expect(legacy.patchTelemetrySource('mapper-grpc')).toEqual({ ok: false, kind: 'plaintext-credential' });
+    expect(JSON.parse(readFileSync(join(legacyDir, 'settings.json'), 'utf8')).telemetry.source).toBe('none');
+  });
+
+  it('a no-op patch writes nothing at all', () => {
+    const dir = seed({ ...WITH_TOKEN, telemetry: { source: 'mapper-grpc', port: '' } });
+    const store = createSettingsStore({ dir, credentialStore: availStore() });
+    const before = readFileSync(store.file, 'utf8');
+    expect(store.patchTelemetrySource('mapper-grpc')).toEqual({ ok: true, changed: false });
+    expect(readFileSync(store.file, 'utf8')).toBe(before);
+    expect(existsSync(`${store.file}.bak`)).toBe(false); // no backup churn either
+  });
+
+  it('never logs the credential or the ciphertext', () => {
+    const dir = seed(WITH_TOKEN);
+    const lines = [];
+    const store = createSettingsStore({ dir, credentialStore: availStore(), log: (m) => lines.push(m) });
+    store.patchTelemetrySource('mapper-grpc');
+    for (const line of lines) {
+      expect(line).not.toContain('w17cred:v1:AAAA');
+      expect(line).not.toContain('passwordEnc');
+    }
+  });
+});

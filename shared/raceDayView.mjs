@@ -178,6 +178,21 @@ export function raceDayMapperMessage(snap) {
     return { label: 'IT SAID', text: msg.trim(), tone: 'fail' };
 }
 
+// Owner decision OD-19. Race day is allowed exactly ONE persisted change — it
+// switches CAR READINGS to the drive program's own stream, once, because on the
+// shipped default nothing anywhere could tell the operator the pack is low. A
+// configuration that changed quietly is the same class of surprise as one that
+// quietly reset (the settings-recovery notice), so the GARAGE says it happened.
+// Informational, not a fault: 'muted', and only after the change really landed.
+export function raceDaySettingsNote(snap) {
+    if (!snap || snap.telemetrySelected !== true) return null;
+    return {
+        label: 'NOTE',
+        text: 'race day set CAR READINGS to the drive program (once) — you can change it in ⚙',
+        tone: 'muted',
+    };
+}
+
 // The LIVE-HUD alarm (review giftee-ux-5). Once the setup gate is hidden the
 // race-day card is out of sight, so a drive program that dies mid-session was
 // invisible: the car simply stopped answering the controller and nothing on the

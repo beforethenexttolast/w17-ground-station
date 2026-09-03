@@ -1,10 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'node:module';
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const {
   RaceDayOrchestrator, mapperArgv, MAPPER_ARG_WHITELIST, STEP_ORDER,
 } = require('../main/raceDayOrchestrator.js');
+// The REAL persistence, for the one write race day makes (OD-19). Everything
+// else in this file runs against fakes; the credential regression below has to
+// see the actual file the actual store writes.
+const { createSettingsStore } = require('../main/settingsStore.js');
+const { createCredentialStore } = require('../main/credentialStore.js');
 
 // ---------- fakes (no Electron, no processes, no network) ----------
 
@@ -90,10 +98,21 @@ function fakeLinkProbe({ up = true } = {}) {
   return probe;
 }
 
+// The store seam the orchestrator actually uses: load() plus the ONE narrow
+// write race day is allowed to make (OD-19). Tests that care about the write
+// pass their own store (or the real one) via `settingsStore`.
+function fakeSettingsStore(settings) {
+  return {
+    load: () => JSON.parse(JSON.stringify(settings)),
+    credentialStatus: () => ({ state: 'none', encryptionAvailable: true, hasPassword: false }),
+    patchTelemetrySource: vi.fn(() => ({ ok: true })),
+  };
+}
+
 function harness({
   settings = settingsWith(), lifecycle, runner, applier, exists = () => true,
   elrsDetect = vi.fn(async () => ({ configured: false, detected: false })),
-  telemetryStatus, linkProbe,
+  telemetryStatus, linkProbe, settingsStore,
 } = {}) {
   const lc = lifecycle || fakeLifecycle();
   const rn = runner || fakeRunner();
@@ -103,7 +122,7 @@ function harness({
     hotspotLifecycle: lc,
     mapperRunner: rn,
     sessionApplier: ap,
-    settingsStore: { load: () => JSON.parse(JSON.stringify(settings)) },
+    settingsStore: settingsStore || fakeSettingsStore(settings),
     existsSync: exists,
     elrsDetect,
     ...(telemetryStatus ? { telemetryStatus } : {}),
@@ -211,7 +230,9 @@ describe('RaceDayOrchestrator — happy path', () => {
       binaryPath: '/w17/mapper.exe',
       argv: ['-config-file-path', '/w17/w17-ds4.json'],
     });
-    expect(ap.apply).toHaveBeenCalledTimes(1);
+    // Twice since OD-4: the car-readings step re-applies after selecting the
+    // source, then the phone-link step applies its own settings.
+    expect(ap.apply).toHaveBeenCalledTimes(2);
   });
 
   it('step order is the documented sequence (hotspot, mapper, bridge)', async () => {
@@ -222,7 +243,14 @@ describe('RaceDayOrchestrator — happy path', () => {
     rn.start.mockImplementation(() => { order.push('mapper'); rn._running = true; return { ok: true, pid: 7 }; });
     const ap = fakeApplier();
     ap.apply.mockImplementation(() => { order.push('bridge'); return { iphoneBridge: true }; });
-    const { orch } = harness({ lifecycle: lc, runner: rn, applier: ap });
+    const { orch } = harness({
+      lifecycle: lc,
+      runner: rn,
+      applier: ap,
+      // A source already chosen keeps the car-readings step out of the trace,
+      // so this test still measures ORDER rather than the OD-4 selection.
+      telemetryStatus: () => ({ source: 'mapper-grpc', receiving: true }),
+    });
     await orch.start();
     expect(order).toEqual(['hotspot', 'mapper', 'bridge']);
     expect(STEP_ORDER).toEqual(['hotspot', 'mapper', 'telemetry', 'bridge']);
@@ -255,8 +283,15 @@ describe('RaceDayOrchestrator — skips are honest, not silent', () => {
     expect(lc.verify).not.toHaveBeenCalled();
   });
 
+  // A source already chosen keeps the car-readings step from applying too, so
+  // `apply` here still means "the PHONE LINK step ran" and nothing else.
+  const sourceChosen = () => ({ source: 'mapper-grpc', receiving: true });
+
   it('desktop session: bridge skipped, sequence still succeeds', async () => {
-    const { orch, ap } = harness({ settings: settingsWith({ fpvMode: 'solo' }) });
+    const { orch, ap } = harness({
+      settings: settingsWith({ fpvMode: 'solo' }),
+      telemetryStatus: sourceChosen,
+    });
     const res = await orch.start();
     expect(res.ok).toBe(true);
     expect(stepOf(res.snapshot, 'bridge')).toMatchObject({ status: 'skipped', kind: 'desktop-session' });
@@ -266,6 +301,7 @@ describe('RaceDayOrchestrator — skips are honest, not silent', () => {
   it('autoBridge off: bridge skipped by choice', async () => {
     const { orch, ap } = harness({
       settings: settingsWith({ racePrep: { mapperPath: '/w17/mapper.exe', profilePath: '/w17/w17.json', autoBridge: false } }),
+      telemetryStatus: sourceChosen,
     });
     const res = await orch.start();
     expect(res.ok).toBe(true);
@@ -424,7 +460,8 @@ describe('RaceDayOrchestrator — a retry re-runs idempotently', () => {
     expect(rn.start).not.toHaveBeenCalled();
     expect(stepOf(res.snapshot, 'hotspot')).toMatchObject({ status: 'ok', kind: 'verified' });
     expect(stepOf(res.snapshot, 'mapper')).toMatchObject({ status: 'ok', kind: 'already-running' });
-    expect(ap.apply).toHaveBeenCalledTimes(1); // bridge re-apply is idempotent main-side
+    // Twice: the car-readings step's re-apply, then the idempotent bridge one.
+    expect(ap.apply).toHaveBeenCalledTimes(2);
   });
 
   it('after a mapper failure, pressing again re-runs the fixed step without disturbing the green ones', async () => {
@@ -728,17 +765,57 @@ describe('RaceDayOrchestrator — the car-readings step (OD-4)', () => {
       telemetryStatus: () => st,
       settings,
     });
-    // The save + apply is what the step does; model the runtime following it.
-    orch._settingsStore.save = (patch) => {
-      saved.push(patch);
-      st.source = patch.telemetry.source;
+    // The NARROW patch + apply is what the step does (OD-19); model the runtime
+    // following it. save() is deliberately not the seam any more — see the
+    // credential regression block at the end of this file.
+    orch._settingsStore.patchTelemetrySource = (source) => {
+      saved.push(source);
+      st.source = source;
       st.receiving = true;
-      return settings;
+      return { ok: true, changed: true };
     };
     const res = await orch.start();
-    expect(saved).toEqual([{ telemetry: { source: 'mapper-grpc' } }]);
+    expect(saved).toEqual(['mapper-grpc']);
     expect(ap.apply).toHaveBeenCalled();
     expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'ok', kind: 'live' });
+  });
+
+  it('never reaches for save(): the full round trip is what destroyed the hotspot credential (OD-19)', async () => {
+    const st = { source: 'none', receiving: false };
+    const { orch } = harness({ telemetryStatus: () => st });
+    const save = vi.fn(() => ({}));
+    orch._settingsStore.save = save;
+    await orch.start();
+    expect(save).not.toHaveBeenCalled();
+    expect(orch._settingsStore.patchTelemetrySource).toHaveBeenCalledWith('mapper-grpc');
+  });
+
+  it('a credential this computer cannot read stops the write before it starts (OD-19)', async () => {
+    for (const state of ['undecryptable', 'session-only', 'unavailable']) {
+      const store = fakeSettingsStore(settingsWith());
+      store.credentialStatus = () => ({ state, encryptionAvailable: true, hasPassword: false });
+      const { orch } = harness({
+        settingsStore: store,
+        telemetryStatus: () => ({ source: 'none', receiving: false }),
+      });
+      const res = await orch.start();
+      expect(store.patchTelemetrySource, state).not.toHaveBeenCalled();
+      expect(stepOf(res.snapshot, 'telemetry'), state).toMatchObject({ status: 'skipped', kind: 'unavailable' });
+      expect(res.snapshot.telemetrySelected, state).toBe(false);
+    }
+  });
+
+  it('a store that REFUSES the patch is reported, not assumed to have worked', async () => {
+    const store = fakeSettingsStore(settingsWith());
+    store.patchTelemetrySource = vi.fn(() => ({ ok: false, kind: 'unreadable' }));
+    const { orch } = harness({
+      settingsStore: store,
+      telemetryStatus: () => ({ source: 'none', receiving: false }),
+    });
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'unavailable' });
+    expect(res.snapshot.telemetrySelected).toBe(false);
+    expect(res.ok).toBe(true);
   });
 
   it('a configured source with no reading yet is ok, and SAYS the car has not spoken', async () => {
@@ -753,29 +830,27 @@ describe('RaceDayOrchestrator — the car-readings step (OD-4)', () => {
 
   it("a source chosen on purpose is left alone", async () => {
     for (const source of ['replay', 'crsf-serial']) {
-      const saved = [];
-      const { orch } = harness({ telemetryStatus: status({ source }) });
-      orch._settingsStore.save = (p) => { saved.push(p); return {}; };
+      const store = fakeSettingsStore(settingsWith());
+      const { orch } = harness({ settingsStore: store, telemetryStatus: status({ source }) });
       const res = await orch.start();
       expect(stepOf(res.snapshot, 'telemetry'), source).toMatchObject({ status: 'skipped', kind: 'own-source' });
-      expect(saved, source).toEqual([]);
+      expect(store.patchTelemetrySource, source).not.toHaveBeenCalled();
     }
   });
 
   it('a developer setting that pins the source off is reported, not fought', async () => {
     const ap = fakeApplier();
     ap.effective = vi.fn(() => ({ envOverridden: { telemetrySource: true } }));
-    const saved = [];
-    const { orch } = harness({ applier: ap, telemetryStatus: status({ source: 'none' }) });
-    orch._settingsStore.save = (p) => { saved.push(p); return {}; };
+    const store = fakeSettingsStore(settingsWith());
+    const { orch } = harness({ applier: ap, settingsStore: store, telemetryStatus: status({ source: 'none' }) });
     const res = await orch.start();
     expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'held-off' });
-    expect(saved).toEqual([]);
+    expect(store.patchTelemetrySource).not.toHaveBeenCalled();
   });
 
-  it('a failed save does not take the whole bring-up down — the card just says the number stays blank', async () => {
+  it('a failed write does not take the whole bring-up down — the card just says the number stays blank', async () => {
     const { orch } = harness({ telemetryStatus: status({ source: 'none' }) });
-    orch._settingsStore.save = () => { throw new Error('disk full'); };
+    orch._settingsStore.patchTelemetrySource = () => { throw new Error('disk full'); };
     const res = await orch.start();
     expect(res.ok).toBe(true);
     expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'unavailable' });
@@ -790,5 +865,143 @@ describe('RaceDayOrchestrator — the car-readings step (OD-4)', () => {
     // race day exists to remove, so the step must still resolve.
     expect(stepOf(res.snapshot, 'telemetry').status).not.toBe('pending');
     expect(res.ok).toBe(true);
+  });
+});
+
+// --- OD-19: the ONE write race day is allowed to make ------------------------
+// Adversarial review, blocking finding 1. The telemetry step used to go through
+// the full settingsStore.save() round trip: load() -> normalizeSettings()
+// (which DROPS network.hotspot.passwordEnc) -> serialize() (which re-writes it
+// only from a plaintext it could decrypt). With a token this computer cannot
+// read — a restored settings.json, a changed Windows profile — the plaintext is
+// '' and the re-written file carried NO passwordEnc at all: race day, an
+// UNATTENDED writer reachable from one giftee press, silently and permanently
+// destroyed the saved hotspot password.
+//
+// The probe below is the reviewer's (scratchpad/rev_gsB_probe4.js) driven
+// through the REAL store and the REAL orchestrator, so the regression is pinned
+// where the damage happened rather than at the seam.
+describe('RaceDayOrchestrator — race day never destroys the saved hotspot password (OD-19)', () => {
+  // A safeStorage whose ciphertext is NOT readable on this computer, and whose
+  // protect() is deliberately NON-deterministic: any re-encryption round trip
+  // shows up as a changed token, so "copied through verbatim" is provable.
+  let sealCounter = 0;
+  const foreignSafe = ({ decryptable = false } = {}) => ({
+    isEncryptionAvailable: () => true,
+    encryptString: (s) => {
+      sealCounter += 1;
+      return Buffer.from(`seal${sealCounter}:${String(s)}`, 'utf8');
+    },
+    decryptString: (buf) => {
+      if (!decryptable) throw new Error('this ciphertext was written by another machine');
+      const t = Buffer.from(buf).toString('utf8');
+      return t.slice(t.indexOf(':') + 1);
+    },
+  });
+
+  const seed = (raw) => {
+    const dir = mkdtempSync(join(tmpdir(), 'w17-raceday-cred-'));
+    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+    return dir;
+  };
+  const onDisk = (store) => JSON.parse(readFileSync(store.file, 'utf8'));
+
+  const SEEDED = (over = {}) => ({
+    fpvMode: 'solo',
+    network: { kind: 'hotspot', hotspot: { ssid: 'W17-GRID', password: '', passwordEnc: 'w17cred:v1:AAAA' } },
+    racePrep: { mapperPath: '/w17/mapper.exe', profilePath: '/w17/w17-ds4.json', autoBridge: false },
+    telemetry: { source: 'none', port: '' },
+    ...over,
+  });
+
+  it('an UNREADABLE saved password survives the telemetry step, byte for byte', async () => {
+    const dir = seed(SEEDED());
+    const store = createSettingsStore({
+      dir,
+      credentialStore: createCredentialStore({ safeStorage: foreignSafe() }),
+    });
+    expect(store.load().network.hotspot.password).toBe('');
+    expect(store.credentialStatus().state).toBe('undecryptable');
+
+    const st = { source: 'none', receiving: false };
+    const { orch } = harness({ settingsStore: store, telemetryStatus: () => st });
+    const res = await orch.start();
+
+    // The one thing that must never happen.
+    expect(onDisk(store).network.hotspot.passwordEnc).toBe('w17cred:v1:AAAA');
+    // And the operator is told the readings could not be switched on rather
+    // than being handed a silent success (OD-19: skip with 'unavailable').
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'unavailable' });
+    expect(res.ok).toBe(true);
+  });
+
+  it('a password kept for THIS SESSION only is not written away either', async () => {
+    const dir = seed(SEEDED());
+    const store = createSettingsStore({
+      dir,
+      // No OS encryption at all: the token on disk cannot be read this session.
+      credentialStore: createCredentialStore({ safeStorage: { isEncryptionAvailable: () => false } }),
+    });
+    store.load();
+    expect(['session-only', 'undecryptable', 'unavailable']).toContain(store.credentialStatus().state);
+
+    const st = { source: 'none', receiving: false };
+    const { orch } = harness({ settingsStore: store, telemetryStatus: () => st });
+    const res = await orch.start();
+
+    expect(onDisk(store).network.hotspot.passwordEnc).toBe('w17cred:v1:AAAA');
+    expect(stepOf(res.snapshot, 'telemetry')).toMatchObject({ status: 'skipped', kind: 'unavailable' });
+  });
+
+  it('with a READABLE credential the source IS written — and the ciphertext is copied through, never re-encrypted', async () => {
+    const dir = seed(SEEDED({
+      network: { kind: 'hotspot', hotspot: { ssid: 'W17-GRID', password: '', passwordEnc: 'w17cred:v1:c2VhbDA6cHc=' } },
+    }));
+    // A store that CAN read the token, so the old code path would decrypt and
+    // re-encrypt it; the non-deterministic seal makes that visible.
+    const store = createSettingsStore({
+      dir,
+      credentialStore: createCredentialStore({ safeStorage: foreignSafe({ decryptable: true }) }),
+    });
+    const before = onDisk(store).network.hotspot.passwordEnc;
+
+    const st = { source: 'none', receiving: false };
+    const { orch } = harness({ settingsStore: store, telemetryStatus: () => st });
+    const res = await orch.start();
+
+    const after = onDisk(store);
+    expect(after.telemetry.source).toBe('mapper-grpc');   // the write happened
+    expect(after.network.hotspot.passwordEnc).toBe(before); // verbatim, not re-sealed
+    expect(after.network.hotspot.password).toBe('');        // still no plaintext on disk
+    expect(after.network.hotspot.ssid).toBe('W17-GRID');    // nothing else moved
+    expect(after.fpvMode).toBe('solo');
+    expect(stepOf(res.snapshot, 'telemetry').status).toBe('ok');
+  });
+
+  it('the GARAGE is told the setting changed — and only when it actually did', async () => {
+    // No stored Wi-Fi password at all: nothing for the write to endanger, so
+    // the guard lets it through and the setting really does change.
+    const dir = seed(SEEDED({ network: { kind: 'hotspot', hotspot: { ssid: 'W17-GRID', password: '' } } }));
+    const store = createSettingsStore({
+      dir,
+      credentialStore: createCredentialStore({ safeStorage: foreignSafe({ decryptable: true }) }),
+    });
+    expect(store.load().network.hotspot.password).toBe('');
+    expect(store.credentialStatus().state).toBe('none');
+    const st = { source: 'none', receiving: false };
+    const { orch } = harness({ settingsStore: store, telemetryStatus: () => st });
+    expect(orch.snapshot().telemetrySelected).toBe(false);
+    const res = await orch.start();
+    expect(res.snapshot.telemetrySelected).toBe(true);
+
+    // A run that changes nothing makes no claim.
+    const dir2 = seed(SEEDED({ telemetry: { source: 'crsf-serial', port: '' } }));
+    const store2 = createSettingsStore({ dir: dir2 });
+    const { orch: orch2 } = harness({
+      settingsStore: store2,
+      telemetryStatus: () => ({ source: 'crsf-serial', receiving: false }),
+    });
+    const res2 = await orch2.start();
+    expect(res2.snapshot.telemetrySelected).toBe(false);
   });
 });

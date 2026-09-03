@@ -88,8 +88,17 @@ const TELEMETRY_FIRST_READING_MS = 3000;
 const LINK_UP_WAIT_MS = 5000;
 
 // Mapper-step kinds that CLAIM the drive program is up and driving. A link that
-// drops under any of them makes that claim false.
+// drops under any of them makes that claim false. 'link-not-yet' is deliberately
+// NOT here: it claims nothing about the radio, so there is nothing to take back.
 const LINK_BEARING_KINDS = new Set(['running', 'already-running', 'external', 'link-unknown']);
+
+// Credential states race day refuses to write settings under (owner decision
+// OD-19). The narrow store method below cannot destroy the hotspot password by
+// construction, but the ruling asks for the guard as well: on a computer whose
+// stored credential is unreadable or session-only, the honest answer is "the
+// readings could not be switched on", not an automatic rewrite of the file that
+// holds it.
+const CREDENTIAL_UNSAFE_STATES = new Set(['undecryptable', 'session-only', 'unavailable']);
 
 class RaceDayOrchestrator {
     constructor({
@@ -126,6 +135,18 @@ class RaceDayOrchestrator {
         this._log = log;
         this._running = false;
         this._seq = 0;
+        // OD-19: race day changed a persisted setting on this computer. Sticky
+        // for the session so the GARAGE line survives a later idle card — a
+        // configuration that changed quietly is what the operator must be told.
+        this._telemetrySelected = false;
+        // Review blocking 2: has the mapper ever CLAIMED the link was up in
+        // this session? Before it has, a window that closes on "not connected"
+        // is a bring-up still in progress, not a fault to blame a cable for.
+        this._linkEverUp = false;
+        // The success kind the current link check is standing in for, so a link
+        // that comes up later restores the right sentence ('external' stays
+        // 'external', not a claim that race day started it).
+        this._linkOkKind = 'running';
         this._steps = {
             hotspot: { status: 'idle', kind: null },
             mapper: { status: 'idle', kind: null },
@@ -211,6 +232,9 @@ class RaceDayOrchestrator {
             // The mapper's own link answer (review SYN-2), or an honest
             // unknown when nothing is watching it on this computer.
             link: this._linkProbe ? this._linkProbe.snapshot() : { up: null },
+            // OD-19: race day persisted the one setting it is allowed to
+            // persist. The GARAGE renders a line for it (shared/raceDayView).
+            telemetrySelected: this._telemetrySelected,
         };
     }
 
@@ -474,13 +498,41 @@ class RaceDayOrchestrator {
                 this._set('telemetry', 'skipped', 'held-off');
                 return true;
             }
+            // Owner decision OD-19 / review blocking 1. This is the only write
+            // race day makes, and it is made through the store's NARROW patch —
+            // never save(), whose load/normalize/serialize round trip drops the
+            // encrypted hotspot password and rewrites it only from a plaintext
+            // it could decrypt. On a computer that cannot read the stored token
+            // that round trip DELETED the credential, unattended, on one press.
+            const credState = this._credentialState();
+            if (CREDENTIAL_UNSAFE_STATES.has(credState)) {
+                this._log(`[raceday] telemetry source left alone: the saved Wi-Fi credential is '${credState}' on this computer`);
+                this._set('telemetry', 'skipped', 'unavailable');
+                return true;
+            }
             this._set('telemetry', 'running', 'selecting');
+            let patched = null;
             try {
-                this._settingsStore.save({ telemetry: { source: MAPPER_TELEMETRY_SOURCE } });
+                patched = this._settingsStore.patchTelemetrySource(MAPPER_TELEMETRY_SOURCE);
+            } catch (err) {
+                this._log(`[raceday] could not select the telemetry source: ${err && err.message ? err.message : err}`);
+                this._set('telemetry', 'skipped', 'unavailable');
+                return true;
+            }
+            if (!patched || patched.ok !== true) {
+                this._log(`[raceday] telemetry source not written (${(patched && patched.kind) || 'refused'})`);
+                this._set('telemetry', 'skipped', 'unavailable');
+                return true;
+            }
+            // A configuration that quietly changed is the same class of surprise
+            // as one that quietly reset, so the GARAGE says so (OD-19). Sticky
+            // for the life of this session, like the settings-recovery notice.
+            if (patched.changed !== false) this._telemetrySelected = true;
+            try {
                 this._applier.apply();
                 this._log('[raceday] telemetry source set to the drive program\'s read-only stream');
             } catch (err) {
-                this._log(`[raceday] could not select the telemetry source: ${err && err.message ? err.message : err}`);
+                this._log(`[raceday] could not apply the telemetry source: ${err && err.message ? err.message : err}`);
                 this._set('telemetry', 'skipped', 'unavailable');
                 return true;
             }
@@ -489,6 +541,22 @@ class RaceDayOrchestrator {
         const receiving = await this._awaitFirstReading();
         this._set('telemetry', 'ok', receiving ? 'live' : 'waiting');
         return true;
+    }
+
+    // The store's non-secret credential state ('none' / 'persisted' /
+    // 'undecryptable' / 'session-only' / 'unavailable' / 'migration-failed').
+    // Never the value, never the ciphertext. A store that cannot answer reads
+    // as 'unknown' and does NOT block the write — the narrow patch is safe on
+    // its own; this guard is the second belt, not the only one.
+    _credentialState() {
+        try {
+            const st = this._settingsStore.credentialStatus
+                ? this._settingsStore.credentialStatus() : null;
+            return (st && typeof st.state === 'string') ? st.state : 'unknown';
+        } catch (err) {
+            this._log(`[raceday] credential status unavailable: ${err && err.message ? err.message : err}`);
+            return 'unknown';
+        }
     }
 
     _readTelemetryStatus() {

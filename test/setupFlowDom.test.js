@@ -478,6 +478,29 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     expect(rows[3].querySelector('span').children).toHaveLength(0);
   });
 
+  // OD-19: race day is allowed exactly one persisted change, and the screen
+  // where that setting lives has to say it happened.
+  it('the GARAGE states the one setting race day changed, as an extra muted row', async () => {
+    const { push } = await loadReturningUser();
+    const snap = rdSnap([
+      { id: 'hotspot', status: 'ok', kind: 'verified' },
+      { id: 'mapper', status: 'ok', kind: 'running' },
+      { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+    ], { seq: 2, mapperRunning: true });
+    push(snap);
+    await tick();
+    expect([...el('raceDaySteps').children]).toHaveLength(3); // nothing claimed yet
+
+    push({ ...snap, seq: 3, telemetrySelected: true });
+    await tick();
+    const rows = [...el('raceDaySteps').children];
+    expect(rows).toHaveLength(4);
+    expect(rows[3].querySelector('b').textContent).toBe('NOTE');
+    expect(rows[3].querySelector('span').textContent)
+      .toBe('race day set CAR READINGS to the drive program (once) — you can change it in ⚙');
+    expect(rows[3].className).toBe('rdrow muted');
+  });
+
   it('a stop that did not take puts STOP back and says the program is still running', async () => {
     const { push } = await loadReturningUser();
     push(rdSnap([

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage,
-  raceDayDriveAlarm, RACE_DAY_STEP_LABELS,
+  raceDayDriveAlarm, raceDaySettingsNote, RACE_DAY_STEP_LABELS,
 } from '../shared/raceDayView.mjs';
 
 const snap = (steps, { running = false, mapper = { running: false } } = {}) => ({
@@ -269,5 +269,28 @@ describe('raceDayDriveAlarm — the live-HUD line for a drive program that died'
     for (const kind of ['exited', 'link-down', 'spawn-failed']) {
       expect(raceDayDriveAlarm(withMapper('fail', kind)).text, kind).not.toMatch(jargon);
     }
+  });
+});
+
+// Owner decision OD-19: race day may persist exactly one setting, once, and the
+// GARAGE must say it did. A silent configuration change is the same class of
+// surprise as a silent reset.
+describe('raceDaySettingsNote — the one persisted change is stated (OD-19)', () => {
+  it('says what changed, in the operator\'s vocabulary, and only after it changed', () => {
+    expect(raceDaySettingsNote(null)).toBeNull();
+    expect(raceDaySettingsNote({})).toBeNull();
+    expect(raceDaySettingsNote({ telemetrySelected: false })).toBeNull();
+    // Not a truthy-coercion: only an explicit true makes the claim.
+    expect(raceDaySettingsNote({ telemetrySelected: 1 })).toBeNull();
+
+    const note = raceDaySettingsNote({ telemetrySelected: true });
+    expect(note).toEqual({
+      label: 'NOTE',
+      text: 'race day set CAR READINGS to the drive program (once) — you can change it in ⚙',
+      tone: 'muted',
+    });
+    // It names the CARD's own label, never the component behind it.
+    expect(note.text).toContain(RACE_DAY_STEP_LABELS.telemetry);
+    expect(note.text).not.toMatch(/mediamtx|webrtc|whep|rtsp|\belrs\b|crsf|\bmapper\b|\budp\b|\bgrpc\b|telemetry\.source/i);
   });
 });

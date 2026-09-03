@@ -41,7 +41,7 @@
 
 const fsDefault = require('node:fs');
 const path = require('node:path');
-const { normalizeSettings } = require('../shared/settings.js');
+const { normalizeSettings, TELEMETRY_SOURCES } = require('../shared/settings.js');
 const { nullCredentialStore } = require('./credentialStore.js');
 
 // A settings file is a JSON OBJECT or it is not a settings file. Valid JSON
@@ -331,6 +331,52 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
         return normalized; // logical: decrypted plaintext, no passwordEnc
     }
 
+    // The ONE write race day is permitted to make (owner decision OD-19,
+    // adversarial review blocking finding 1), and deliberately NOT save().
+    //
+    // WHY A SEPARATE METHOD. save() is a full round trip: load() ->
+    // normalizeSettings() -> serialize() -> disk. normalizeSettings DROPS
+    // `network.hotspot.passwordEnc` (it is not part of the logical shape), and
+    // serialize() puts a token back ONLY from a plaintext it managed to
+    // decrypt. On a computer that cannot read the stored token — a restored
+    // settings.json, a changed Windows profile, safeStorage unavailable — that
+    // plaintext is '' and the rewritten file carries NO passwordEnc at all. An
+    // unattended writer reachable from ONE giftee press then destroys the saved
+    // hotspot password permanently (the .bak survives exactly one more save).
+    //
+    // This method never decrypts, never encrypts and never consults the session
+    // value: it reads the raw on-disk object, rewrites exactly telemetry.source
+    // and copies every other byte — passwordEnc included — through verbatim.
+    //
+    // Soft-fail results in the repo style; the caller reports 'could not be
+    // switched on' rather than pretending. It refuses to write when:
+    //  - the source is not one this app knows,
+    //  - there is no settings file yet (nothing to patch; a fresh install goes
+    //    through the normal setup save),
+    //  - the file is unreadable (recovery owns that file, not this method),
+    //  - the on-disk record still holds a LEGACY PLAINTEXT password: rewriting
+    //    the file would re-persist plaintext, and the "no plaintext on disk"
+    //    rule above holds for this path too, by construction.
+    function patchTelemetrySource(source) {
+        if (!TELEMETRY_SOURCES.includes(source)) return { ok: false, kind: 'bad-source' };
+        const raw = readRaw();
+        if (raw.state === 'absent') return { ok: false, kind: 'no-settings' };
+        if (raw.state !== 'ok') return { ok: false, kind: 'unreadable' };
+        const onDisk = raw.data;
+        const net = isPlainObject(onDisk.network) ? onDisk.network : null;
+        const hotspot = net && isPlainObject(net.hotspot) ? net.hotspot : null;
+        if (hotspot && typeof hotspot.password === 'string' && hotspot.password) {
+            log('[settings] telemetry source left unchanged: the stored hotspot password is not secured yet');
+            return { ok: false, kind: 'plaintext-credential' };
+        }
+        const tel = isPlainObject(onDisk.telemetry) ? onDisk.telemetry : {};
+        if (tel.source === source) return { ok: true, changed: false };
+        onDisk.telemetry = { ...tel, source };
+        writeAtomic(onDisk);
+        log(`[settings] telemetry source set to '${source}' (one key rewritten; the stored credential was copied through untouched)`);
+        return { ok: true, changed: true };
+    }
+
     // Non-secret credential status for the renderer (audit E1). Never carries
     // the value or ciphertext — only the state enum + whether encryption is
     // available + whether a password is set this session.
@@ -345,7 +391,9 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
         return { ...recovery };
     }
 
-    return { load, save, credentialStatus, recoveryStatus, file };
+    return {
+        load, save, patchTelemetrySource, credentialStatus, recoveryStatus, file,
+    };
 }
 
 module.exports = { createSettingsStore };

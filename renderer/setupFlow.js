@@ -34,6 +34,7 @@ import {
 import { normalizeRacePrepSettings } from '../shared/racePrep.mjs';
 import {
   raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage, raceDayDriveAlarm,
+  raceDaySettingsNote,
 } from '../shared/raceDayView.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
@@ -242,7 +243,15 @@ function renderRaceDay() {
   // it), so it is set as text — never markup — and it is the one row on this
   // card whose words the ground station did not choose.
   const said = raceDayMapperMessage(raceDaySnap);
-  raceDayStepsEl.replaceChildren(...lines.map(mkRow), ...(said ? [mkRow(said)] : []));
+  // OD-19: the one persisted change race day is allowed to make, stated on the
+  // screen where the setting lives. Informational and sticky for the session —
+  // a configuration that changed quietly is what the operator cannot diagnose.
+  const note = raceDaySettingsNote(raceDaySnap);
+  raceDayStepsEl.replaceChildren(
+    ...lines.map(mkRow),
+    ...(said ? [mkRow(said)] : []),
+    ...(note ? [mkRow(note)] : []),
+  );
 }
 
 async function seedRaceDay() {
