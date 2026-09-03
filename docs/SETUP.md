@@ -4,6 +4,25 @@ The app's pure logic (CRSF parse, telemetry, HUD) is unit-tested and runs anywhe
 **video pipeline and telemetry depend on hardware facts that must be verified on the bench** —
 several can force a config or architecture change, so do them first.
 
+**Two ways to run this app**, both exercising the same code:
+
+- **Dev checkout** — `git clone` + `npm install` + `npm run setup` + `npm start` (see the
+  README `Run` section). Config comes from env vars or editing `mediamtx/mediamtx.yml` /
+  the source tree directly. This is what every command below assumes unless stated
+  otherwise.
+- **Installed app (the gift kit)** — the NSIS installer built by `npm run build` (or
+  downloaded from a green CI run's `w17-ground-station-nsis-unsigned` artifact — see the
+  README CI section), run once on the giftee's own Windows account. There is no source
+  tree or `npm` on that machine: all configuration goes through the app's own ⚙ menu
+  (ELRS PATH, TELEMETRY, RACE DAY drive-program + profile paths, LOW BATTERY, VIDEO STYLE)
+  and `mediamtx/mediamtx.yml` under the app's own install/resources directory.
+  `[win-TBD]` the exact resources path (electron-builder's default per-user NSIS install
+  puts it under `%LOCALAPPDATA%\Programs\<product>\resources\mediamtx\`) and whether it is
+  writable without elevation have not been confirmed on a real Windows install — verify
+  once on the bench and record the actual path in `setup_flow_bench_checklist.md`. First
+  launch on a fresh Windows account is covered separately in
+  `GIFTEE_FIRST_LAUNCH.md` (SmartScreen, firewall prompts, full-screen).
+
 ## 1. Camera codec — H.264 vs H.265 (HIGHEST RISK, do this first)
 
 Chromium/Electron WebRTC generally **cannot decode H.265/HEVC**. The OpenIPC SSC338Q commonly
@@ -46,10 +65,15 @@ exclusively (see `docs/TELEMETRY.md`):
 - Verify the TX module actually emits LINK_STATISTICS (0x14) + the car's battery (0x08) on that
   serial (a few Hz is plenty). ELRS telemetry rate is more than enough for a battery gauge.
 
-`serialport` is a native module — after `npm install` run `npx electron-rebuild` (or
-`npm run setup` if wired) so it matches Electron's ABI. If it's missing/unbuilt the app still
-runs (gamepad HUD; telemetry just stays simulated). Until the bench, `npm run demo` runs the
-built-in replay source so you can see the full overlay.
+`serialport` is a native module — after `npm install` run **`npm run app:rebuild`**
+(`electron-rebuild -f -w serialport`) so it matches Electron's ABI. `npm run setup` does
+**not** do this — it only fetches `mediamtx` and repairs a blocked Electron postinstall
+(see Troubleshooting in the README); `app:rebuild` is the separate, serialport-specific
+step, and it is what `npm run build` chains in automatically before packaging. If
+`serialport` is missing/unbuilt the app still runs (gamepad HUD; telemetry just stays
+simulated). Until the bench, `npm run demo` runs the built-in replay source so you can see
+the full overlay, and `npm run demo:low-battery` runs the same replay backend on the
+low-battery timeline so the ⚙ LOW BATTERY banner is demoable without draining a real pack.
 
 ## 5. Offline demo (no car, no camera)
 
@@ -63,7 +87,10 @@ npm run demo    # gamepad drives the widgets; replay source drives the overlay
 
 ## 6. Network & hotspot for the iPhone bridge (Windows)
 
-The in-app PIT WALL step drives this, but the facts to verify on the bench:
+For the gift kit, the RT5370 hotspot dongle and the ELRS TX module ship pre-wired inside
+the **GCS box** — contents, wiring, and power budget are documented at the workspace root,
+`../../w17-gcs-box-guide.md` (canonical; this repo keeps no copy). The in-app PIT WALL step
+drives the software side, but the facts to verify on the bench:
 
 - **Client isolation:** guest/office APs often block device-to-device traffic — the
   bridge needs PC ↔ iPhone UDP. The GRID "IPHONE REACHABLE" check (one ping/s) is the
