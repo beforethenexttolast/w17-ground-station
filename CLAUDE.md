@@ -55,7 +55,7 @@ checkpoints/status live in `../CURRENT_STATUS.md`, never here.
   the sanctioned pattern (`main/HeadIntentDiagnosticsClient.js` — it opens and cancels the
   stream and does nothing else). This is a deliberate evolution of the launch-only doctrine
   above, not an exception to it — the GRID launcher stays detached and unstoppable.
-  `test/noControlPath.test.js:116-151` pins the process contract structurally; if a change
+  `test/noControlPath.test.js:124-169` pins the process contract structurally; if a change
   trips it, the change is wrong.
 - Never route head-tracking intent (`main/HeadTrackingReceiver.js`,
   `shared/headTracking.js`) into any control output.
