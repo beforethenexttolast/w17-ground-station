@@ -15,9 +15,10 @@
 > `61ad68f7ebe4706fdb9e5732c8598ff1e0abac2c` ("docs(windows-bridge-contract):
 > drop stale PROTOCOL_CONTRACT.md from canonical file's own list", `iPhone_rc`
 > branch `main`). That revision removes one stale line from this document's
-> own Related-documents list (a `docs/PROTOCOL_CONTRACT.md` entry that never
-> corresponded to a real file); no other content changed. The previous mirror
-> was the 2026-08-20 canonical (`862aeb07`); the ratified cross-client
+> own Related-documents list — a stale entry pointing at
+> `docs/PROTOCOL_CONTRACT.md`, now a redirect stub superseded by this
+> contract; no other content changed. The previous mirror was the 2026-08-20
+> canonical (`862aeb07`); the ratified cross-client
 > divergence-on-loss paragraph and the Discovery section's explicit receiver
 > acceptance policy brought in by that and earlier mirrors are unchanged.
 
