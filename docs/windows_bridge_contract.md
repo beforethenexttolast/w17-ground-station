@@ -13,10 +13,13 @@
 >
 > **Sync record:** mirrored 2026-09-04 from canonical revision
 > `7aaf2cf13501b38c9d5d70fee9d9d225c7821fd0` ("test(gate): flag raw BSD sockets at creation and at every send-shaped call, not by descriptor name", `iPhone_rc`
-> branch `main`). That revision removes one stale line from this document's
-> own Related-documents list — a stale entry pointing at
-> `docs/PROTOCOL_CONTRACT.md`, now a redirect stub superseded by this
-> contract; no other content changed. The previous mirror was the 2026-08-20
+> branch `main`). Since the previous mirror (canonical `61ad68f7`, 2026-09-03) the
+> canonical gained two clarifying sentences and no schema or wire change: the
+> per-field provenance rule under *Nullable And Unknown Values* (unreceived fields
+> render placeholders, never a seeded or stale number), and the OD-16 note in
+> *Future Video Path* (the phone's v1.0 video is a read-only WHEP/WebRTC pull of the
+> ground station's mediamtx stream; the direct RTP path stays the recorded fallback).
+> The mirror before that was the 2026-08-20
 > canonical (`862aeb07`); the ratified cross-client
 > divergence-on-loss paragraph and the Discovery section's explicit receiver
 > acceptance policy brought in by that and earlier mirrors are unchanged.
