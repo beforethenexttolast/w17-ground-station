@@ -2,9 +2,11 @@
 
 **Status: ADOPTED AND IMPLEMENTED ON BOTH SIDES — this document is now
 historical.** Written 2026-07-10 as the Windows side's suggestion; adopted
-canonically by `iPhone_rc` (Codex-maintained, the owner of the bridge
-contract), which has advertised since `1e332ef`. The canonical Discovery
-section is mirrored into `docs/windows_bridge_contract.md` at rev `84532ed`
+canonically by `iPhone_rc` (Codex-maintained at the time and the owner of the
+bridge contract; ownership of `iPhone_rc` transferred into this workspace,
+under Claude Code, on 2026-08-17 — see the workspace `CLAUDE.md` repo map),
+which has advertised since `1e332ef`. The canonical Discovery section is
+mirrored into `docs/windows_bridge_contract.md` at rev `84532ed`
 (2026-07-14) — **that section, not this file, is the authority**. The Windows
 side was built 2026-07-25 (VR-FPV batch CB4); see "As built" at the end.
 
