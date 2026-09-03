@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
   W17 Windows-VM validation, step 40: firewall/UDP/mDNS reachability for the
@@ -93,12 +93,17 @@ $mdnsRes = Invoke-W17Command -FilePath $exePath -ArgumentList @($mdnsJs, $asarPa
 $mdnsLine = ($mdnsRes.stdout -split "`r`n|`n") | Where-Object { $_ -like 'MDNS_PROBE_RESULT:*' } | Select-Object -Last 1
 $mdns = if ($mdnsLine) { try { ($mdnsLine -replace '^MDNS_PROBE_RESULT:\s*', '') | ConvertFrom-Json } catch { $null } } else { $null }
 $data.mdnsProbe = $mdns
-$mdnsQueried = $mdns -and $mdns.ok -and $mdns.queried
+# Get-W17Prop throughout (B2 class): mdns-probe.js:34's refusal shape is
+# { ok:false, kind, error } with NO `queried` and NO `hudsFound`, and under
+# `Set-StrictMode -Version Latest` reaching for a missing property throws —
+# which would have killed this script before it could report the refusal.
+$mdnsQueried = (Get-W17Prop $mdns 'ok' $false) -and (Get-W17Prop $mdns 'queried' $false)
 if (-not $mdnsQueried) {
-    $failures.Add("mDNS query did not go out cleanly: $($mdnsRes.stderr)")
+    $failures.Add("mDNS query did not go out cleanly: $(Get-W17ProbeReason $mdns); stderr: $($mdnsRes.stderr)")
 } else {
-    $data.mdnsHudsFound = $mdns.hudsFound
-    if (-not $mdns.hudsFound -or $mdns.hudsFound.Count -eq 0) {
+    $hudsFound = @(Get-W17Prop $mdns 'hudsFound' @())
+    $data.mdnsHudsFound = $hudsFound
+    if ($hudsFound.Count -eq 0) {
         $data.mdnsNote = 'no HUD advertisement seen (expected — no iPhone is attached to this VM session); the query itself completed cleanly, which is this check''s pass condition'
     }
 }
@@ -115,7 +120,11 @@ try {
     $udpClient = New-Object System.Net.Sockets.UdpClient(5601)
     $udpClient.Client.ReceiveTimeout = 8000
 
-    $env = @{
+    # NAMED $childEnv, never $env — see 30-hotspot.ps1's B1 note. PowerShell
+    # variable names are case-insensitive, so a local called $env shadows the
+    # name every `$env:VAR` reader in this file depends on and is one edit away
+    # from the self-enumerating-hashtable crash that killed step 30.
+    $childEnv = @{
         W17_TELEMETRY_SOURCE = 'replay'
         W17_IPHONE_BRIDGE    = '1'
         W17_IPHONE_ADDR      = '127.0.0.1'
@@ -126,7 +135,7 @@ try {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $exePath
     $psi.ArgumentList.Add("--user-data-dir=$scratchUserData")
-    foreach ($k in $env.Keys) { $psi.Environment[$k] = $env[$k] }
+    foreach ($k in $childEnv.Keys) { $psi.Environment[$k] = $childEnv[$k] }
     $psi.UseShellExecute = $false
     $proc = [System.Diagnostics.Process]::Start($psi)
     $data.launchedPid = $proc.Id
@@ -143,6 +152,9 @@ try {
     if ($udpClient) { $udpClient.Close() }
     if ($proc -and -not $proc.HasExited) {
         try { Start-Process -FilePath 'taskkill' -ArgumentList @('/pid', "$($proc.Id)", '/t', '/f') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue } catch {}
+        # Backstop: an Electron app spawns helper processes, and a leaked one
+        # would keep 5601 bound and make every later run of this step fail.
+        try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch {}
     }
     Remove-Item -LiteralPath $scratchUserData -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -2,10 +2,13 @@
 // advertisement using the app's OWN wire codec and policy modules
 // (shared/dnsWire.js: buildQuery; shared/hudDiscovery.js: SERVICE_TYPE,
 // hudsFromDatagram), the same two pure modules main/HudDiscovery.js wires up
-// (main/HudDiscovery.js:29). This is a bench harness around those two
+// (main/HudDiscovery.js:34). This is a bench harness around those two
 // modules, not a parallel mDNS implementation — SERVICE_TYPE comes from
-// shared/hudDiscovery.js:29 (`_w17hud._udp.local`), which is the canonical
-// value docs/windows_bridge_contract.md:123/139 also names, so a drift
+// shared/hudDiscovery.js:27 (`_w17hud._udp.local`), which is the canonical
+// value the contract also names — canonically at
+// iPhone_rc/docs/windows_bridge_contract.md:95/111, mirrored in this repo at
+// docs/windows_bridge_contract.md:119/135 (the iPhone copy is the authority;
+// see this repo's mirror banner) — so a drift
 // between the doc and the code would show up here as a mismatch, not just
 // asserted.
 //
@@ -16,7 +19,7 @@
 // No real iPhone is expected to be reachable during an autonomous VM session
 // (owner decision A4: the owner connects adapters; no phone was on hand for
 // this validation pass either — docs/windows_bridge_contract.md's own
-// discovery section says the same, HudDiscovery.js:24). An empty result after
+// discovery section says the same, HudDiscovery.js:34). An empty result after
 // the timeout is therefore NOT a failure by itself; 40-mdns-udp.ps1 treats
 // "the query went out and the socket behaved" as the pass condition, and logs
 // whatever candidates (if any) came back for the record.
@@ -74,13 +77,13 @@ socket.on('message', (buf, rinfo) => {
   for (const r of res.rejected) rejected.push({ from: rinfo.address, reason: r.reason });
   for (const hud of res.huds) {
     if (hud.ttl === 0) { found.delete(hud.addr); continue; }
-    if (rinfo.address && hud.addr !== rinfo.address) continue; // sender/address mismatch — same policy as HudDiscovery.js:135-142
+    if (rinfo.address && hud.addr !== rinfo.address) continue; // sender/address mismatch — same policy as HudDiscovery.js:139-142
     found.set(hud.addr, hud);
   }
 });
 
 socket.bind(() => {
-  try { socket.setMulticastTTL(255); } catch { /* best-effort, same as HudDiscovery.js:210 */ }
+  try { socket.setMulticastTTL(255); } catch { /* best-effort, same as HudDiscovery.js:220 */ }
   const packet = buildQuery(SERVICE_TYPE);
   const addrs = localIpv4Addresses();
   const targets = addrs.length ? addrs : [null];
