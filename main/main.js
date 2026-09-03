@@ -215,9 +215,17 @@ const windowLifecycle = createWindowLifecycle({
 // stations fighting over settings.json and mediamtx's ports (review SYN-1). The
 // loser hands over to the running one, which brings its window forward. Claimed
 // BEFORE whenReady so the second process exits as early as possible.
-const instanceRole = windowLifecycle.installSingleInstance();
+//
+// PACKAGED builds only, by default: that is the giftee's app, and a dev host
+// (or the boot smoke, which launches Electron directly) must stay free to run a
+// second copy rather than have the first silently quit it. W17_SINGLE_INSTANCE=1
+// turns it on for a dev run, the same shape as W17_FULLSCREEN.
+const instanceRole = windowLifecycle.installSingleInstance({
+  enabled: app.isPackaged
+    || process.env.W17_SINGLE_INSTANCE === '1' || process.env.W17_SINGLE_INSTANCE === 'true',
+});
 
-if (instanceRole === 'primary') app.whenReady().then(async () => {
+if (instanceRole !== 'secondary') app.whenReady().then(async () => {
   const { binaryPath, configPath } = mediamtxPaths({
     env: process.env,
     platform: process.platform,

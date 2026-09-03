@@ -1078,6 +1078,14 @@ describe('createWindowLifecycle — the X asks BEFORE the window dies (review SY
         expect(createWindow).toHaveBeenCalledTimes(1);
     });
 
+    it('a DEV run (or the boot smoke) is not locked out: nothing is claimed, nothing is registered', () => {
+        const { app, lifecycle } = build({ windows: [] });
+        expect(lifecycle.installSingleInstance({ enabled: false })).toBe('disabled');
+        expect(app.requestSingleInstanceLock).not.toHaveBeenCalled();
+        expect(app.on).not.toHaveBeenCalled();
+        expect(app.quit).not.toHaveBeenCalled();
+    });
+
     it('the LOSER of the lock quits at once and registers nothing (no two apps over one settings file)', () => {
         const { app, lifecycle } = build({ windows: [] });
         app.requestSingleInstanceLock = vi.fn(() => false);

@@ -500,7 +500,13 @@ function createWindowLifecycle({
         // zombie must NOT end up with two processes fighting over settings.json
         // and mediamtx's ports. The loser exits immediately; the winner brings
         // its window forward, or makes one if it somehow has none.
-        installSingleInstance() {
+        //
+        // `enabled` is the PACKAGED build (plus an explicit dev opt-in): the
+        // zombie this closes is the giftee's, and a developer — or the boot
+        // smoke, which launches Electron directly — must stay free to run a
+        // second copy without the first silently quitting it.
+        installSingleInstance({ enabled = true } = {}) {
+            if (!enabled) return 'disabled';
             if (!app.requestSingleInstanceLock || app.requestSingleInstanceLock()) {
                 app.on('second-instance', () => {
                     const win = firstWindow();
