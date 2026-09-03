@@ -27,11 +27,28 @@
 // SCOPE — the mapper step only. This probe deliberately REFUSES (before ever
 // calling raceDay.start()) when the REAL persisted settings would also drive
 // race day's hotspot step (network.kind === 'hotspot') or phone-bridge step
-// (fpvMode === 'iphone-hud' && racePrep.autoBridge): those two authorities
-// are already exercised end-to-end, for real, by 30-hotspot.ps1 and
-// 40-mdns-udp.ps1's replay path respectively. Silently standing in for them
-// here with stubs would either (a) blur which script owns which evidence, or
-// (b) risk leaving a real hotspot running behind an unattended VM session.
+// (fpvMode === 'iphone-hud' && racePrep.autoBridge).
+//
+// PRECISE CLAIM (review finding N6 — the earlier wording, "those two
+// authorities are already exercised end-to-end, for real, by 30-hotspot.ps1
+// and 40-mdns-udp.ps1", overstated it and is corrected here):
+//   * 30-hotspot.ps1 drives main/hotspot.js (HotspotManager) and
+//     main/hotspotVerify.js DIRECTLY. It does NOT go through
+//     main/hotspotLifecycle.js, which is the module race day actually calls
+//     (main/raceDayOrchestrator.js:85 `this._lifecycle = hotspotLifecycle`,
+//     used by `_hotspotStep` at :182, reached from the sequence at :161-163).
+//     So the hotspot MECHANISM is exercised for real; hotspotLifecycle.js's
+//     retry/re-verify/teardown POLICY is exercised by NOTHING — not by 30,
+//     and not here, since this probe stubs `_hotspotStep` out entirely.
+//   * 40-mdns-udp.ps1 exercises the phone bridge via the app's own env triple
+//     (W17_IPHONE_BRIDGE/_ADDR/_PORT) and a real UDP receive. It does NOT go
+//     through race day's `_bridgeStep` (raceDayOrchestrator.js:295), which is
+//     likewise stubbed here and covered by nothing.
+// Both gaps are [win-TBD] and would need either a dedicated step or a real
+// race-day run on hardware. What is true is that stubbing them here is still
+// the right call: silently standing in for those authorities would either
+// (a) blur which script owns which evidence, or (b) risk leaving a real
+// hotspot running behind an unattended VM session.
 // RaceDayOrchestrator.start()'s own top-level try/catch
 // (raceDayOrchestrator.js's `start()` — see the "sequence failed
 // unexpectedly" branch) swallows a stub's thrown detail into an

@@ -409,7 +409,7 @@ W17_REPLAY_TIMELINE=low-battery  # which scripted timeline W17_TELEMETRY_SOURCE=
   this because VS Code is itself Electron). `npm start` / `npm run demo` go through
   `scripts/run.js`, which strips that variable, so use those rather than `electron .` directly.
 
-**Windows-VM validation (owner decision A4):** `scripts/windows-validation/README.md` — PowerShell scripts that exercise the installed build (and the mapper it drives) against a real Windows guest, autonomously driven from the Mac.
+**Windows-VM validation (owner decision A4):** `scripts/windows-validation/README.md` — PowerShell **7** scripts that exercise the installed build (and the mapper it drives) against a real Windows guest, autonomously driven from the Mac. They run on the guest, never here; there is deliberately no npm script for them.
 
 **Before first real use, work through `docs/SETUP.md`** — it lists the hardware verifications
 that gate the video pipeline (chiefly: is the camera emitting H.264 or H.265? WebRTC needs
