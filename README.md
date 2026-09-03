@@ -169,9 +169,19 @@ The drive-program location, the saved controller-profile path, and the "switch t
 link on too" checkbox are set once in the ⚙ **RACE DAY** fields (see the ⚙ inventory
 below) — the giftee only ever presses the one GARAGE button. The sequence halts at the
 first failing step (nothing already up is wound back); pressing RACE DAY again re-runs
-idempotently. **STOP RACE DAY** appears only while race day's own managed drive-program
-child is running, and stops *only* that child — the hotspot stays governed by PIT WALL /
-the quit dialog, exactly as before this feature.
+idempotently. **STOP RACE DAY** is keyed on the managed drive-program child appearing to
+run (`shared/raceDayView.mjs:135` `stopVisible`) and stops *only* that child — the
+hotspot stays governed by PIT WALL / the quit dialog, exactly as before this feature.
+
+`[fix-wave: lifecycle-concurrency-3]` **Today's truth:** the button is not a live gauge
+in the moment right after you press it. `MapperRunner.stop()` (`main/mapperRunner.js:
+162-172`) signals the child but leaves `_proc` set until the child's own `exit` event
+fires later; the orchestrator winds its own step to `idle` synchronously
+(`main/raceDayOrchestrator.js` `stop()`), so by the time that real `exit` event arrives
+the liveness mirror's guard (`:104-111`, `this._steps.mapper.status !== 'ok'`) is already
+true and it never re-emits. So a fresh snapshot pushed to the renderer right after STOP
+can still report the child as running, and **STOP RACE DAY** can stay visible for a
+window after the stop was requested rather than disappearing immediately.
 
 **Command-line policy (the line this feature deliberately draws, and no further):** race
 day may manage the drive program's **process** — start, liveness, stop — but never *sends*
