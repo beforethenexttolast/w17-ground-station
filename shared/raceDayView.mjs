@@ -35,6 +35,10 @@ const TEXT = {
         ok: {
             verified: 'on and ready',
             unverified: 'on (could not double-check on this computer)',
+            // Already broadcasting under the saved name when race day looked —
+            // very often this app's own network from the last run. Nothing to
+            // switch on, nothing to stop: the phone's network is up (OD-7).
+            external: 'already on — using it',
             '*': 'on',
         },
         skipped: {
@@ -43,6 +47,10 @@ const TEXT = {
         },
         fail: {
             'start-failed': 'the car Wi-Fi did not switch on — open PIT WALL to see why, or use your home Wi-Fi',
+            // A hotspot is up, but not the saved one: the phone cannot join it,
+            // and this app must not stop a network it did not start (OD-7).
+            'other-hotspot': 'a different Wi-Fi hotspot is already on — switch it off in Windows settings, then press RACE DAY again',
+            'already-on-unknown': 'a Wi-Fi hotspot is already on and this computer cannot tell which one — switch it off in Windows settings, then press RACE DAY again',
             degraded: 'the Wi-Fi is on but not ready — wait a moment and press RACE DAY again',
             busy: 'the Wi-Fi is busy switching — wait a moment and press RACE DAY again',
             '*': 'something went wrong here — press RACE DAY to try again',

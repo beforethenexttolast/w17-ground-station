@@ -16,9 +16,9 @@ const EMITTABLE = {
     idle: [null],
     pending: [null],
     running: ['starting', 'checking'],
-    ok: ['verified', 'unverified'],
+    ok: ['verified', 'unverified', 'external'],
     skipped: ['own-wifi'],
-    fail: ['start-failed', 'degraded', 'busy', 'unexpected'],
+    fail: ['start-failed', 'other-hotspot', 'already-on-unknown', 'degraded', 'busy', 'unexpected'],
   },
   mapper: {
     idle: [null],
@@ -87,6 +87,19 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
     const [l] = raceDayStepLines(snap([step('hotspot', 'ok', 'unverified')]));
     expect(l.tone).toBe('ok');
     expect(l.text).toBe('on (could not double-check on this computer)');
+  });
+
+  it('a hotspot already on under the saved name is green and says so (OD-7)', () => {
+    const [l] = raceDayStepLines(snap([step('hotspot', 'ok', 'external')]));
+    expect(l.tone).toBe('ok');
+    expect(l.text).toBe('already on — using it');
+  });
+
+  it("someone else's hotspot names the remedy, and an unreadable one does not pretend", () => {
+    const [a] = raceDayStepLines(snap([step('hotspot', 'fail', 'other-hotspot')]));
+    expect(a.text).toBe('a different Wi-Fi hotspot is already on — switch it off in Windows settings, then press RACE DAY again');
+    const [b] = raceDayStepLines(snap([step('hotspot', 'fail', 'already-on-unknown')]));
+    expect(b.text).toBe('a Wi-Fi hotspot is already on and this computer cannot tell which one — switch it off in Windows settings, then press RACE DAY again');
   });
 
   it('a crash of the drive program leads with what to do', () => {

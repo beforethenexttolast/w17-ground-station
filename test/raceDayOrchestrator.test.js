@@ -264,6 +264,60 @@ describe('RaceDayOrchestrator — failure halts the sequence, partial state stay
     expect(ap.apply).not.toHaveBeenCalled();
   });
 
+  // Owner decision OD-7 / review giftee-ux-2. A hotspot that is ALREADY on is
+  // refused by the backend — including the one this app itself left running.
+  // Race day halts at the first failing step, so that refusal used to stop the
+  // drive program too, on the one route the booklet prints as the recovery.
+  it('already-on with the SAVED name is ok/external and the drive program still starts (OD-7)', async () => {
+    const lc = fakeLifecycle({
+      startResult: { ok: false, kind: 'already-on', ssid: 'W17-GRID' },
+      phaseAfterStart: 'inactive',
+    });
+    const { orch, rn } = harness({ lifecycle: lc });
+    const res = await orch.start();
+    expect(res.ok).toBe(true);
+    expect(stepOf(res.snapshot, 'hotspot')).toMatchObject({ status: 'ok', kind: 'external' });
+    expect(rn.start).toHaveBeenCalledTimes(1); // the step that matters ran
+    // Nothing was verified or stopped: it is not this app's network.
+    expect(lc.verify).not.toHaveBeenCalled();
+    expect(lc.stop).not.toHaveBeenCalled();
+  });
+
+  it('already-on under a DIFFERENT name still fails — the phone could not join it', async () => {
+    const lc = fakeLifecycle({
+      startResult: { ok: false, kind: 'already-on', ssid: 'SomeoneElse' },
+      phaseAfterStart: 'inactive',
+    });
+    const { orch, rn } = harness({ lifecycle: lc });
+    const res = await orch.start();
+    expect(res.ok).toBe(false);
+    expect(stepOf(res.snapshot, 'hotspot')).toMatchObject({ status: 'fail', kind: 'other-hotspot' });
+    expect(rn.start).not.toHaveBeenCalled();
+  });
+
+  it('already-on with an UNREADABLE name fails honestly — "probably ours" is not a claim to make', async () => {
+    const lc = fakeLifecycle({
+      startResult: { ok: false, kind: 'already-on', ssid: null },
+      phaseAfterStart: 'inactive',
+    });
+    const { orch } = harness({ lifecycle: lc });
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'hotspot')).toMatchObject({ status: 'fail', kind: 'already-on-unknown' });
+  });
+
+  it('a saved SSID that is blank never matches (an empty name is not a match)', async () => {
+    const lc = fakeLifecycle({
+      startResult: { ok: false, kind: 'already-on', ssid: '' },
+      phaseAfterStart: 'inactive',
+    });
+    const { orch } = harness({
+      lifecycle: lc,
+      settings: settingsWith({ network: { kind: 'hotspot', hotspot: { ssid: '', password: HS_PASSWORD } } }),
+    });
+    const res = await orch.start();
+    expect(stepOf(res.snapshot, 'hotspot')).toMatchObject({ status: 'fail', kind: 'already-on-unknown' });
+  });
+
   it('degraded readiness is a FAILURE (honest readiness bar), not a shrug', async () => {
     const lc = fakeLifecycle({
       verifyResult: { ok: true, readiness: { status: 'degraded', reasons: ['no gateway'] } },

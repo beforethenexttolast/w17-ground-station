@@ -212,6 +212,27 @@ class RaceDayOrchestrator {
             // A config-mismatch partial start is LIVE + owned (the lifecycle's
             // own model) — the readiness check below is what decides honesty.
             if (!res.ok && snap.phase !== 'live') {
+                // Owner decision OD-7 (review giftee-ux-2). A hotspot that is
+                // ALREADY broadcasting is refused by the backend — including
+                // the one THIS app left running when the operator chose LEAVE
+                // HOTSPOT RUNNING, or after any relaunch. Race day halts at the
+                // first failing step, so that refusal used to stop the drive
+                // program too and blame the Wi-Fi, on the one route the booklet
+                // prints as the recovery. When the broadcasting name IS the
+                // saved one, the network the phone needs is up: say so and
+                // carry on. A DIFFERENT hotspot still fails — the phone could
+                // not join it — and so does one this computer could not name,
+                // because "probably ours" is not a thing to tell the operator.
+                if (res.kind === 'already-on') {
+                    const wanted = typeof hs.ssid === 'string' ? hs.ssid.trim() : '';
+                    const found = typeof res.ssid === 'string' ? res.ssid.trim() : '';
+                    if (wanted && found === wanted) {
+                        this._set('hotspot', 'ok', 'external');
+                        return true;
+                    }
+                    this._set('hotspot', 'fail', found ? 'other-hotspot' : 'already-on-unknown');
+                    return false;
+                }
                 this._set('hotspot', 'fail', 'start-failed');
                 return false;
             }

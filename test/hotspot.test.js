@@ -121,6 +121,38 @@ describe('HotspotManager.start', () => {
     expect(calls.some((c) => c.args.join(' ').includes('start hostednetwork'))).toBe(false);
   });
 
+  // Owner decision OD-7: WHICH hotspot is already broadcasting decides whether
+  // race day can carry on, so the script reads the name back on this path.
+  it('START_ALREADY_ON reports the broadcasting SSID so the caller can tell whose it is (OD-7)', async () => {
+    const { hs } = manager({
+      ...probeMobileOk,
+      [PS_START_KEY]: ok('START_ALREADY_ON\nALREADY_ON_SSID W17-GRID'),
+    });
+    const res = await hs.start({ ssid: 'W17-GRID', password: 'lights0ut!' });
+    expect(res).toMatchObject({ ok: false, kind: 'already-on', ssid: 'W17-GRID' });
+  });
+
+  it('an SSID the script could not read is null — never guessed as ours (OD-7)', async () => {
+    const { hs } = manager({
+      ...probeMobileOk,
+      [PS_START_KEY]: ok('START_ALREADY_ON\nALREADY_ON_SSID_UNKNOWN'),
+    });
+    const res = await hs.start({ ssid: 'W17-GRID', password: 'lights0ut!' });
+    expect(res.kind).toBe('already-on');
+    expect(res.ssid).toBeNull();
+    // The older single-token form (no readback at all) is null too.
+    const { hs: hs2 } = manager({ ...probeMobileOk, [PS_START_KEY]: ok('START_ALREADY_ON') });
+    expect((await hs2.start({ ssid: 'W17-GRID', password: 'lights0ut!' })).ssid).toBeNull();
+  });
+
+  it('an SSID with spaces survives the readback intact', async () => {
+    const { hs } = manager({
+      ...probeMobileOk,
+      [PS_START_KEY]: ok('START_ALREADY_ON\nALREADY_ON_SSID Lola s Car Wi-Fi'),
+    });
+    expect((await hs.start({ ssid: 'x', password: 'lights0ut!' })).ssid).toBe('Lola s Car Wi-Fi');
+  });
+
   it('START_CONFIG_MISMATCH: we own it (for STOP/retry) and do NOT fall back', async () => {
     const { hs, calls } = manager({
       ...probeMobileOk,

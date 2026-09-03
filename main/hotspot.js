@@ -32,7 +32,8 @@
 //  - scripts contain NO double-quote characters, so argv quoting across
 //    spawn() cannot corrupt them.
 // Token vocabulary (stdout): RESULT_NO_PROFILE, RESULT_SETUP_ERROR, PROBE_OK,
-// PROBE_STATE_<state>, START_ALREADY_ON, START_CONFIG_FAILED, START_ERROR,
+// PROBE_STATE_<state>, START_ALREADY_ON (+ ALREADY_ON_SSID <name> or
+// ALREADY_ON_SSID_UNKNOWN), START_CONFIG_FAILED, START_ERROR,
 // START_FAILED_<status>, START_CONFIG_MISMATCH, START_OK, STOP_ERROR,
 // STOP_FAILED_<status>, STOP_OK, ELEV_ADMIN, ELEV_LIMITED, ELEV_ERROR.
 // Mocked tests pin the script structure and the token handling; the WinRT
@@ -93,6 +94,12 @@ Write-Output 'PROBE_OK'
 const PS_START = `${PS_COMMON}
 if ($manager.TetheringOperationalState.ToString() -eq 'On') {
     Write-Output 'START_ALREADY_ON'
+    try {
+        $current = $manager.GetCurrentAccessPointConfiguration()
+        Write-Output ('ALREADY_ON_SSID ' + $current.Ssid)
+    } catch {
+        Write-Output 'ALREADY_ON_SSID_UNKNOWN'
+    }
     exit 5
 }
 try {
@@ -267,11 +274,20 @@ class HotspotManager {
             return { ok: true, method: 'mobile', ssid, hostIp: icsHostIp() };
         }
         if (out.includes('START_ALREADY_ON')) {
-            // Someone else's hotspot (Windows Settings, another tool). Not ours
-            // to reconfigure or stop — and the hosted backend must not pile a
+            // A hotspot we did not start (Windows Settings, another tool — or
+            // THIS app's own, left broadcasting by a previous run). Not ours to
+            // reconfigure or stop, and the hosted backend must not pile a
             // second network on top.
+            //
+            // Owner decision OD-7: WHICH hotspot it is decides whether race day
+            // can carry on, so the script reads the broadcasting SSID back. A
+            // name we could not read is reported as null, never guessed — the
+            // caller then fails honestly rather than assuming it is ours.
+            const named = /^ALREADY_ON_SSID (.+)$/m.exec(out);
+            const ssid = named ? named[1].trim() : '';
             return {
                 ok: false, kind: 'already-on', backend: 'mobile', fallback: false,
+                ssid: ssid || null,
                 error: 'a hotspot is already running on this machine (not started by this app) — use it as-is, or stop it in Windows Settings first',
             };
         }
