@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+// Cross-repo drift guard for the iPhone<->Windows bridge contract mirror
+// (grand verdict cluster-5(e)). docs/windows_bridge_contract.md reproduces
+// sections 1-7 of the CANONICAL contract, which lives with the iPhone app at
+// iPhone_rc/docs/windows_bridge_contract.md — today that reproduction is
+// verbatim only because someone kept it so by hand.
+//
+// Same two-half shape as the proto drift guard (scripts/check-canonical-proto.js
+// + test/protoDrift.test.js):
+//
+//   HERMETIC half (default, and what CI runs): re-derive the SHA-256 of the
+//   mirrored region of THIS repo's copy and compare it to the record in
+//   docs/canonical/windows_bridge_contract.mirror.json. Needs no sibling
+//   checkout, so an edit to the mirror is a red CI step on every push.
+//
+//   SIBLING half (--sibling): additionally read the canonical file from a local
+//   iPhone_rc checkout AT THE RECORDED SYNC HASH and compare it verbatim. This
+//   is what proves the recorded digest really describes the canonical text and
+//   not just whatever this repo happens to contain.
+//
+// The record can only be (re)generated FROM the canonical (--write requires the
+// sibling), so the digest can never be rubber-stamped from the mirror itself.
+//
+// Usage:
+//   node scripts/check-contract-mirror.js             # hermetic
+//   node scripts/check-contract-mirror.js --sibling   # + compare to iPhone_rc
+//   node scripts/check-contract-mirror.js --write     # re-record from iPhone_rc
+//   W17_IPHONE_REPO=/path/to/iPhone_rc node scripts/check-contract-mirror.js --sibling
+//
+// Exit codes: 0 = in sync (or written); 2 = drift; 3 = --sibling/--write asked
+// for but no iPhone_rc checkout found (skipped, not a failure — the hermetic
+// half still guards this repo).
+
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+
+const REPO_ROOT = path.join(__dirname, '..');
+const MIRROR_PATH = path.join(REPO_ROOT, 'docs', 'windows_bridge_contract.md');
+const RECORD_PATH = path.join(REPO_ROOT, 'docs', 'canonical', 'windows_bridge_contract.mirror.json');
+
+// The mirrored region: the canonical document itself. It starts at the contract
+// title and ends where THIS repo's own, non-normative appendix begins (the
+// canonical has no appendix, so there the region simply runs to the end).
+const REGION_START = '# W17 iPhone <-> Windows Bridge Contract';
+const REGION_END = '# Appendix: Windows implementation notes';
+
+// Pure: pull the mirrored region out of either document. Trailing whitespace and
+// the horizontal rule that introduces the appendix are normalized away, so the
+// two files' region text is comparable byte for byte.
+function mirroredRegion(text) {
+    const start = text.indexOf(REGION_START);
+    if (start === -1) throw new Error(`contract title not found ("${REGION_START}")`);
+    const end = text.indexOf(REGION_END);
+    let body = (end === -1 ? text.slice(start) : text.slice(start, end)).replace(/\s+$/, '');
+    if (body.endsWith('---')) body = body.slice(0, -3).replace(/\s+$/, '');
+    return `${body}\n`;
+}
+
+const sha256 = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+
+function resolveSiblingRepo() {
+    return process.env.W17_IPHONE_REPO || path.join(REPO_ROOT, '..', 'iPhone_rc');
+}
+
+// Read the canonical file out of the sibling repo's HISTORY at the recorded
+// hash — never its working tree, which may be mid-edit or on another branch.
+function canonicalAt(repo, hash, relPath) {
+    const res = spawnSync('git', ['-C', repo, 'show', `${hash}:${relPath}`], { encoding: 'utf8' });
+    if (res.status !== 0) {
+        throw new Error(`git show ${hash}:${relPath} failed in ${repo}: ${(res.stderr || '').trim()}`);
+    }
+    return res.stdout;
+}
+
+function loadRecord() {
+    return JSON.parse(fs.readFileSync(RECORD_PATH, 'utf8'));
+}
+
+function main() {
+    const wantSibling = process.argv.includes('--sibling');
+    const write = process.argv.includes('--write');
+    const record = loadRecord();
+    const mirrorText = fs.readFileSync(MIRROR_PATH, 'utf8');
+    const region = mirroredRegion(mirrorText);
+    const digest = sha256(region);
+
+    if (write || wantSibling) {
+        const repo = resolveSiblingRepo();
+        if (!fs.existsSync(path.join(repo, '.git'))) {
+            console.error(`[contract-mirror] SKIP: no iPhone_rc checkout at ${repo}`);
+            console.error('[contract-mirror] Set W17_IPHONE_REPO or place iPhone_rc beside this repo.');
+            console.error('[contract-mirror] The hermetic check (npm test) still guards this repo.');
+            process.exit(3);
+        }
+        let canonRegion;
+        try {
+            canonRegion = mirroredRegion(canonicalAt(repo, record.syncHash, record.canonicalPath));
+        } catch (err) {
+            console.error(`[contract-mirror] FAILED to read the canonical: ${err.message}`);
+            process.exit(2);
+        }
+        const canonDigest = sha256(canonRegion);
+        if (write) {
+            const next = {
+                ...record,
+                sha256: canonDigest,
+                bytes: Buffer.byteLength(canonRegion, 'utf8'),
+                recordedAt: new Date().toISOString().slice(0, 10),
+            };
+            fs.mkdirSync(path.dirname(RECORD_PATH), { recursive: true });
+            fs.writeFileSync(RECORD_PATH, `${JSON.stringify(next, null, 2)}\n`);
+            console.log(`[contract-mirror] recorded ${canonDigest} from ${repo} @ ${record.syncHash}`);
+            if (canonDigest !== digest) {
+                console.error('[contract-mirror] NOTE: this repo\'s mirror does NOT match what was just recorded — re-sync sections 1-7.');
+                process.exit(2);
+            }
+            process.exit(0);
+        }
+        if (canonDigest !== digest) {
+            console.error(`[contract-mirror] DRIFT against ${repo} @ ${record.syncHash}`);
+            console.error(`  canonical sha256 ${canonDigest}`);
+            console.error(`  this repo        ${digest}`);
+            console.error('  Re-sync sections 1-7 verbatim, then re-run with --write.');
+            process.exit(2);
+        }
+        console.log(`[contract-mirror] verbatim against ${repo} @ ${record.syncHash}`);
+    }
+
+    if (digest !== record.sha256) {
+        console.error('[contract-mirror] DRIFT: the mirrored region no longer matches the recorded canonical.');
+        console.error(`  recorded ${record.sha256} (${record.bytes} bytes, ${record.canonicalRepo} @ ${record.syncHash})`);
+        console.error(`  found    ${digest} (${Buffer.byteLength(region, 'utf8')} bytes)`);
+        console.error('  Sections 1-7 are a VERBATIM reproduction — edit the canonical in iPhone_rc,');
+        console.error('  re-mirror, then re-run this script with --write.');
+        process.exit(2);
+    }
+    console.log(`[contract-mirror] in sync: ${digest} (${record.bytes} bytes, canonical @ ${record.syncHash})`);
+}
+
+module.exports = { mirroredRegion, sha256, MIRROR_PATH, RECORD_PATH, REGION_START, REGION_END };
+
+if (require.main === module) main();

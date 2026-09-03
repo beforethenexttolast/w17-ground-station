@@ -1,0 +1,13 @@
+{
+  "canonicalRepo": "iPhone_rc",
+  "canonicalPath": "docs/windows_bridge_contract.md",
+  "syncHash": "61ad68f7ebe4706fdb9e5732c8598ff1e0abac2c",
+  "region": {
+    "startsAt": "# W17 iPhone <-> Windows Bridge Contract",
+    "endsBefore": "# Appendix: Windows implementation notes",
+    "note": "The mirrored region is the canonical document itself; this repo's appendix (non-normative Windows implementation notes) is excluded and may say anything that does not contradict it."
+  },
+  "sha256": "06a0a3dbe014f5d0beef5ecf4c8147cb9abeb415d66f2cd62c1586f8f7ae01b2",
+  "bytes": 27404,
+  "recordedAt": "2026-09-03"
+}

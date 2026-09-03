@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "proto:check": "node scripts/check-canonical-proto.js",
+    "contract:check": "node scripts/check-contract-mirror.js",
+    "contract:sync": "node scripts/check-contract-mirror.js --write",
     "proto:sync": "node scripts/check-canonical-proto.js --write",
     "feel:check": "node scripts/check-firmware-feel.js",
     "feel:sync": "node scripts/check-firmware-feel.js --write",

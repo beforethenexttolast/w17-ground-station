@@ -16,6 +16,22 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # Contract-mirror drift (grand verdict cluster-5(e)). docs/windows_bridge_contract.md
+  # reproduces the CANONICAL iPhone-side contract verbatim, and until this job
+  # existed that held only by hand. Hermetic: it re-derives the SHA-256 of the
+  # mirrored region and compares it to docs/canonical/windows_bridge_contract.mirror.json,
+  # which can only be written from an iPhone_rc checkout at the recorded hash
+  # (scripts/check-contract-mirror.js --write). No dependencies, no sibling
+  # checkout, so it is a fast red step on any edit to the mirror.
+  contract-mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm run contract:check
+
   # Packaging smoke (audit R17b/R03) + Electron boot smoke (audit D3) on the
   # deployment target. The boot smoke launches the REAL app (Wi-Fi sim, no
   # hardware, no admin, no dialogs) and passes only on the structured
