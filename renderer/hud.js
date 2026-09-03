@@ -18,6 +18,7 @@ import { initialVideoState, reduceVideoState, videoStatus } from '../shared/vide
 import { videoProfileFor, normalizeVideoSettings, DEFAULT_VIDEO_PROFILE } from '../shared/videoProfiles.mjs';
 import { headIntentView } from '../shared/headIntentView.mjs';
 import { normalizeLowBatterySettings, lowBatteryLevel, LOW_BATTERY_LABELS } from '../shared/lowBattery.mjs';
+import { raceDayDriveAlarm } from '../shared/raceDayView.mjs';
 import * as uiNav from './uiNav.js';
 
 const el = (id) => document.getElementById(id);
@@ -28,6 +29,7 @@ const revEl = el('rev'), speedEl = el('speed'), speedUnitEl = el('speedUnit'),
   clockEl = el('clock'), gpEl = el('gpStatus'), linkEl = el('linkStatus'),
   w3ChipEl = el('w3Chip'), replayChipEl = el('replayChip'), headIntentChipEl = el('headIntentChip'),
   armChipEl = el('armChip'), lowBattEl = el('lowBattBanner'),
+  driveAlarmEl = el('driveAlarmBanner'),
   inputSrcTagEl = el('inputSrcTag'),
   gate = el('gate'),
   demoBtn = el('demoBtn'), feed = el('feed'), feedNote = el('feedNote'), feedNoteText = el('feedNoteText');
@@ -249,6 +251,24 @@ let lowBattThresholds = normalizeLowBatterySettings(); // defaults until setting
 let lowBattLevel = 'ok';
 export function setLowBatteryThresholds(raw) {
   lowBattThresholds = normalizeLowBatterySettings(raw);
+}
+
+// Drive-program alarm (review giftee-ux-5). Once the setup gate is hidden the
+// race-day card is out of sight, so a drive program that died mid-session was
+// INVISIBLE here: the car stopped answering the controller and nothing on this
+// screen said why, while the booklet's recovery cue ("press RACE DAY again")
+// pointed at a card the operator could not see. The HUD now mirrors the same
+// one-way race-day snapshot the card does, and raises one plain line for it.
+//
+// Display only, like every other line on this screen: the wording is the pure
+// view's (shared/raceDayView.mjs), nothing is recomputed here, and there is no
+// path back — the HUD cannot start, stop, or restart anything.
+export function renderDriveAlarm(snapshot) {
+  if (!driveAlarmEl) return null;
+  const alarm = raceDayDriveAlarm(snapshot);
+  driveAlarmEl.textContent = alarm ? alarm.text : '';
+  driveAlarmEl.className = alarm ? 'lowbatt drivealarm' : 'lowbatt drivealarm hidden';
+  return alarm;
 }
 
 // hudStatus: the GRID checklist's local probes — read-only display state.
@@ -665,6 +685,13 @@ async function init() {
   // when the consumer is off (chip stays hidden). Never sends to the mapper.
   if (window.groundStation.onHeadIntentDiagnostics) {
     window.groundStation.onHeadIntentDiagnostics((snapshot) => renderHeadIntent(snapshot));
+  }
+
+  // Race-day state: the SAME one-way push the GARAGE card mirrors, subscribed
+  // here so a drive program that dies mid-drive is visible on the cockpit view
+  // too (review giftee-ux-5). Read-only — there is no matching send.
+  if (window.groundStation.onRaceDayState) {
+    window.groundStation.onRaceDayState((snapshot) => renderDriveAlarm(snapshot));
   }
 
   if (cfg && cfg.whepUrl) {

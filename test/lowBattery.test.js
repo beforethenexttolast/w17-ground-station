@@ -144,18 +144,21 @@ describe('lowBatteryLevel — thresholds and hysteresis (no flicker at the bound
 
 let rafCb = null;
 let emitTelemetry = null;
+let emitRaceDay = null;
 
 async function loadHud({ settings = null } = {}) {
   vi.resetModules();
   document.body.innerHTML = bodyHtml;
   rafCb = null;
   emitTelemetry = null;
+  emitRaceDay = null;
   window.requestAnimationFrame = (cb) => { rafCb = cb; return 1; };
   Object.defineProperty(window.navigator, 'getGamepads', { configurable: true, value: () => [] });
   window.groundStation = {
     getConfig: vi.fn(async () => ({ whepUrl: '', w3Active: false, feel: null, telemetrySource: 'none' })),
     getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
     onTelemetry: vi.fn((cb) => { emitTelemetry = cb; return () => {}; }),
+    onRaceDayState: vi.fn((cb) => { emitRaceDay = cb; return () => {}; }),
     sendCommandMirror: vi.fn(),
   };
   const hud = await import('../renderer/hud.js');
@@ -322,5 +325,79 @@ describe('low-battery banner — never overlaps or blocks the failsafe/armed ind
   it('is aria-live via role=alert so the state change is announced', () => {
     document.body.innerHTML = bodyHtml;
     expect(banner().getAttribute('role')).toBe('alert');
+  });
+});
+
+// ---------- the drive-program alarm, on the LIVE HUD (review giftee-ux-5) ----
+// The defect: once the gate is hidden the race-day card is off-screen, so a
+// drive program that died mid-drive was invisible — the car stopped answering
+// the controller and nothing on this screen said why, while the booklet's
+// recovery cue pointed at a card the operator could not see.
+const driveBanner = () => el('driveAlarmBanner');
+const raceDaySnap = (mapperStatus, kind) => ({
+  seq: 1,
+  running: false,
+  mapper: {},
+  steps: [
+    { id: 'hotspot', status: 'ok', kind: 'verified' },
+    { id: 'mapper', status: mapperStatus, kind },
+    { id: 'telemetry', status: 'ok', kind: 'live' },
+    { id: 'bridge', status: 'ok', kind: 'on' },
+  ],
+});
+
+describe('drive-program alarm on the live HUD (review giftee-ux-5)', () => {
+  it('exists and is silent until something goes wrong', async () => {
+    await loadHud();
+    expect(driveBanner()).not.toBeNull();
+    expect(driveBanner().classList.contains('hidden')).toBe(true);
+    emitRaceDay(raceDaySnap('ok', 'running'));
+    expect(driveBanner().classList.contains('hidden')).toBe(true);
+    expect(driveBanner().textContent).toBe('');
+  });
+
+  it('a drive program that died raises the plain line, in red, on the cockpit view', async () => {
+    await loadHud();
+    emitRaceDay(raceDaySnap('fail', 'exited'));
+    expect(driveBanner().classList.contains('hidden')).toBe(false);
+    expect(driveBanner().textContent)
+      .toBe('DRIVE PROGRAM STOPPED — she is not being driven. Open ⚙ and press RACE DAY again');
+    expect(driveBanner().className).toBe('lowbatt drivealarm');
+  });
+
+  it('a dead radio names the cable instead', async () => {
+    await loadHud();
+    emitRaceDay(raceDaySnap('fail', 'link-down'));
+    expect(driveBanner().textContent)
+      .toBe('THE RADIO STOPPED — she is not being driven. Check the cable to the little radio box, then ⚙ → RACE DAY');
+  });
+
+  it('it clears again when the drive program comes back', async () => {
+    await loadHud();
+    emitRaceDay(raceDaySnap('fail', 'exited'));
+    expect(driveBanner().classList.contains('hidden')).toBe(false);
+    emitRaceDay(raceDaySnap('ok', 'running'));
+    expect(driveBanner().classList.contains('hidden')).toBe(true);
+  });
+
+  it('it never blocks a control (pointer-events discipline is shared with the low-battery banner)', async () => {
+    await loadHud();
+    emitRaceDay(raceDaySnap('fail', 'exited'));
+    // Same base class, so the same pointer-events:none / positioning rules.
+    expect(driveBanner().classList.contains('lowbatt')).toBe(true);
+    // …and the two can coexist without one replacing the other.
+    emitTelemetry({ batteryV: 6.5, linkQualityPct: 95 });
+    stepFrame(0);
+    expect(banner().classList.contains('hidden')).toBe(false);
+    expect(driveBanner().classList.contains('hidden')).toBe(false);
+  });
+
+  it('a HUD opened outside Electron (no push channel) simply has no alarm', async () => {
+    await loadHud();
+    // The subscription is optional at the preload boundary; renderDriveAlarm is
+    // still safe to call directly with anything.
+    const hud = await import('../renderer/hud.js');
+    expect(hud.renderDriveAlarm(null)).toBeNull();
+    expect(driveBanner().classList.contains('hidden')).toBe(true);
   });
 });

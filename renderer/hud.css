@@ -222,6 +222,13 @@ body{background:#000;color:var(--silver);
   animation:lowbattpulse 1s ease-in-out infinite}
 @keyframes lowbattpulse{50%{box-shadow:0 0 44px rgba(255,45,45,.9);filter:brightness(1.3)}}
 
+/* Drive-program alarm (review giftee-ux-5): the low-battery banner's twin, one
+   band lower so the two never overlap when a stopped drive program and a low
+   pack coincide — which is exactly when both matter. Red, because "she is not
+   being driven any more" is not a warning, it is the state. */
+.lowbatt.drivealarm{top:calc(30vh + 4.2em);color:var(--red);border:1px solid var(--red);
+  box-shadow:0 0 26px rgba(255,45,45,.5)}
+
 /* The setup overlay fills the window and, when its content is taller than the
    viewport (small laptops / the taller SEAT FIT), SCROLLS instead of clipping:
    `safe center` centres when it fits and falls back to top-alignment when it

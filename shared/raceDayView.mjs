@@ -178,6 +178,33 @@ export function raceDayMapperMessage(snap) {
     return { label: 'IT SAID', text: msg.trim(), tone: 'fail' };
 }
 
+// The LIVE-HUD alarm (review giftee-ux-5). Once the setup gate is hidden the
+// race-day card is out of sight, so a drive program that dies mid-session was
+// invisible: the car simply stopped answering the controller and nothing on the
+// screen said why. This is the one line the HUD raises for it, beside the
+// low-battery banner and in the same voice.
+//
+// Deliberately NOT raised for 'stop-failed': the operator pressed STOP, so the
+// drive program still being there is a message for the card they are looking
+// at, not an alarm over the cockpit view. Everything else that reads as "she is
+// not being driven any more" is.
+//
+// No auto-restart is offered or implied — restarting the program that drives
+// the car is a control-adjacent decision (main/mapperRunner.js), so the line
+// says what the operator should press instead.
+const DRIVE_ALARM = {
+    'link-down': 'THE RADIO STOPPED — she is not being driven. Check the cable to the little radio box, then ⚙ → RACE DAY',
+    '*': 'DRIVE PROGRAM STOPPED — she is not being driven. Open ⚙ and press RACE DAY again',
+};
+
+export function raceDayDriveAlarm(snap) {
+    const steps = (snap && Array.isArray(snap.steps)) ? snap.steps : [];
+    const mapper = steps.find((s) => s && s.id === 'mapper');
+    if (!mapper || mapper.status !== 'fail') return null;
+    if (mapper.kind === 'stop-failed') return null;
+    return { text: DRIVE_ALARM[mapper.kind] || DRIVE_ALARM['*'], tone: 'fail' };
+}
+
 // The at-a-glance line above the step rows. null while the card is idle (the
 // steps have never run this session) — the button alone tells the story.
 export function raceDayHeadline(snap) {

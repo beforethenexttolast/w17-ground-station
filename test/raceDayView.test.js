@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage,
-  RACE_DAY_STEP_LABELS,
+  raceDayDriveAlarm, RACE_DAY_STEP_LABELS,
 } from '../shared/raceDayView.mjs';
 
 const snap = (steps, { running = false, mapper = { running: false } } = {}) => ({
@@ -223,5 +223,51 @@ describe('raceDayMapperMessage — the child\'s own last words', () => {
   it('a non-string message is refused rather than rendered (a hostile/odd snapshot draws nothing)', () => {
     expect(raceDayMapperMessage(withMapper({ exitMessage: { toString: () => 'x' } }))).toBeNull();
     expect(raceDayMapperMessage(withMapper({ exitMessage: 42 }))).toBeNull();
+  });
+});
+
+// Review giftee-ux-5. Once the gate is hidden the card is off-screen, so this
+// is the ONLY line that can tell the operator the car stopped being driven.
+describe('raceDayDriveAlarm — the live-HUD line for a drive program that died', () => {
+  const withMapper = (status, kind) => ({
+    seq: 1, running: false, mapper: {},
+    steps: [step('hotspot', 'ok', 'verified'), step('mapper', status, kind), step('bridge', 'ok', 'on')],
+  });
+
+  it('a dead drive program says she is not being driven, and what to press', () => {
+    for (const kind of ['exited', 'exited-with-message', 'spawn-failed', 'not-configured']) {
+      const alarm = raceDayDriveAlarm(withMapper('fail', kind));
+      expect(alarm, kind).toEqual({
+        text: 'DRIVE PROGRAM STOPPED — she is not being driven. Open ⚙ and press RACE DAY again',
+        tone: 'fail',
+      });
+    }
+  });
+
+  it('a dead RADIO names the cable instead — the program is fine, the signal is not', () => {
+    expect(raceDayDriveAlarm(withMapper('fail', 'link-down'))).toEqual({
+      text: 'THE RADIO STOPPED — she is not being driven. Check the cable to the little radio box, then ⚙ → RACE DAY',
+      tone: 'fail',
+    });
+  });
+
+  it('a STOP the operator asked for raises nothing — that belongs on the card they are looking at', () => {
+    expect(raceDayDriveAlarm(withMapper('fail', 'stop-failed'))).toBeNull();
+  });
+
+  it('a healthy, idle, or unknown snapshot raises nothing', () => {
+    expect(raceDayDriveAlarm(withMapper('ok', 'running'))).toBeNull();
+    expect(raceDayDriveAlarm(withMapper('ok', 'link-unknown'))).toBeNull();
+    expect(raceDayDriveAlarm(withMapper('idle', null))).toBeNull();
+    expect(raceDayDriveAlarm(withMapper('running', 'starting'))).toBeNull();
+    expect(raceDayDriveAlarm({ seq: 1, steps: [] })).toBeNull();
+    expect(raceDayDriveAlarm(null)).toBeNull();
+  });
+
+  it('the alarm never teaches hobbyist vocabulary either', () => {
+    const jargon = /mediamtx|webrtc|whep|rtsp|\bcom\s?\d|\belrs\b|crsf|\bmapper\b|\budp\b|\bgrpc\b/i;
+    for (const kind of ['exited', 'link-down', 'spawn-failed']) {
+      expect(raceDayDriveAlarm(withMapper('fail', kind)).text, kind).not.toMatch(jargon);
+    }
   });
 });

@@ -84,6 +84,15 @@
          screen reader announces the state change. -->
     <div class="lowbatt hidden" id="lowBattBanner" role="alert"></div>
 
+    <!-- Drive-program alarm (review giftee-ux-5). Same shape, voice and
+         pointer-events:none discipline as the low-battery banner above, sitting
+         just below it so the two can never overlap. hud.js sets the text from
+         shared/raceDayView.mjs raceDayDriveAlarm on the one-way race-day push;
+         with the gate hidden this is the ONLY surface that can say the drive
+         program died — the GARAGE card is off-screen. role=alert so it is
+         announced. -->
+    <div class="lowbatt drivealarm hidden" id="driveAlarmBanner" role="alert"></div>
+
     <div class="bottom">
       <div class="left">
         <div class="speedbox panel">

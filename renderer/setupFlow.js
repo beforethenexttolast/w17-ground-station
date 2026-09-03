@@ -32,7 +32,9 @@ import {
   videoProfileFor, normalizeVideoSettings, VIDEO_PROFILE_IDS, VIDEO_PROFILE_RESTART_NOTE,
 } from '../shared/videoProfiles.mjs';
 import { normalizeRacePrepSettings } from '../shared/racePrep.mjs';
-import { raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage } from '../shared/raceDayView.mjs';
+import {
+  raceDayStepLines, raceDayHeadline, raceDayControls, raceDayMapperMessage, raceDayDriveAlarm,
+} from '../shared/raceDayView.mjs';
 import { sounds, setSoundEnabled } from './sounds.js';
 import * as uiNav from './uiNav.js';
 
@@ -197,6 +199,9 @@ let raceDaySnap = null;
 // GRID's first all-green check, and cleared by leaving the GRID. Nothing else
 // arms it — a pushed snapshot, a manual visit, or a failed bring-up never do.
 let autoStartArmed = false;
+// Edge-detector for the drive-program radio line (review giftee-ux-5): the
+// orchestrator repeats snapshots, and a toast per snapshot would bury the log.
+let driveAlarmRaised = false;
 
 // Same snapshot-adoption gate as the hotspot/adapter mirrors: pushes carry the
 // authority's monotonic seq, and anything older than the newest held is
@@ -253,6 +258,16 @@ if (gs && gs.onRaceDayState) {
   gs.onRaceDayState((snap) => {
     if (!adoptRaceDaySnap(snap)) return;
     if (step === 'garage') renderRaceDay();
+    // Review giftee-ux-5: the HUD raises the banner (hud.js owns that surface);
+    // the radio line is this file's, because the team radio is. Only on the
+    // TRANSITION into a failed drive program, so a repeated snapshot cannot
+    // stack toasts, and only while the session is live — on the card the step
+    // row already says it, in more detail.
+    const failing = !!raceDayDriveAlarm(snap);
+    if (failing && !driveAlarmRaised && lightsRunning === false && step !== 'garage') {
+      radio('DRIVE PROGRAM STOPPED — OPEN ⚙ AND PRESS RACE DAY AGAIN');
+    }
+    driveAlarmRaised = failing;
   });
 }
 
