@@ -146,7 +146,9 @@ drives the software side, but the facts to verify on the bench:
   Windows; error/elevation classification is locale-neutral (no English-keyword matching);
   if hotspot capability can't be determined, the UI degrades to guide mode.
 - elrs-joystick-control's path can be set in the ⚙ menu; the app only ever *starts* it
-  (detached) and detects it via `tasklist` — it never stops or talks to it.
+  (detached) and detects it via `tasklist` — it never stops or talks to it, **for the GRID
+  LAUNCH path**. RACE DAY's managed child is different: this app starts AND stops that one
+  (`main/mapperRunner.js`, `main/raceDayOrchestrator.js`) — see the README RACE DAY section.
 
 ## 7. Hotspot credential storage (Windows DPAPI via Electron safeStorage)
 
