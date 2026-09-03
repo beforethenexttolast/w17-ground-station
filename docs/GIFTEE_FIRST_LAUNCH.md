@@ -56,10 +56,10 @@ been completed once; see the README "Pre-ride setup flow" section for the full s
 A brand-new install has no completed session yet, so GARAGE shows only the two mode cards
 (**DESKTOP FPV** / **IPHONE COCKPIT**) — the **WELCOME BACK** card and the **RACE DAY**
 button only appear after a session has been set up and completed once. That first setup
-pass is what a helper does before handover — a dedicated handover checklist covering this
-step and the START LIGHTS default below is a planned, not-yet-written readiness-program
-deliverable as of this pass, not an existing doc to follow yet — not something the giftee
-should need to do cold.
+pass is what a helper does before handover — the gift-day handover checklist
+(`w17-handover-checklist.md` at the workspace root; landing with the readiness program)
+covers this step and the START LIGHTS default below, not something the giftee should need
+to do cold.
 
 ## 4. Full-screen controls (F11 / Escape)
 
