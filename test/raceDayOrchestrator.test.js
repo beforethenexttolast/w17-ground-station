@@ -633,6 +633,21 @@ describe('RaceDayOrchestrator — stop and liveness', () => {
     expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'fail', kind: 'stop-failed' });
   });
 
+  // Review finding 3, the other side of it: an undelivered stop is now reported
+  // at once, so the card can reach 'stop-failed' while the runner is still
+  // forcing the issue. If that force lands, the card must say so — "it would
+  // not stop and is still running" over a dead process is the same lie the
+  // other way round.
+  it('a stop-failed card winds back to idle once the child is confirmed gone', async () => {
+    const { orch, rn, pushes } = harness();
+    await orch.start();
+    rn.emit({ running: true, stoppedByUs: true, exitCode: null, stopFailed: true });
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'fail', kind: 'stop-failed' });
+    rn._running = false;
+    rn.emit({ running: false, stoppedByUs: true, exitCode: null, stopFailed: false });
+    expect(stepOf(pushes[pushes.length - 1], 'mapper')).toMatchObject({ status: 'idle', kind: null });
+  });
+
   it('dispose() stops a running child and unsubscribes the liveness mirror (teardown path)', async () => {
     const { orch, rn, pushes } = harness();
     await orch.start();

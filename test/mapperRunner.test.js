@@ -3,7 +3,9 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { MapperRunner, RING_LIMIT, LINE_LIMIT, MESSAGE_LIMIT } = require('../main/mapperRunner.js');
+const {
+  MapperRunner, RING_LIMIT, LINE_LIMIT, MESSAGE_LIMIT, MESSAGE_LINES,
+} = require('../main/mapperRunner.js');
 
 // Fake child seam: no real process is ever spawned in this suite (workspace
 // rule — race-day tests run everywhere, including CI containers).
@@ -305,6 +307,7 @@ function clockHarness({ deliver = true, platform = 'linux' } = {}) {
         cancelTimer: (id) => timers.delete(id),
         log: (m) => logs.push(m),
     });
+    const seen = [];
     // Fire every timer currently pending (one generation at a time, so an
     // escalation that arms the next timer does not run away).
     const fire = () => {
@@ -312,8 +315,9 @@ function clockHarness({ deliver = true, platform = 'linux' } = {}) {
         timers.clear();
         for (const [, t] of due) t.fn();
     };
+    runner.onChange((st) => seen.push(st));
     return {
-        runner, killTree, logs, fire, child: () => child, pending: () => timers.size,
+        runner, killTree, logs, fire, seen, child: () => child, pending: () => timers.size,
     };
 }
 
@@ -344,13 +348,31 @@ describe('MapperRunner — stop truth (review correctness-5 / lifecycle-concurre
     });
 
     it('correctness-5: kill() returning FALSE is a FAILED stop, not a clean one', () => {
-        const { runner } = clockHarness({ deliver: false });
+        const { runner, seen } = clockHarness({ deliver: false });
         runner.start({ binaryPath: '/opt/w17/mapper' });
         const res = runner.stop();
         expect(res.ok).toBe(false);
         expect(res.kind).toBe('stop-failed');
-        // …and it escalates at once rather than waiting out the polite window.
-        expect(runner.status().stopping).toBe(true);
+        // Review finding 3: the failure is reported IMMEDIATELY. The old code
+        // set `stopping` here, which made running:false for the whole give-up
+        // window over a provably live process — the card drew an idle drive
+        // program for 3 s and only then told the truth. There is nothing to
+        // wait for: the signal did not land.
+        expect(runner.status()).toMatchObject({ running: true, stopping: false, stopFailed: true });
+        expect(seen[seen.length - 1]).toMatchObject({ running: true, stopFailed: true });
+    });
+
+    it('an undelivered stop still forces the issue, and a child that then dies clears the failure', () => {
+        const { runner, child, fire } = clockHarness({ deliver: false });
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.stop();
+        // The escalation ran at once (no polite window to wait out).
+        expect(child().kill).toHaveBeenLastCalledWith('SIGKILL');
+        expect(runner.status().stopFailed).toBe(true);
+        child().emit('exit', null, 'SIGKILL');
+        expect(runner.status()).toMatchObject({ running: false, stopFailed: false, stopping: false });
+        fire(); // the give-up timer must not fire against a settled stop
+        expect(runner.status().stopFailed).toBe(false);
     });
 
     it('correctness-5: a stop the child ignores escalates to SIGKILL, then says so instead of lying', () => {
@@ -441,6 +463,44 @@ describe('MapperRunner — the exit message the child itself printed', () => {
         child().emit('exit', 1, null);
         await tick();
         expect(runner.status().exitMessage).toHaveLength(MESSAGE_LIMIT);
+    });
+
+    // Review finding 4: the mapper prints its refusal at
+    // cmd/elrs-joystick-control/main.go:190 and THEN runs six deferred Quit()
+    // calls. "Only the last non-empty line" handed the card whatever those
+    // printed; the message quotes the tail instead, so the sentence survives.
+    it('a refusal followed by teardown noise still carries the refusal', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from(
+            'this saved profile has not been matched to this computer yet\n',
+        ));
+        child().stderr.emit('data', Buffer.from('some trailing noise\nand more\n'));
+        child().emit('exit', 1, null);
+        await tick();
+        const msg = runner.status().exitMessage;
+        expect(msg).toContain('this saved profile has not been matched to this computer yet');
+        expect(msg).toBe('this saved profile has not been matched to this computer yet / some trailing noise / and more');
+    });
+
+    it('quotes at most the last few lines, oldest first, and caps the whole thing', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from('one\ntwo\nthree\nfour\nfive\n'));
+        child().emit('exit', 1, null);
+        await tick();
+        expect(runner.status().exitMessage).toBe('three / four / five');
+        expect(MESSAGE_LINES).toBe(3);
+
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from(`${'x'.repeat(200)}\n${'y'.repeat(200)}\n`));
+        child().emit('exit', 1, null);
+        await tick();
+        const capped = runner.status().exitMessage;
+        expect(capped).toHaveLength(MESSAGE_LIMIT);
+        // Truncation eats the TAIL, so the earliest line kept — the one most
+        // likely to carry the reason — survives intact.
+        expect(capped.startsWith('x'.repeat(200))).toBe(true);
     });
 
     it('a fresh start clears the previous run\'s message', async () => {

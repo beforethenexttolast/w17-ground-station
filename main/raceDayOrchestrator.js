@@ -176,6 +176,15 @@ class RaceDayOrchestrator {
                 this._set('mapper', 'fail', 'stop-failed');
                 return;
             }
+            // The forced stop finally landed. A card still reading "it would
+            // not stop when asked and is still running" over a process that is
+            // now gone is the same lie pointing the other way, so wind it back
+            // to idle — the stop the operator asked for did happen.
+            if (!st.running && this._steps.mapper.status === 'fail'
+                && this._steps.mapper.kind === 'stop-failed') {
+                this._set('mapper', 'idle', null);
+                return;
+            }
             if (st.running || this._steps.mapper.status !== 'ok') return;
             if (st.stoppedByUs) this._set('mapper', 'idle', null);
             // A failed spawn surfaces asynchronously as the runner's

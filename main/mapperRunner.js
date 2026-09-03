@@ -38,10 +38,14 @@ const { runCommand, winTreeKillArgs } = require('./runCommand.js');
 // port clash, small enough that a chatty child can never balloon memory.
 const RING_LIMIT = 200; // lines kept
 const LINE_LIMIT = 400; // chars kept per line
-// The child's own last word, as shown on the giftee's race-day card. Long
+// The child's own last words, as shown on the giftee's race-day card. Long
 // enough for the mapper's one-sentence refusals, short enough that a chatty
 // line cannot take the card over.
 const MESSAGE_LIMIT = 240; // chars
+// How many trailing non-empty lines the message may carry (review finding 4).
+// The refusal sentence is not always the LAST thing printed — the mapper runs
+// deferred teardown after it — so the message quotes the tail, not one line.
+const MESSAGE_LINES = 3;
 
 // Stop escalation (review correctness-5). A polite termination request is not a
 // death: SIGTERM can be ignored, and on Windows the default signal only reaches
@@ -239,12 +243,20 @@ class MapperRunner {
             return { ok: false, kind: 'stop-failed', error: err.message };
         }
         if (delivered === false) {
-            // The signal never reached the child. Escalate at once rather than
-            // waiting out the polite window, and tell the caller the truth: the
-            // orchestrator leaves the card exactly as it stands (a stopped card
-            // over a live process is the one thing race day must never draw).
-            this._log('[mapper] stop signal was not delivered — escalating immediately');
-            this._stopping = true;
+            // The signal never reached the child (ESRCH / EPERM). Review
+            // finding 3: the old code set `_stopping = true` here, which makes
+            // status().running FALSE for the whole give-up window over a
+            // process that is provably alive — the orchestrator's liveness
+            // mirror drew an IDLE drive program for 3 s and only then flipped
+            // to stop-failed. There is nothing to wait for: the request did not
+            // land, so say so NOW. `_stopping` stays false, so `running` stays
+            // true and the card keeps showing a live program with STOP on it.
+            this._log('[mapper] stop signal was not delivered — the drive program is still there');
+            this._stopFailed = true;
+            // Still force the issue (SIGKILL / taskkill /t /f): a signal the
+            // runtime could not deliver may yet be reachable through the tree
+            // kill. If that works, the child's own 'exit' settles the stop and
+            // clears `_stopFailed` — the report is honest either way.
             this._escalate(child);
             this._emit();
             return { ok: false, kind: 'stop-failed', error: 'the stop request did not reach the drive program' };
@@ -303,14 +315,24 @@ class MapperRunner {
         this._stopFailed = false;
     }
 
-    // The child's own last word, cleaned for display: the ring's newest
-    // non-empty line without its stream tag, control characters stripped,
-    // whitespace collapsed, length capped. This is what the drive program
-    // printed before it died — on an unfilled profile the mapper prints one
-    // plain sentence and exits 1 — and race day shows it verbatim rather than
-    // guessing at a cause (orchestrator + shared/raceDayView.mjs).
+    // The child's own last WORDS, cleaned for display: the ring's newest
+    // non-empty lines without their stream tags, control characters stripped,
+    // whitespace collapsed, joined in the order the child printed them, the
+    // whole thing capped. This is what the drive program said before it died —
+    // on an unfilled profile the mapper prints one plain sentence and exits 1 —
+    // and race day shows it verbatim rather than guessing at a cause
+    // (orchestrator + shared/raceDayView.mjs).
+    //
+    // Review finding 4: taking only the LAST non-empty line lost that sentence
+    // to anything printed after it, and the mapper runs six deferred Quit()
+    // calls on its way out ("they only print on error" was never verified). The
+    // last few lines cost nothing and cannot lose it. The cap is applied to the
+    // joined string, so a chatty tail truncates from the END — the earliest of
+    // the lines kept, which is the one most likely to carry the reason,
+    // survives.
     _lastLine() {
-        for (let i = this._ring.length - 1; i >= 0; i -= 1) {
+        const picked = [];
+        for (let i = this._ring.length - 1; i >= 0 && picked.length < MESSAGE_LINES; i -= 1) {
             const text = this._ring[i].replace(/^\[(?:out|err)\]\s*/, '')
                 // A colourised child line must not drag its escape codes
                 // onto the giftee's card: drop whole ANSI sequences first,
@@ -319,9 +341,10 @@ class MapperRunner {
                 .replace(/[\u0000-\u001f\u007f]/g, ' ')
                 .replace(/\s+/g, ' ')
                 .trim();
-            if (text) return text.slice(0, MESSAGE_LIMIT);
+            if (text) picked.push(text);
         }
-        return null;
+        if (!picked.length) return null;
+        return picked.reverse().join(' / ').slice(0, MESSAGE_LIMIT);
     }
 
     status() {
@@ -347,4 +370,6 @@ class MapperRunner {
     }
 }
 
-module.exports = { MapperRunner, RING_LIMIT, LINE_LIMIT, MESSAGE_LIMIT, ESCALATE_MS, GIVE_UP_MS };
+module.exports = {
+    MapperRunner, RING_LIMIT, LINE_LIMIT, MESSAGE_LIMIT, MESSAGE_LINES, ESCALATE_MS, GIVE_UP_MS,
+};
