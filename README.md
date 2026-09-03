@@ -92,8 +92,9 @@ the unsigned NSIS installer (`npx electron-builder --win nsis --publish never`,
 `.github/workflows/ci.yml:67`) — **this is the gift-kit deliverable**, uploaded on every
 green run as the `w17-ground-station-nsis-unsigned` artifact (`.exe` + `.blockmap`,
 `if-no-files-found: error` so a silent packaging regression fails loudly); smoke logs
-upload separately as `electron-smoke-logs` on failure. So the deployment target proves
-tests, runtime boot, packaging, and the installer every push. CI does **not** prove real
+upload separately as `electron-smoke-logs` on failure. So a green run of the deployment
+target would prove tests, runtime boot, packaging, and the installer build every push —
+`[ci-TBD]` no windows-latest run has exercised this chain yet. CI does **not** prove real
 Wi-Fi, camera, iPhone, ELRS, or Windows DPAPI behavior — those are bench items
 (`docs/setup_flow_bench_checklist.md`). The GUI + WebRTC video are verified on the target
 machine.
