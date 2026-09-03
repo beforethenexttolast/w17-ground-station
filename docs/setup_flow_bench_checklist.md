@@ -113,7 +113,10 @@ hardware-evidence matrix** in `docs/audits/2026-07-12-pre-hardware-hardening-aud
 - [ ] Set the path in `⚙` → GRID shows ELRS CONTROL row; LAUNCH starts it; row goes
       OK within a poll or two (`tasklist` detection).
 - [ ] **Survival test:** quit the ground station (and once: kill it from Task
-      Manager) → elrs-joystick-control keeps running. This is the safety property.
+      Manager) → elrs-joystick-control keeps running. This is the safety property
+      **for the GRID LAUNCH path** (this section). A drive program started BY RACE DAY
+      is a different, documented exception — it is stopped on quit by design; see
+      §14 below.
 - [ ] Unset/broken path: row shows SKIP (not configured) and never blocks START.
 - Evidence: task manager screenshot after GS quit.
 
