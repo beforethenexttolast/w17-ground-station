@@ -11,7 +11,9 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { HotspotManager } = require('../main/hotspot.js');
 const { HotspotLifecycle } = require('../main/hotspotLifecycle.js');
-const { createQuitPolicy, QUIT_BUTTONS, MAPPER_QUIT_BUTTONS } = require('../main/quitPolicy.js');
+const {
+  createQuitPolicy, QUIT_BUTTONS, GIFTEE_QUIT_BUTTONS, MAPPER_QUIT_BUTTONS,
+} = require('../main/quitPolicy.js');
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 const ok = (stdout = '') => ({ ok: true, code: 0, stdout, stderr: '' });
@@ -48,7 +50,7 @@ const CANCEL = 2;
 
 // One quit-policy world: real lifecycle over routed manager, scripted dialog
 // answers, spies on everything. flush() drains the policy's promise chains.
-function build(routes, { responses = [], mapperAlive } = {}) {
+function build(routes, { responses = [], mapperAlive, allowLeaveHotspot = true } = {}) {
   const { run, calls } = fakeRun(routes);
   const manager = new HotspotManager({ run, platform: 'win32' });
   const lifecycle = new HotspotLifecycle({ manager });
@@ -61,7 +63,12 @@ function build(routes, { responses = [], mapperAlive } = {}) {
   });
   const showError = vi.fn();
   const quit = vi.fn();
-  const policy = createQuitPolicy({ lifecycle, mapperAlive, showDialog, showError, quit });
+  const decisions = [];
+  const policy = createQuitPolicy({
+    lifecycle, mapperAlive, showDialog, showError, quit,
+    onDecision: (action) => decisions.push(action),
+    allowLeaveHotspot,
+  });
   const quitEvent = () => {
     const event = { prevented: false, preventDefault() { this.prevented = true; } };
     policy.onBeforeQuit(event);
@@ -70,7 +77,7 @@ function build(routes, { responses = [], mapperAlive } = {}) {
   const flush = async (n = 6) => { for (let i = 0; i < n; i += 1) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); };
   return {
     lifecycle, manager, calls, policy, quitEvent, flush,
-    showDialog, showError, quit, dialogs,
+    showDialog, showError, quit, dialogs, decisions,
     holdDialog: () => { let release; pendingDialog = new Promise((r) => { release = (response) => r({ response }); }); return release; },
   };
 }
@@ -364,5 +371,127 @@ describe('quit policy — race-day managed drive program', () => {
     await w.flush();
     expect(event.prevented).toBe(false); // treated as no managed child
     expect(w.showDialog).not.toHaveBeenCalled();
+  });
+});
+
+// --- OD-7: LEAVE HOTSPOT RUNNING is not offered to the giftee --------------
+// That button is what manufactures the already-on hotspot the booklet's only
+// printed recovery then trips over, and the operator model has no use for it.
+describe('quit policy — the giftee hotspot prompt (owner decision OD-7)', () => {
+  it('offers TWO buttons, and CANCEL is still the cancel', async () => {
+    const w = build(MOBILE_OK_ROUTES, { allowLeaveHotspot: false, responses: [1] });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.dialogs[0].buttons).toEqual([...GIFTEE_QUIT_BUTTONS]);
+    expect(w.dialogs[0].buttons).not.toContain('LEAVE HOTSPOT RUNNING');
+    // Index 1 is CANCEL in the two-button set — the answer is read against the
+    // array that was SHOWN, never the three-button constant.
+    expect(w.quit).not.toHaveBeenCalled();
+    expect(w.dialogs[0].cancelId).toBe(1);
+    expect(w.dialogs[0].defaultId).toBe(0);
+    expect(w.dialogs[0].detail).not.toMatch(/leave it broadcasting/i);
+  });
+
+  it('STOP AND QUIT still stops the hotspot first, then quits', async () => {
+    const w = build(MOBILE_OK_ROUTES, { allowLeaveHotspot: false, responses: [0] });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.calls.filter((c) => c.args.join(' ').includes(PS_STOP_KEY))).toHaveLength(1);
+    expect(w.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a development build keeps all three buttons', async () => {
+    const w = build(MOBILE_OK_ROUTES, { responses: [LEAVE_RUNNING] });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.dialogs[0].buttons).toEqual([...QUIT_BUTTONS]);
+    expect(w.quit).toHaveBeenCalledTimes(1);
+    expect(w.calls.filter((c) => c.args.join(' ').includes(PS_STOP_KEY))).toHaveLength(0);
+  });
+});
+
+// --- SYN-1 / lifecycle-concurrency-4: the decision is now OBSERVED ---------
+describe('quit policy — the decision hook the window lifecycle rides on', () => {
+  it('a pass-through quit (nothing owned) still reports "quit" — otherwise the close interceptor never disarms', async () => {
+    const w = build(MOBILE_OK_ROUTES);
+    const e = w.quitEvent();
+    await w.flush();
+    expect(e.prevented).toBe(false);
+    expect(w.decisions).toEqual(['quit']);
+  });
+
+  it('CANCEL reports "stay", so a window destroyed underneath can be put back', async () => {
+    const w = build(MOBILE_OK_ROUTES, { responses: [CANCEL] });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.decisions).toEqual(['stay']);
+    expect(w.quit).not.toHaveBeenCalled();
+  });
+
+  it('a failed hotspot stop reports "stay" too (the app deliberately stays open)', async () => {
+    const w = build({ ...MOBILE_OK_ROUTES, [PS_STOP_KEY]: fail('nope') }, { responses: [STOP_AND_QUIT] });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.decisions).toEqual(['stay']);
+    expect(w.showError).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing observer neither blocks the quit nor wedges the app', async () => {
+    const { run } = fakeRun(MOBILE_OK_ROUTES);
+    const manager = new HotspotManager({ run, platform: 'win32' });
+    const lifecycle = new HotspotLifecycle({ manager });
+    const quit = vi.fn();
+    const policy = createQuitPolicy({
+      lifecycle,
+      showDialog: vi.fn(),
+      showError: vi.fn(),
+      quit,
+      onDecision: () => { throw new Error('observer exploded'); },
+    });
+    const event = { prevented: false, preventDefault() { this.prevented = true; } };
+    policy.onBeforeQuit(event);
+    expect(event.prevented).toBe(false);
+  });
+
+  it('a drive program started DURING the hotspot prompt is asked about before teardown kills it (lifecycle-concurrency-4)', async () => {
+    let alive = false;
+    const w = build(MOBILE_OK_ROUTES, { mapperAlive: () => alive });
+    await w.lifecycle.start(CREDS);
+    // The held dialog answers every prompt with the SAME response, which is all
+    // this scenario needs: 1 = LEAVE HOTSPOT RUNNING on the hotspot prompt, and
+    // 1 = CANCEL on the drive-program prompt that must now follow it.
+    const release = w.holdDialog();
+    w.quitEvent();
+    await w.flush();
+    expect(w.dialogs).toHaveLength(1); // only the hotspot has been asked about
+    // The hotspot dialog is open; the renderer is alive underneath (it was not
+    // even window-modal before this branch) and race day starts the drive
+    // program — the exact window this fix closes.
+    alive = true;
+    release(1);
+    await w.flush();
+    expect(w.dialogs).toHaveLength(2);
+    expect(w.dialogs[1].buttons).toEqual([...MAPPER_QUIT_BUTTONS]);
+    // CANCEL on that prompt: the program the operator just started is NOT
+    // killed by teardown behind their back.
+    expect(w.decisions).toEqual(['stay']);
+    expect(w.quit).not.toHaveBeenCalled();
+  });
+
+  it('a drive program that was ALREADY asked about is not asked twice', async () => {
+    const w = build(MOBILE_OK_ROUTES, {
+      mapperAlive: () => true,
+      responses: [0 /* mapper: QUIT AND STOP */, LEAVE_RUNNING],
+    });
+    await w.lifecycle.start(CREDS);
+    w.quitEvent();
+    await w.flush();
+    expect(w.dialogs).toHaveLength(2); // mapper, then hotspot — and no third
+    expect(w.quit).toHaveBeenCalledTimes(1);
   });
 });

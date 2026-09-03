@@ -422,6 +422,119 @@ function createWindowOptions({ preloadPath, iconPath = null, fullscreen = false 
     };
 }
 
+// --- Window lifecycle (review SYN-1 / lifecycle-concurrency-4 / -7) --------
+// The composition root owns the window; these three seams own the RULES about
+// it, so the whole recovery path the booklet prints ("close the app, open it,
+// press RACE DAY again") is unit-testable without Electron.
+//
+// SYN-1, the defect: quitPolicy was wired to 'before-quit' only, and Electron
+// destroys the window BEFORE that on a titlebar X (close -> destroy ->
+// window-all-closed -> app.quit -> before-quit). So the CANCEL button returned
+// 'stay' to a process that had no windows left: a windowless zombie still
+// holding the hotspot, the managed drive program and mediamtx's ports, with no
+// way back to it. The fix moves the decision IN FRONT of destruction.
+function createWindowLifecycle({
+    app, getWindows, createWindow, focusWindow = null, log = () => {},
+}) {
+    // Flipped once the policy has allowed a quit; from then on a close is a
+    // real close and must not bounce through app.quit() again.
+    let quitting = false;
+    const firstWindow = () => {
+        const wins = getWindows() || [];
+        return wins.find((w) => w && !w.isDestroyed()) || null;
+    };
+    return {
+        // Wired as win.on('close'). Returns true when the close was intercepted
+        // (so tests can assert the branch, and so a caller can log it).
+        onWindowClose(event) {
+            if (quitting) return false;
+            // Route the X through the SAME decision a menu quit takes, while
+            // this window is still alive: CANCEL then simply leaves it open.
+            event.preventDefault();
+            log('[window] close intercepted — asking the quit policy first');
+            app.quit();
+            return true;
+        },
+        // The policy's outcome, injected into createQuitPolicy as onDecision.
+        onDecision(action) {
+            if (action === 'quit') {
+                quitting = true;
+                return 'quitting';
+            }
+            // 'stay': normally the window is still there (that is the whole
+            // point of the interception). Belt and braces for the paths that
+            // can still reach a windowless stay — a decision that resolved
+            // after the window went away, or a platform quirk — because a
+            // windowless stay is exactly the zombie SYN-1 describes. Boot
+            // re-seeds from the authorities, so nothing is lost.
+            if (firstWindow()) return 'kept';
+            log('[window] the quit was cancelled with no window left — reopening one');
+            createWindow();
+            return 'recreated';
+        },
+        // Second instance (SYN-1's other half): a giftee who relaunches after a
+        // zombie must NOT end up with two processes fighting over settings.json
+        // and mediamtx's ports. The loser exits immediately; the winner brings
+        // its window forward, or makes one if it somehow has none.
+        installSingleInstance() {
+            if (!app.requestSingleInstanceLock || app.requestSingleInstanceLock()) {
+                app.on('second-instance', () => {
+                    const win = firstWindow();
+                    if (!win) {
+                        log('[window] a second launch arrived with no window open — reopening one');
+                        createWindow();
+                        return;
+                    }
+                    if (focusWindow) focusWindow(win);
+                });
+                return 'primary';
+            }
+            log('[window] another ground station is already running — handing over to it');
+            app.quit();
+            return 'secondary';
+        },
+        isQuitting: () => quitting,
+    };
+}
+
+// Window-MODAL quit dialogs (review lifecycle-concurrency-4). A parentless
+// message box leaves the renderer clickable underneath, so the operator can
+// start the drive program during the very prompt that judged it absent. Passing
+// the window makes the prompt modal to it. It falls back to the parentless call
+// when there is genuinely no window — a dialog nobody can answer would make the
+// app unquittable, which is worse than a non-modal one.
+function createDialogPresenter({ BrowserWindow, dialog }) {
+    const parent = () => {
+        const wins = (BrowserWindow.getAllWindows && BrowserWindow.getAllWindows()) || [];
+        return wins.find((w) => w && !w.isDestroyed()) || null;
+    };
+    return {
+        showDialog: (opts) => {
+            const win = parent();
+            return win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts);
+        },
+        showError: (title, content) => dialog.showErrorBox(title, content),
+    };
+}
+
+// Application menu (review lifecycle-concurrency-7). Electron's DEFAULT menu is
+// installed even when the menu BAR is hidden (createWindowOptions only sets
+// autoHideMenuBar), and its accelerators stay live: Ctrl+W closes the window
+// mid-drive and Ctrl+R reloads the renderer out from under a running session.
+// A giftee build therefore has NO application menu at all. Development keeps the
+// default (devtools, reload, copy/paste), and W17_DEV_MENU=1 restores it in a
+// packaged build for a technician. macOS is excluded on purpose: there the
+// application menu is also the app menu, and removing it takes the standard
+// Quit/Hide items with it — the gift target is Windows.
+function applyApplicationMenu({ Menu, isPackaged = false, platform = process.platform, env = process.env, log = () => {} }) {
+    const raw = env && env.W17_DEV_MENU;
+    const keep = raw === '1' || raw === 'true';
+    if (!isPackaged || keep || platform === 'darwin') return 'default';
+    Menu.setApplicationMenu(null);
+    log('[window] application menu removed (giftee build): no Ctrl+W / Ctrl+R accelerators');
+    return 'none';
+}
+
 // Whether the main window should open full screen (2A). Pure so it unit-tests
 // without a display. Precedence: an explicit W17_FULLSCREEN env wins in BOTH
 // directions (the deliberate development override, and a way to force it on a
@@ -495,6 +608,9 @@ module.exports = {
     wireRaceDayPush,
     createAdapterCoordinator,
     createWindowOptions,
+    createWindowLifecycle,
+    createDialogPresenter,
+    applyApplicationMenu,
     resolveFullscreen,
     fullscreenKeyAction,
     installNavigationPolicy,

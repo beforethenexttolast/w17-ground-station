@@ -10,7 +10,7 @@
 // settings (shared/settings.js `resolveEffective`); with no env vars and a
 // fresh settings file the app behaves exactly like the pre-settings build.
 
-const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -46,6 +46,9 @@ const {
   wireRaceDayPush,
   createAdapterCoordinator,
   createWindowOptions,
+  createWindowLifecycle,
+  createDialogPresenter,
+  applyApplicationMenu,
   resolveFullscreen,
   fullscreenKeyAction,
   installNavigationPolicy,
@@ -177,11 +180,41 @@ function createWindow() {
     if (!win.isDestroyed()) win.webContents.send(PUSH_CHANNELS.telemetry, t);
   });
 
+  // Review SYN-1: the quit DECISION must happen while this window still
+  // exists. Electron's default order on a titlebar X is destroy -> quit ->
+  // before-quit, so CANCEL used to return 'stay' to a windowless process that
+  // still held the hotspot, the managed drive program and mediamtx's ports —
+  // with no way back to it, and the booklet's only printed recovery ("close
+  // the app, open it, press RACE DAY again") landing on a zombie. The first
+  // close is therefore intercepted and routed through app.quit(), so the same
+  // policy decides, with a live window, and CANCEL just leaves it open.
+  win.on('close', (event) => windowLifecycle.onWindowClose(event));
+
   win.loadFile(path.join(projectRoot, 'renderer', 'index.html'));
   return win;
 }
 
-app.whenReady().then(async () => {
+// Window rules (close interception, single instance, recreate-on-stay). The
+// seam lives in appWiring so the whole recovery path unit-tests without
+// Electron; this file stays the composition root that owns the window.
+const windowLifecycle = createWindowLifecycle({
+  app,
+  getWindows: () => BrowserWindow.getAllWindows(),
+  createWindow: () => createWindow(),
+  focusWindow: (win) => {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  },
+  log,
+});
+// A giftee relaunching after a confusing state must not end up with two ground
+// stations fighting over settings.json and mediamtx's ports (review SYN-1). The
+// loser hands over to the running one, which brings its window forward. Claimed
+// BEFORE whenReady so the second process exits as early as possible.
+const instanceRole = windowLifecycle.installSingleInstance();
+
+if (instanceRole === 'primary') app.whenReady().then(async () => {
   const { binaryPath, configPath } = mediamtxPaths({
     env: process.env,
     platform: process.platform,
@@ -298,6 +331,11 @@ app.whenReady().then(async () => {
   // netsh adapters to watch. It runs for the whole app lifetime (never coupled
   // to PIT WALL navigation); teardown stops it. Idempotent start.
   if (adapterMonitor && (sim || process.platform === 'win32')) adapterMonitor.start();
+  // Review lifecycle-concurrency-7: Electron installs its DEFAULT application
+  // menu even with the menu BAR hidden, and its accelerators stay live — Ctrl+W
+  // closes the window mid-drive, Ctrl+R reloads the renderer out from under a
+  // running session. A giftee build gets no application menu at all.
+  applyApplicationMenu({ Menu, isPackaged: app.isPackaged, platform: process.platform, env: process.env, log });
   createWindow();
 
   app.on('activate', () => {
@@ -319,12 +357,25 @@ app.on('window-all-closed', () => {
 // that child unconditionally, so the quit must say so. The seam is read-only
 // aliveness from the orchestrator's own snapshot (the GRID's detached launch
 // is not managed and never prompts); the stop stays teardown's, unchanged.
+// Review lifecycle-concurrency-4: both prompts are WINDOW-MODAL. A parentless
+// message box leaves the renderer clickable underneath, so the operator could
+// start the drive program during the very prompt that judged it absent.
+const dialogs = createDialogPresenter({ BrowserWindow, dialog });
 const quitPolicy = createQuitPolicy({
   lifecycle: hotspotLifecycle,
   mapperAlive: () => !!(raceDay && raceDay.snapshot().mapper.running),
-  showDialog: (opts) => dialog.showMessageBox(opts),
-  showError: (title, content) => dialog.showErrorBox(title, content),
+  showDialog: dialogs.showDialog,
+  showError: dialogs.showError,
   quit: () => app.quit(),
+  // Both outcomes go to the window seam: 'quit' stops the close interception,
+  // 'stay' puts a window back if one is somehow already gone (review SYN-1).
+  onDecision: (action) => windowLifecycle.onDecision(action),
+  // Owner decision OD-7: LEAVE HOTSPOT RUNNING is the button that manufactures
+  // the already-on hotspot the printed recovery trips over, so the packaged
+  // giftee build does not offer it. A dev run keeps it; W17_DEV_LEAVE_HOTSPOT=1
+  // restores it in a packaged build for a technician.
+  allowLeaveHotspot: !app.isPackaged
+    || process.env.W17_DEV_LEAVE_HOTSPOT === '1' || process.env.W17_DEV_LEAVE_HOTSPOT === 'true',
   log,
 });
 app.on('before-quit', (event) => quitPolicy.onBeforeQuit(event));

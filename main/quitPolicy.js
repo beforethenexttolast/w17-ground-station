@@ -40,10 +40,30 @@ const CHOICE_CANCEL = 2;
 // RUNNING option because teardown always stops the managed child; offering
 // one would be the exact dishonesty this prompt exists to remove.
 const MAPPER_QUIT_BUTTONS = Object.freeze(['QUIT AND STOP THE DRIVE PROGRAM', 'CANCEL']);
+
+// The giftee build's hotspot prompt (owner decision OD-7). LEAVE HOTSPOT
+// RUNNING is the button that manufactures the already-on hotspot the printed
+// recovery route then trips over, and the operator model has no use for it:
+// there is nothing else on this laptop that wants the car's Wi-Fi. It stays in
+// a development build (W17_DEV_LEAVE_HOTSPOT=1 in a packaged one), where a
+// technician may deliberately keep the network up between runs.
+const GIFTEE_QUIT_BUTTONS = Object.freeze(['STOP HOTSPOT AND QUIT', 'CANCEL']);
 const MAPPER_CHOICE_QUIT = 0;
 const MAPPER_CHOICE_CANCEL = 1;
 
-function createQuitPolicy({ lifecycle, mapperAlive = () => false, showDialog, showError, quit, log = () => {} }) {
+function createQuitPolicy({
+    lifecycle, mapperAlive = () => false, showDialog, showError, quit,
+    // Review SYN-1: the composition root needs BOTH outcomes, not just the
+    // quit. A 'stay' is what leaves a windowless zombie when the window was
+    // already destroyed, so the window lifecycle seam gets told about it and
+    // can put a window back; a 'quit' tells it to stop intercepting closes.
+    onDecision = () => {},
+    // Review OD-7: LEAVE HOTSPOT RUNNING is the button that CREATES the
+    // already-on state the giftee's only printed recovery then trips over. It
+    // is hidden in giftee builds; a developer keeps it behind an env flag.
+    allowLeaveHotspot = true,
+    log = () => {},
+}) {
     let allowQuit = false; // a decision (or nothing owned) cleared this quit
     let deciding = false;  // dialog/stop in flight: further quits are absorbed
 
@@ -80,20 +100,29 @@ function createQuitPolicy({ lifecycle, mapperAlive = () => false, showDialog, sh
         await lifecycle.whenSettled();
         const snap = lifecycle.snapshot();
         if (!snap.owned) return 'quit'; // settled un-owned (e.g. the start failed)
+        // Giftee builds get two buttons, not three (OD-7). The indices the
+        // answer is compared against therefore come from the SAME array that
+        // was shown, never from the three-button constant.
+        const buttons = allowLeaveHotspot ? [...QUIT_BUTTONS] : [...GIFTEE_QUIT_BUTTONS];
+        const stopIdx = buttons.indexOf(QUIT_BUTTONS[CHOICE_STOP]);
+        const leaveIdx = buttons.indexOf(QUIT_BUTTONS[CHOICE_LEAVE]);
+        const cancelIdx = buttons.indexOf(QUIT_BUTTONS[CHOICE_CANCEL]);
         const { response } = await showDialog({
             type: 'warning',
             title: 'W17 Ground Station',
             message: 'The W17 hotspot is still running.',
             detail: `This app started the hotspot${snap.ssid ? ` "${snap.ssid}"` : ''}`
                 + `${snap.backend ? ` (${snap.backend} backend)` : ''}.`
-                + ' Stop it before quitting, or leave it broadcasting?',
-            buttons: [...QUIT_BUTTONS],
-            defaultId: CHOICE_STOP,
-            cancelId: CHOICE_CANCEL,
+                + (allowLeaveHotspot
+                    ? ' Stop it before quitting, or leave it broadcasting?'
+                    : ' Stop it before quitting?'),
+            buttons,
+            defaultId: stopIdx,
+            cancelId: cancelIdx,
             noLink: true,
         });
-        if (response === CHOICE_CANCEL) return 'stay';
-        if (response === CHOICE_LEAVE) {
+        if (response === cancelIdx) return 'stay';
+        if (leaveIdx !== -1 && response === leaveIdx) {
             log('[quit] leaving the app-owned hotspot running by user choice');
             return 'quit';
         }
@@ -118,23 +147,54 @@ function createQuitPolicy({ lifecycle, mapperAlive = () => false, showDialog, sh
     // in decideMapper catch a child that died while the quit was in flight.
     async function decide() {
         await lifecycle.whenSettled();
+        // Whether the drive-program prompt below will actually be SHOWN. It is
+        // the answer to "has this quit already asked about the drive program?",
+        // which is what decides the re-check after the hotspot dialog.
+        const mapperWasAsked = mapperIsAlive();
         if ((await decideMapper()) === 'stay') return 'stay';
-        return decideHotspot();
+        const action = await decideHotspot();
+        if (action !== 'quit') return action;
+        // Review lifecycle-concurrency-4: the hotspot prompt is an async gap the
+        // renderer lives through (and until this branch it was not even
+        // window-modal). A drive program started DURING it was never asked
+        // about, and teardown would kill it without a word — so ask, exactly
+        // once, and only when the first pass had nothing to ask about.
+        if (!mapperWasAsked && mapperIsAlive()) {
+            log('[quit] the drive program came up while the quit was being decided — asking about it');
+            return decideMapper();
+        }
+        return 'quit';
     }
+
+    // The decision hook fails open in both directions: a throwing observer must
+    // neither block a quit nor wedge a stay.
+    const notify = (action) => {
+        try { onDecision(action); } catch (err) {
+            log(`[quit] decision observer failed: ${err && err.message ? err.message : err}`);
+        }
+    };
 
     function onBeforeQuit(event) {
         if (allowQuit) return; // decision made: this quit proceeds, no dialog loop
         const snap = lifecycle.snapshot();
         const transitioning = snap.phase === 'starting' || snap.phase === 'stopping';
         // Nothing owned, nothing in transit, no managed drive program alive:
-        // quit exactly as before — no dialog of any kind.
-        if (!snap.owned && !transitioning && !mapperIsAlive()) return;
+        // quit exactly as before — no dialog of any kind. The observer is still
+        // told, and MUST be: with the close interception in front of this
+        // (review SYN-1) a silent pass-through would leave the interceptor
+        // armed, so the window's own close would bounce back into app.quit()
+        // for ever and the app could never be closed at all.
+        if (!snap.owned && !transitioning && !mapperIsAlive()) {
+            notify('quit');
+            return;
+        }
         event.preventDefault();
         if (deciding) return; // repeated quit while pending: absorbed
         deciding = true;
         decide()
             .then((action) => {
                 deciding = false;
+                notify(action);
                 if (action === 'quit') {
                     allowQuit = true;
                     quit();
@@ -144,6 +204,7 @@ function createQuitPolicy({ lifecycle, mapperAlive = () => false, showDialog, sh
                 // A broken dialog must not make the app unquittable.
                 deciding = false;
                 log(`[quit] quit policy failed (${err && err.message ? err.message : err}); allowing quit`);
+                notify('quit');
                 allowQuit = true;
                 quit();
             });
@@ -152,4 +213,4 @@ function createQuitPolicy({ lifecycle, mapperAlive = () => false, showDialog, sh
     return { onBeforeQuit };
 }
 
-module.exports = { createQuitPolicy, QUIT_BUTTONS, MAPPER_QUIT_BUTTONS };
+module.exports = { createQuitPolicy, QUIT_BUTTONS, GIFTEE_QUIT_BUTTONS, MAPPER_QUIT_BUTTONS };

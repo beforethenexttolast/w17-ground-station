@@ -21,6 +21,9 @@ import {
     wireAdapterPush,
     createAdapterCoordinator,
     createWindowOptions,
+    createWindowLifecycle,
+    createDialogPresenter,
+    applyApplicationMenu,
     resolveFullscreen,
     fullscreenKeyAction,
     installNavigationPolicy,
@@ -931,5 +934,153 @@ describe('mediamtxPaths — dev / packaged / override resolution (audit D3 smoke
     it('W17_MEDIAMTX_DIR overrides both paths (the smoke uses an empty dir for the soft-fail scenario)', () => {
         const p = mediamtxPaths({ env: { W17_MEDIAMTX_DIR: '/tmp/none' }, platform: 'win32', isPackaged: false, projectRoot: '/repo' });
         expect(p).toEqual({ binaryPath: join('/tmp/none', 'mediamtx.exe'), configPath: join('/tmp/none', 'mediamtx.yml') });
+    });
+});
+
+// --- Window lifecycle (review SYN-1 / lifecycle-concurrency-4 / -7) ---------
+// The recovery path the booklet prints ("close the app, open it, press RACE DAY
+// again") only works if the X does not leave a windowless process behind. These
+// seams are where that is decided, so they are exercised here rather than only
+// on a Windows VM.
+describe('createWindowLifecycle — the X asks BEFORE the window dies (review SYN-1)', () => {
+    function build({ windows = [] } = {}) {
+        const app = { quit: vi.fn(), on: vi.fn(), requestSingleInstanceLock: vi.fn(() => true) };
+        const made = [];
+        const createWindow = vi.fn(() => { const w = win(); made.push(w); windows.push(w); return w; });
+        const focusWindow = vi.fn();
+        const lifecycle = createWindowLifecycle({
+            app, getWindows: () => windows, createWindow, focusWindow,
+        });
+        return { app, lifecycle, windows, made, createWindow, focusWindow };
+    }
+    const win = (destroyed = false) => ({
+        isDestroyed: () => destroyed,
+        isMinimized: () => false,
+        restore: vi.fn(),
+        show: vi.fn(),
+        focus: vi.fn(),
+    });
+    const closeEvent = () => { const e = { prevented: false }; e.preventDefault = () => { e.prevented = true; }; return e; };
+
+    it('the first close is intercepted and routed through app.quit() — the decision runs with the window alive', () => {
+        const { app, lifecycle } = build({ windows: [win()] });
+        const e = closeEvent();
+        expect(lifecycle.onWindowClose(e)).toBe(true);
+        expect(e.prevented).toBe(true);
+        expect(app.quit).toHaveBeenCalledTimes(1);
+    });
+
+    it("CANCEL ('stay') keeps the existing window and creates nothing", () => {
+        const { lifecycle, createWindow } = build({ windows: [win()] });
+        lifecycle.onWindowClose(closeEvent());
+        expect(lifecycle.onDecision('stay')).toBe('kept');
+        expect(createWindow).not.toHaveBeenCalled();
+        // …and because no quit was allowed, the NEXT close asks again.
+        const e = closeEvent();
+        expect(lifecycle.onWindowClose(e)).toBe(true);
+        expect(e.prevented).toBe(true);
+    });
+
+    it('a stay with ZERO windows recreates one — the exact zombie SYN-1 describes', () => {
+        const { lifecycle, createWindow } = build({ windows: [] });
+        expect(lifecycle.onDecision('stay')).toBe('recreated');
+        expect(createWindow).toHaveBeenCalledTimes(1);
+    });
+
+    it('a DESTROYED window does not count as a window (a destroyed one cannot be shown)', () => {
+        const { lifecycle, createWindow } = build({ windows: [win(true)] });
+        expect(lifecycle.onDecision('stay')).toBe('recreated');
+        expect(createWindow).toHaveBeenCalledTimes(1);
+    });
+
+    it("once the policy allows the quit, closes stop bouncing — otherwise the app could never close", () => {
+        const { app, lifecycle } = build({ windows: [win()] });
+        expect(lifecycle.onDecision('quit')).toBe('quitting');
+        expect(lifecycle.isQuitting()).toBe(true);
+        const e = closeEvent();
+        expect(lifecycle.onWindowClose(e)).toBe(false);
+        expect(e.prevented).toBe(false);
+        expect(app.quit).not.toHaveBeenCalled();
+    });
+
+    it('the primary instance registers a second-instance handler that focuses the live window', () => {
+        const w = win();
+        const { app, lifecycle, focusWindow } = build({ windows: [w] });
+        expect(lifecycle.installSingleInstance()).toBe('primary');
+        expect(app.quit).not.toHaveBeenCalled();
+        const [channel, handler] = app.on.mock.calls[0];
+        expect(channel).toBe('second-instance');
+        handler();
+        expect(focusWindow).toHaveBeenCalledWith(w);
+    });
+
+    it('a second launch with no window open reopens one instead of focusing nothing', () => {
+        const { app, lifecycle, createWindow } = build({ windows: [] });
+        lifecycle.installSingleInstance();
+        app.on.mock.calls[0][1]();
+        expect(createWindow).toHaveBeenCalledTimes(1);
+    });
+
+    it('the LOSER of the lock quits at once and registers nothing (no two apps over one settings file)', () => {
+        const { app, lifecycle } = build({ windows: [] });
+        app.requestSingleInstanceLock = vi.fn(() => false);
+        expect(lifecycle.installSingleInstance()).toBe('secondary');
+        expect(app.quit).toHaveBeenCalledTimes(1);
+        expect(app.on).not.toHaveBeenCalled();
+    });
+});
+
+describe('createDialogPresenter — window-modal quit prompts (review lifecycle-concurrency-4)', () => {
+    const w = (destroyed = false) => ({ isDestroyed: () => destroyed });
+
+    it('passes the first live window as the dialog parent', async () => {
+        const parent = w();
+        const dialog = { showMessageBox: vi.fn(async () => ({ response: 0 })), showErrorBox: vi.fn() };
+        const p = createDialogPresenter({ BrowserWindow: { getAllWindows: () => [parent] }, dialog });
+        await p.showDialog({ buttons: ['A'] });
+        expect(dialog.showMessageBox).toHaveBeenCalledWith(parent, { buttons: ['A'] });
+    });
+
+    it('skips destroyed windows and falls back to a parentless box when there is none', async () => {
+        const dialog = { showMessageBox: vi.fn(async () => ({ response: 0 })), showErrorBox: vi.fn() };
+        const p = createDialogPresenter({ BrowserWindow: { getAllWindows: () => [w(true)] }, dialog });
+        await p.showDialog({ buttons: ['A'] });
+        // A prompt nobody can answer would make the app unquittable — worse
+        // than a non-modal one.
+        expect(dialog.showMessageBox).toHaveBeenCalledWith({ buttons: ['A'] });
+    });
+
+    it('showError delegates unchanged', () => {
+        const dialog = { showMessageBox: vi.fn(), showErrorBox: vi.fn() };
+        createDialogPresenter({ BrowserWindow: { getAllWindows: () => [] }, dialog }).showError('t', 'c');
+        expect(dialog.showErrorBox).toHaveBeenCalledWith('t', 'c');
+    });
+});
+
+describe('applyApplicationMenu — no live accelerators in a giftee build (review lifecycle-concurrency-7)', () => {
+    const menu = () => ({ setApplicationMenu: vi.fn() });
+
+    it('a packaged Windows build has NO application menu: Ctrl+W / Ctrl+R cannot reach the window', () => {
+        const Menu = menu();
+        expect(applyApplicationMenu({ Menu, isPackaged: true, platform: 'win32', env: {} })).toBe('none');
+        expect(Menu.setApplicationMenu).toHaveBeenCalledWith(null);
+    });
+
+    it('a development run keeps the default menu (devtools, reload, copy/paste)', () => {
+        const Menu = menu();
+        expect(applyApplicationMenu({ Menu, isPackaged: false, platform: 'win32', env: {} })).toBe('default');
+        expect(Menu.setApplicationMenu).not.toHaveBeenCalled();
+    });
+
+    it('W17_DEV_MENU restores it in a packaged build for a technician', () => {
+        const Menu = menu();
+        expect(applyApplicationMenu({ Menu, isPackaged: true, platform: 'win32', env: { W17_DEV_MENU: '1' } })).toBe('default');
+        expect(Menu.setApplicationMenu).not.toHaveBeenCalled();
+    });
+
+    it('macOS is excluded: there the application menu is also the app menu (Quit/Hide live in it)', () => {
+        const Menu = menu();
+        expect(applyApplicationMenu({ Menu, isPackaged: true, platform: 'darwin', env: {} })).toBe('default');
+        expect(Menu.setApplicationMenu).not.toHaveBeenCalled();
     });
 });
