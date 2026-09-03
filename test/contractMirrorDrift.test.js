@@ -4,13 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const {
   mirroredRegion, sha256, REGION_END, resolveSyncHash,
 } = require('../scripts/check-contract-mirror.js');
 const record = require('../docs/canonical/windows_bridge_contract.mirror.json');
-const SCRIPT_PATH = new URL('../scripts/check-contract-mirror.js', import.meta.url).pathname;
+// fileURLToPath, not .pathname: on Windows .pathname is '/D:/a/...' and joining it
+// produced 'D:\D:\a\...' (windows-latest run 33810043436).
+const SCRIPT_PATH = fileURLToPath(new URL('../scripts/check-contract-mirror.js', import.meta.url));
 
 // Grand verdict cluster-5(e): docs/windows_bridge_contract.md reproduces the
 // canonical contract (iPhone_rc/docs/windows_bridge_contract.md) verbatim, and
@@ -43,8 +46,12 @@ describe('windows_bridge_contract mirror (cluster-5(e))', () => {
   it('a CRLF checkout (Windows core.autocrlf) yields the same digest as LF', () => {
     // windows-latest checks the repo out with CRLF line endings; the digest pins
     // content, so the region hash must not depend on the checkout's line endings.
-    const crlf = mirrorText.replace(/\r?\n/g, '\r\n');
-    expect(crlf).not.toBe(mirrorText);
+    // Build BOTH variants explicitly — the file on disk is already CRLF on a
+    // Windows checkout, so "convert and compare to the original" proves nothing there.
+    const lf = mirrorText.replace(/\r\n/g, '\n');
+    const crlf = lf.replace(/\n/g, '\r\n');
+    expect(crlf).not.toBe(lf);
+    expect(sha256(mirroredRegion(lf))).toBe(record.sha256);
     expect(sha256(mirroredRegion(crlf))).toBe(record.sha256);
     expect(Buffer.byteLength(mirroredRegion(crlf), 'utf8')).toBe(record.bytes);
   });

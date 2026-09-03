@@ -17,6 +17,7 @@
 // The snapshot is the single point of coupling. Neither half substitutes for the
 // other: this one cannot see the firmware, and that one does not run in CI.
 import { describe, it, expect } from 'vitest';
+import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
@@ -131,7 +132,7 @@ describe('the firmware-header parser is strict enough to be trusted', () => {
         const { existsSync } = await import('node:fs');
         const { extractFirmwareFeel } = require('../scripts/firmwareFeelSnapshot.js');
         const fw = process.env.W17_CONTROL_FW_DIR
-            || new URL('../../w17-control-fw', import.meta.url).pathname;
+            || fileURLToPath(new URL('../../w17-control-fw', import.meta.url));
         if (!existsSync(fw)) return; // no sibling: the snapshot comparison above still guards
         expect(extractFirmwareFeel(fw)).toEqual({ members: snapshot.members, feel: snapshot.feel });
     });

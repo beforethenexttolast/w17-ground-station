@@ -53,7 +53,9 @@ async function makeAsar(dest, files) {
       writeFileSync(abs, body);
     }
     await asarLib.createPackage(src, dest);
-    rmSync(src, { recursive: true, force: true });
+    // Windows may still hold a handle briefly after createPackage — retry the
+    // recursive remove instead of failing the test with ENOTEMPTY (run 33810043436).
+    rmSync(src, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     return;
   }
   const header = { files: {} };
