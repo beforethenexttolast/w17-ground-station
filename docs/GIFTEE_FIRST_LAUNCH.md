@@ -52,13 +52,17 @@ they do:
 - **the drive program** (`elrs-joystick-control.exe` — the one that actually drives the
   car) — started either by the GRID's **LAUNCH** button or by **RACE DAY**, and it opens
   two listeners of its own: a gRPC port and an HTTP/grpc-web port. `[fix-wave: MAP-8]`
-  **Today's truth:** it binds them on ALL interfaces
-  (`w17-mapper/pkg/server/controller.go` listens on `":10000"` and
-  `pkg/http/controller.go` serves on `":3000"`, i.e. `[::]`), which on race day is the
-  laptop that the phone's hotspot has joined; the ruled fix (OD-8) makes `127.0.0.1` the
-  default. Every legitimate client already dials localhost — this ground station uses
-  `127.0.0.1:10000` — so **Private networks** is the only answer this prompt ever needs,
-  and declining it does not stop the car being driven.
+  **Today's truth:** it binds them on ALL interfaces — the `10000`/`3000` defaults come
+  from `w17-mapper/cmd/elrs-joystick-control/main.go:42,45` (`--webapp-port`,
+  `--grpc-port`, which race day's `MAPPER_ARG_WHITELIST` never overrides), and the two
+  bind sites are `pkg/server/controller.go:81` (`net.Listen("tcp", fmt.Sprintf(":%d",
+  c.gRPCPort))`) and `pkg/http/controller.go:65` (`Addr: fmt.Sprintf(":%d",
+  c.webAppPort)`) — both `[::]`, which `pkg/http/controller.go:101` prints literally at
+  startup. On race day that ALL-interfaces bind is the laptop that the phone's hotspot has
+  joined; the ruled fix (OD-8) makes `127.0.0.1` the default. Every legitimate client
+  already dials localhost — this ground station uses `127.0.0.1:10000`
+  (`main/headIntentDiagnosticsConfig.js:23`) — so **Private networks** is the only answer
+  this prompt ever needs, and declining it does not stop the car being driven.
 
 **Tell the giftee in advance:** click **Allow access** (Private networks is enough — the
 gift's use case is a private/hotspot network, never a public one) for the prompts if they
