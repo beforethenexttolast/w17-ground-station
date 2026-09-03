@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
   W17 Windows-VM validation, step 10: install the ground station and verify
@@ -44,9 +44,23 @@
   it once that is known.
 
 .PARAMETER InstallDir
-  Optional explicit install directory override (NSIS `/D=` convention — must
-  be the LAST argument, unquoted, no trailing backslash, per NSIS's own rule;
-  this script enforces that ordering).
+  Optional explicit install directory override, passed with the NSIS `/D=`
+  convention. NSIS's rule has THREE parts and this script now honours all
+  three (review finding N8 — it previously honoured only the first):
+    1. `/D=` must be the LAST argument. Enforced by argument order below.
+    2. The path must NOT be quoted. `/D=` swallows the rest of the command
+       line verbatim, so quotes become part of the directory name. This is
+       why the argument is handed to Invoke-W17Command as -RawArguments and
+       not -ArgumentList: .NET's ArgumentList quotes any element containing a
+       space, and electron-builder's own default install path
+       (`%LOCALAPPDATA%\Programs\W17 Ground Station`) contains one — so the
+       previous -ArgumentList form would have produced `/D="C:\...\W17 Ground
+       Station"` and NSIS would have created a directory whose name included
+       the quote characters.
+    3. No trailing backslash. Trimmed below.
+  Everything about how a REAL electron-builder NSIS artifact responds to `/S`
+  and `/D=` is [win-TBD]: no Windows and no built installer were available to
+  this session.
 #>
 [CmdletBinding()]
 param(
@@ -73,12 +87,25 @@ try {
 } catch { $data.installerSha256 = $null }
 
 # --- run the installer --------------------------------------------------
+# N8: when -InstallDir is given the whole command line goes through
+# -RawArguments UNQUOTED, because NSIS's `/D=` takes the rest of the line
+# verbatim (see .PARAMETER InstallDir above). With no -InstallDir there is
+# nothing that must stay unquoted, so the safer quoted -ArgumentList path is
+# used. `/D=` is always last, and a trailing backslash is stripped.
 $argList = @()
 if ($Silent) { $argList += '/S' }
-if ($InstallDir) { $argList += "/D=$InstallDir" } # must stay last per NSIS convention
 
-$data.installerArgs = $argList
-$installRes = Invoke-W17Command -FilePath $InstallerPath -ArgumentList $argList -TimeoutSec 180
+if ($InstallDir) {
+    $dirForNsis = $InstallDir.TrimEnd('\', '/')
+    $rawArgs = (@($argList) + @("/D=$dirForNsis")) -join ' '
+    $data.installerArgs = $rawArgs
+    $data.installerArgStyle = 'raw (unquoted) — NSIS /D= must not be quoted'
+    $installRes = Invoke-W17Command -FilePath $InstallerPath -RawArguments $rawArgs -TimeoutSec 180
+} else {
+    $data.installerArgs = $argList
+    $data.installerArgStyle = 'argument array (each element quoted by .NET)'
+    $installRes = Invoke-W17Command -FilePath $InstallerPath -ArgumentList $argList -TimeoutSec 180
+}
 $data.installExitCode = $installRes.exitCode
 $data.installTimedOut = $installRes.timedOut
 $data.installStderr = $installRes.stderr
@@ -93,11 +120,15 @@ if ($installRes.timedOut) {
 $apps = Get-W17InstalledApps -NamePattern 'W17 Ground Station'
 $data.uninstallRegistryEntries = $apps
 
+# @($apps) throughout: Get-W17InstalledApps returns an array, but PowerShell
+# unrolls a one-element array on return, so a single matching registry entry
+# arrives here as a bare PSCustomObject (the same unrolling that caused N7).
+$appList = @($apps)
 $resolvedDir = $null
 if ($InstallDir) {
     $resolvedDir = $InstallDir
-} elseif ($apps -and $apps.Count -gt 0 -and $apps[0].InstallLocation) {
-    $resolvedDir = $apps[0].InstallLocation
+} elseif ($appList.Count -gt 0 -and $appList[0].InstallLocation) {
+    $resolvedDir = $appList[0].InstallLocation
 } else {
     # Fallback formula for electron-builder's default oneClick NSIS target
     # (per-user, %LOCALAPPDATA%\Programs\<productName>) — NOT yet confirmed
@@ -139,20 +170,36 @@ if ($data.asarExists) {
     $asarCli = Get-Command 'asar' -ErrorAction SilentlyContinue
     if ($asarCli) {
         try {
+            # N7, with the diagnosis corrected by measurement. The old test was
+            #   ($listing -match '…') -is [array] -and (… ).Count -gt 0
+            # The array that unrolls is $listing, NOT the match result: `& cmd`
+            # yields a STRING when the command prints exactly one line and an
+            # object[] when it prints more. Over an array, `-match` returns the
+            # matching ELEMENTS (an array even for one match — measured, so the
+            # review's "single match" reading is not the trigger); over a
+            # scalar string it returns a BOOLEAN, and `$true -is [array]` is
+            # $false. So the old form reported "proto/ absent" whenever the
+            # listing was a single line that WAS proto/.
+            # The `@(...)` must therefore go around $listing, before -match.
+            # Wrapping only the result is worse than the bug: `@($false).Count`
+            # is 1, so it would report proto/ PRESENT for any one-line listing.
+            # Measured over all six shapes (array 1/2/0 matches, scalar match,
+            # scalar non-match, empty): old wrong on 1 of 6, result-only wrap
+            # wrong on 1 of 6, this form correct on 6 of 6.
             $listing = & $asarCli.Source list $asarPath 2>$null
-            $data.protoPackagedObserved = ($listing -match '(^|/)proto/') -is [array] -and (($listing -match '(^|/)proto/').Count -gt 0)
+            $data.protoPackagedObserved = (@(@($listing) -match '(^|/)proto/').Count -gt 0)
         } catch { $data.protoPackagedObserved = $null }
     } else {
         $data.protoObservationNote = 'no `asar` CLI on the guest — relying on the static files: allowlist fact above (documented, not guessed)'
     }
 }
 
-$ok = $data.exeExists -and $data.asarExists -and $data.mediamtxExeExists -and ($apps -and $apps.Count -gt 0)
+$ok = $data.exeExists -and $data.asarExists -and $data.mediamtxExeExists -and ($appList.Count -gt 0)
 $summaryBits = @()
 if (-not $data.exeExists) { $summaryBits += 'main exe missing' }
 if (-not $data.asarExists) { $summaryBits += 'app.asar missing' }
 if (-not $data.mediamtxExeExists) { $summaryBits += 'mediamtx.exe MISSING (boundaries-1: CI never runs fetch-mediamtx.js before packaging — video relay is absent by construction)' }
-if (-not ($apps -and $apps.Count -gt 0)) { $summaryBits += 'no Uninstall registry entry found' }
+if ($appList.Count -eq 0) { $summaryBits += 'no Uninstall registry entry found' }
 $summary = if ($ok) { "installed at $resolvedDir; mediamtx present; proto/ correctly absent (files: allowlist)" } else { $summaryBits -join '; ' }
 
 $result = New-W17Result -Script '10-install-gs' -Ok $ok -Summary $summary -Data $data -Findings $findings
