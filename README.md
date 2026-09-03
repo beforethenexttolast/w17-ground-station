@@ -20,8 +20,11 @@ An **Electron** app that overlays a Mercedes-livery F1 HUD on the live FPV video
 
 Control stays with **elrs-joystick-control** (DualShock → CRSF → ELRS TX module), which runs
 alongside. This app reads the gamepad purely to *mirror* inputs on-screen. A bug here can never
-stop the car — deliberate gift-day safety. The zero-code fallback (elrs-joystick-control + VLC
-on the raw stream) is always available.
+stop a drive program launched from GRID's own LAUNCH button — that path is detached and
+launch-only by construction (deliberate gift-day safety). RACE DAY's managed child is the one
+exception: this app started it, so this app (STOP RACE DAY, or app teardown) can and does stop
+it again — see RACE DAY below. The zero-code fallback (elrs-joystick-control + VLC on the raw
+stream) is always available.
 
 ## Run
 
