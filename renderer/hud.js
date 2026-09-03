@@ -693,6 +693,18 @@ async function init() {
   if (window.groundStation.onRaceDayState) {
     window.groundStation.onRaceDayState((snapshot) => renderDriveAlarm(snapshot));
   }
+  // …and SEED from the authority, the way setupFlow.js does (review finding 11).
+  // A subscription alone only sees the next CHANGE, so a drive program that was
+  // already failed when this view opened stayed invisible until something else
+  // moved. Guarded and awaited separately: a rejected status must not take the
+  // rest of init down (audit N1 shape).
+  if (window.groundStation.raceDayStatus) {
+    try {
+      renderDriveAlarm(await window.groundStation.raceDayStatus());
+    } catch (err) {
+      console.error('[hud] race-day status load failed:', err && err.message ? err.message : err);
+    }
+  }
 
   if (cfg && cfg.whepUrl) {
     whepUrl = cfg.whepUrl;

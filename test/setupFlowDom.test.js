@@ -469,7 +469,7 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     const rows = [...el('raceDaySteps').children];
     expect(rows).toHaveLength(4); // three steps + the quoted line
     expect(rows[1].querySelector('span').textContent)
-      .toBe('stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)');
+      .toBe('stopped on its own and said why — read the line below; this one is for the pit crew');
     expect(rows[3].querySelector('b').textContent).toBe('IT SAID');
     expect(rows[3].querySelector('span').textContent)
       .toBe('this saved profile has not been matched to this computer yet');
@@ -650,7 +650,13 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     await loadRenderer(gs);
     expect(activeStep()).toBe('garage');
     expect(el('fastPath').classList.contains('hidden')).toBe(true);
-    expect(gs.raceDayStatus).not.toHaveBeenCalled(); // no seed without the card
+    // The CARD does not seed itself when it is not on screen. (One call still
+    // lands: hud.js seeds the cockpit drive alarm from the same authority at
+    // init, unconditionally — review finding 11 — and this file imports the
+    // whole renderer, hud.js included. The card's own seed would be a second.)
+    expect(gs.raceDayStatus).toHaveBeenCalledTimes(1);
+    expect(el('raceDaySteps').classList.contains('hidden')).toBe(true);
+    expect(el('driveAlarmBanner').classList.contains('hidden')).toBe(true);
   });
 
   it('⚙ RACE DAY fields save the WHOLE racePrep subtree and repaint from what persisted', async () => {

@@ -39,7 +39,12 @@ const TEXT = {
             // Already broadcasting under the saved name when race day looked —
             // very often this app's own network from the last run. Nothing to
             // switch on, nothing to stop: the phone's network is up (OD-7).
-            external: 'already on — using it',
+            //
+            // Review finding 6: this path returns BEFORE verify() runs, so it
+            // is an unchecked success and must be labelled like every other one
+            // on this card ('unverified', 'link-unknown'). "already on — using
+            // it" on its own read as a readiness claim it never obtained.
+            external: 'already on — using it (not double-checked)',
             '*': 'on',
         },
         skipped: {
@@ -98,7 +103,13 @@ const TEXT = {
             // sentence and stops when the saved controller setup has not been
             // matched to this computer yet). Pressing RACE DAY again could
             // never fix that, so this line points at the message instead.
-            'exited-with-message': 'stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)',
+            //
+            // Review finding 5: it used to end "…then fix it in ⚙ (RACE DAY)",
+            // which points at a screen that cannot fix it — the refusal is
+            // about placeholder VALUES inside the saved controller file, and ⚙
+            // holds the file's location, not its contents. The honest line
+            // hands the message to whoever set the computer up.
+            'exited-with-message': 'stopped on its own and said why — read the line below; this one is for the pit crew',
             // The stop was asked for, forced, and did not take: the program is
             // STILL RUNNING. Never draw a stopped card over a live one.
             'stop-failed': 'it would not stop when asked and is still running — close the app and open it again',

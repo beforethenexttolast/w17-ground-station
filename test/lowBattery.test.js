@@ -146,7 +146,7 @@ let rafCb = null;
 let emitTelemetry = null;
 let emitRaceDay = null;
 
-async function loadHud({ settings = null } = {}) {
+async function loadHud({ settings = null, raceDayStatus } = {}) {
   vi.resetModules();
   document.body.innerHTML = bodyHtml;
   rafCb = null;
@@ -159,6 +159,10 @@ async function loadHud({ settings = null } = {}) {
     getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
     onTelemetry: vi.fn((cb) => { emitTelemetry = cb; return () => {}; }),
     onRaceDayState: vi.fn((cb) => { emitRaceDay = cb; return () => {}; }),
+    // Review finding 11: the HUD seeds from the authority as well as
+    // subscribing. Absent unless a test asks for it, so every other case still
+    // exercises the subscription on its own.
+    ...(raceDayStatus ? { raceDayStatus } : {}),
     sendCommandMirror: vi.fn(),
   };
   const hud = await import('../renderer/hud.js');
@@ -389,6 +393,32 @@ describe('drive-program alarm on the live HUD (review giftee-ux-5)', () => {
     emitTelemetry({ batteryV: 6.5, linkQualityPct: 95 });
     stepFrame(0);
     expect(banner().classList.contains('hidden')).toBe(false);
+    expect(driveBanner().classList.contains('hidden')).toBe(false);
+  });
+
+  // Review finding 11: subscribing alone only sees the next CHANGE. A drive
+  // program already failed when this view opened stayed invisible until
+  // something else moved — the card seeds itself from gs.raceDayStatus(), and
+  // the HUD did not.
+  it('seeds from the authority at init, so a state that was ALREADY failed is visible', async () => {
+    const raceDayStatus = vi.fn(async () => raceDaySnap('fail', 'exited'));
+    await loadHud({ raceDayStatus });
+    expect(raceDayStatus).toHaveBeenCalled();
+    expect(driveBanner().classList.contains('hidden')).toBe(false);
+    expect(driveBanner().textContent)
+      .toBe('DRIVE PROGRAM STOPPED — she is not being driven. Open ⚙ and press RACE DAY again');
+    // …and a later push still wins.
+    emitRaceDay(raceDaySnap('ok', 'running'));
+    expect(driveBanner().classList.contains('hidden')).toBe(true);
+  });
+
+  it('a rejected seed is logged and does not take the rest of the HUD down (audit N1 shape)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await loadHud({ raceDayStatus: vi.fn(async () => { throw new Error('no main process'); }) });
+    expect(driveBanner().classList.contains('hidden')).toBe(true);
+    expect(err).toHaveBeenCalled();
+    // The rest of init still ran: the push channel is live.
+    emitRaceDay(raceDaySnap('fail', 'exited'));
     expect(driveBanner().classList.contains('hidden')).toBe(false);
   });
 

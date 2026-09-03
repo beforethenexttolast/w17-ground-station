@@ -101,7 +101,10 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
   it('a hotspot already on under the saved name is green and says so (OD-7)', () => {
     const [l] = raceDayStepLines(snap([step('hotspot', 'ok', 'external')]));
     expect(l.tone).toBe('ok');
-    expect(l.text).toBe('already on — using it');
+    expect(l.text).toBe('already on — using it (not double-checked)');
+    // Review finding 6: this success returns BEFORE verify() — it must say so,
+    // exactly like every other unchecked success on this card.
+    expect(l.text).toContain('not double-checked');
   });
 
   it("someone else's hotspot names the remedy, and an unreadable one does not pretend", () => {
@@ -121,7 +124,10 @@ describe('raceDayStepLines — plain giftee language (the GRID-hint wording bar)
     // are unfilled: it says so and stops. "press RACE DAY to bring it back"
     // would be a loop that can never succeed, so this line differs on purpose.
     const [l] = raceDayStepLines(snap([step('mapper', 'fail', 'exited-with-message')]));
-    expect(l.text).toBe('stopped on its own and said why — read the line below, then fix it in ⚙ (RACE DAY)');
+    expect(l.text).toBe('stopped on its own and said why — read the line below; this one is for the pit crew');
+    // Review finding 5: it must NOT send the operator to ⚙ — the values that
+    // refusal is about are inside the saved controller file, not on that screen.
+    expect(l.text).not.toContain('⚙');
   });
 
   it('a radio that has not come on YET is not a cable accusation (review blocking 2)', () => {

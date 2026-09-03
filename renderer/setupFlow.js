@@ -270,8 +270,14 @@ if (gs && gs.onRaceDayState) {
     // Review giftee-ux-5: the HUD raises the banner (hud.js owns that surface);
     // the radio line is this file's, because the team radio is. Only on the
     // TRANSITION into a failed drive program, so a repeated snapshot cannot
-    // stack toasts, and only while the session is live — on the card the step
-    // row already says it, in more detail.
+    // stack toasts.
+    //
+    // The guard is "anywhere but GARAGE, and not during the countdown" (review
+    // finding 10 — the comment used to say "only while the session is live",
+    // which the guard does not check). `lightsRunning` is true ONLY for the
+    // start-lights countdown, so this line also fires on the GRID and the other
+    // setup screens: deliberate, because the card is out of sight there too. On
+    // GARAGE the step row already says it, in more detail.
     const failing = !!raceDayDriveAlarm(snap);
     if (failing && !driveAlarmRaised && lightsRunning === false && step !== 'garage') {
       radio('DRIVE PROGRAM STOPPED — OPEN ⚙ AND PRESS RACE DAY AGAIN');

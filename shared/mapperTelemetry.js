@@ -27,7 +27,8 @@
 //     paths against one another so they can never disagree in silence.
 //
 //  2. SNR. The mapper reads the uplink SNR byte as UNSIGNED
-//     (frame_linkstats.go:57-59, int32(uint8(...))), while CRSF carries it as a
+//     (frame_linkstats.go:56-58 — `func` on 56, the //goland: line on 57, and
+//     `return int32(uint8(t.RawData[6]))` on 58), while CRSF carries it as a
 //     signed int8 and the GS's serial reader treats it as signed
 //     (shared/crsf.js decodeLinkStatistics). The mapper's conversion is lossless
 //     — 0..255 with the sign bit intact — so the signed value is reconstructed
