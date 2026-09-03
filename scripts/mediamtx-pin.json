@@ -3,11 +3,10 @@
   "note": "SHA-256 pins for the mediamtx binary scripts/fetch-mediamtx.js installs (owner ruling OD-15(a): pin, fetch in CI, assert the packaged result). The digest is over the EXTRACTED executable, not the release archive, because that is the artifact the installer actually ships. bluenviron/mediamtx publishes NO checksum file for v1.9.3 and the GitHub API returns no asset digest for that release, so these values are trust-on-first-use: each is recorded once from a verified copy and enforced on every fetch afterwards. A null digest means NOT YET RECORDED - the fetch prints the observed value with a RECORD line so it can be pasted here; `--require-pin` makes an unrecorded platform a hard failure.",
   "binaries": {
     "windows_amd64": {
-      "asset": "mediamtx_v1.9.3_darwin_arm64.tar.gz",
-      "binary": "mediamtx",
+      "asset": "mediamtx_v1.9.3_windows_amd64.zip",
+      "binary": "mediamtx.exe",
       "sha256": "eb10ff6c28ebfa96c6c60509d9dbd8250f1a71381a9cfdd5a98311b062234155",
-      "recordedAt": "2026-09-04",
-      "note": "Recorded from the first windows-latest run that fetched it (w17-ground-station CI run 33810293868, scripts/fetch-mediamtx.js RECORD THIS line) -- trust-on-first-use from the upstream release URL on a GitHub-hosted runner, per owner ruling OD-15(a); bluenviron publishes no checksum file for v1.9.3."
+      "recorded": "2026-09-04: observed by scripts/fetch-mediamtx.js on the first windows-latest CI run that fetched it (w17-ground-station run 33810293868, RECORD THIS line) -- trust-on-first-use from the upstream release URL on a GitHub-hosted runner, per owner ruling OD-15(a). Not independently attested upstream (bluenviron publishes no checksum file for v1.9.3)."
     },
     "darwin_arm64": {
       "asset": "mediamtx_v1.9.3_darwin_arm64.tar.gz",
