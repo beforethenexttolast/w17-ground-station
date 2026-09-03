@@ -266,26 +266,40 @@ prereq above (a saved controller profile + the ⚙ RACE DAY paths set).
 ## 14. Quit prompts (hotspot + RACE DAY drive program)
 
 Item 11.A already covers the hotspot's *STOP HOTSPOT AND QUIT / LEAVE HOTSPOT RUNNING /
-CANCEL* dialog. RACE DAY adds a second, independent quit prompt for its managed child:
+CANCEL* dialog. RACE DAY adds a second, independent quit prompt for its managed child.
+**The quit gesture matters** — run each item below through both of the following, and
+record which one you used:
+  - **(g1) menu/app.quit() quit** — the window stays alive: e.g. the app menu's Quit, or
+    macOS Cmd+Q. `before-quit` fires while `BrowserWindow.getAllWindows()` is non-empty.
+  - **(g2) window-close quit** — the **X button or Alt+F4 on the main window** (Windows).
+    `window-all-closed` (`main/main.js:308-314`) destroys the window first, *then* calls
+    `app.quit()`, so `before-quit` fires **after** the window is already gone — a
+    destroy-then-ask order.
 
-- [ ] With a race-day-managed drive program alive, quit the app → a
-      *QUIT AND STOP THE DRIVE PROGRAM / CANCEL* dialog appears first (before any hotspot
-      dialog), naming the drive program in plain language. CANCEL leaves everything running
-      and the app open. QUIT AND STOP THE DRIVE PROGRAM quits and the process is confirmed
-      gone in Task Manager.
-- [ ] With both a race-day-managed drive program AND an app-owned hotspot alive, quit → the
-      drive-program dialog appears first, then (if not cancelled) the hotspot dialog.
-- [ ] A drive program launched from GRID's detached LAUNCH button (not race-day-managed)
-      never triggers this dialog on quit — confirms the launch-only doctrine holds.
-- [ ] **`[fix-wave: SYN-1]`** — a known, tracked gift-blocking defect: if the main window is
-      already closed/destroyed when CANCEL is pressed (e.g. the window was closed by other
-      means while a quit was pending), the app can be left as a **windowless background
-      process** still holding the hotspot and/or the managed drive program, with no way to
-      bring the window back short of Task Manager. If this bench pass reproduces that shape
-      (no window, but the process list still shows `w17-ground-station.exe`), record it as
-      confirming `SYN-1` rather than as a new finding — do not attempt a source fix here
-      (debug/validation setup only, per the rules above).
-- Evidence: screenshots of each dialog + Task Manager after each quit path.
+- [ ] **(g1)** With a race-day-managed drive program alive, quit via the menu/Cmd+Q →
+      a *QUIT AND STOP THE DRIVE PROGRAM / CANCEL* dialog appears first (before any
+      hotspot dialog), naming the drive program in plain language. CANCEL leaves
+      everything running and the window open. QUIT AND STOP THE DRIVE PROGRAM quits and
+      the process is confirmed gone in Task Manager.
+- [ ] **(g1)** With both a race-day-managed drive program AND an app-owned hotspot alive,
+      quit via the menu/Cmd+Q → the drive-program dialog appears first, then (if not
+      cancelled) the hotspot dialog.
+- [ ] **(g1)** A drive program launched from GRID's detached LAUNCH button (not
+      race-day-managed) never triggers this dialog on quit — confirms the launch-only
+      doctrine holds.
+- [ ] **(g2)** **`[fix-wave: SYN-1]`** — with a race-day-managed drive program and/or an
+      app-owned hotspot alive, close the main window with the **X button (or Alt+F4)**
+      and press CANCEL on the dialog that appears. This is **not an edge case to try to
+      reproduce** — it is this gesture's default shape, because the window is already
+      destroyed (`main/main.js:308-314`) by the time the dialog is shown, so CANCEL
+      (`event.preventDefault()` in `main/quitPolicy.js`) stops the app from exiting but
+      cannot bring the window back. Confirm the app is left as a **windowless background
+      process** (`W17 Ground Station.exe` still in Task Manager, no window, still holding
+      the hotspot / managed drive program) with no way to bring the window back short of
+      Task Manager. Record this as confirming `SYN-1` rather than as a new finding — do
+      not attempt a source fix here (debug/validation setup only, per the rules above).
+- Evidence: screenshots of each dialog + Task Manager after each quit path, noting g1 vs
+  g2 for each.
 
 ## Sign-off
 
