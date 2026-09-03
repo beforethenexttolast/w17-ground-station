@@ -151,25 +151,12 @@ function Get-W17ComPorts {
 $data.comPorts = Get-W17ComPorts
 
 # --- HID: DualShock 4 (VID 054C, PID 05C4 or 09CC) --------------------------
-function Get-W17Ds4Devices {
-    $devices = @()
-    try {
-        $entities = Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop |
-            Where-Object { $_.PNPDeviceID -match 'VID_054C&PID_(05C4|09CC)' }
-        foreach ($e in $entities) {
-            $devices += [pscustomobject]@{
-                name = $e.Name
-                pnpDeviceId = $e.PNPDeviceID
-                status = $e.Status
-                generation = if ($e.PNPDeviceID -match 'PID_05C4') { 'CUH-ZCT1x (v1)' } else { 'CUH-ZCT2x (v2)' }
-            }
-        }
-    } catch {
-        $notes.Add("HID enumeration failed: $($_.Exception.Message)")
-    }
-    return $devices
-}
-$data.dualShock4Devices = Get-W17Ds4Devices
+# Get-W17Ds4Devices now lives in lib/common.ps1 (shared with
+# 60-r15-pad-unplug.ps1, which polls it across an operator-driven physical
+# unplug/replug — see that file's header for what it can and cannot prove).
+$ds4Result = Get-W17Ds4Devices
+$data.dualShock4Devices = $ds4Result.devices
+if ($ds4Result.error) { $notes.Add("HID enumeration failed: $($ds4Result.error)") }
 
 # --- Installed W17 apps (registry Uninstall keys) ---------------------------
 $data.installedW17Apps = Get-W17InstalledApps -NamePattern 'W17'

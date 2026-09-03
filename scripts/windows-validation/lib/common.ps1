@@ -202,5 +202,44 @@ function Get-W17DefaultUserDataDir {
     return (Join-Path $env:APPDATA 'w17-ground-station')
 }
 
+# HID: DualShock 4 (VID 054C, PID 05C4 or 09CC). Shared between 00-inventory.ps1
+# (one-shot baseline survey) and 60-r15-pad-unplug.ps1 (polled before/during/
+# after an operator-driven physical unplug/replug, R15). Returns a result
+# object rather than throwing or touching an outer $notes list, so both
+# callers can decide for themselves how to surface a WMI failure — mirrors
+# Get-W17WlanDrivers's own error-in-the-return-value shape above.
+#
+# What this can and cannot prove (read before trusting a "PASS" from either
+# caller): this reports what WINDOWS sees on the USB/HID bus. CONFIRMED
+# finding MAP-6 (w17-mapper/pkg/devices/controller.go:43 — the mapper's own
+# SDL gamepad registry is built once at process boot via EnumerateDevices()
+# and the poll loop discards every add/remove event body, controller.go:
+# 139-149) lives one layer up, inside the mapper's own process — Windows
+# re-enumerating the HID device fine tells you nothing about whether the
+# mapper's internal registry ever resolves the id again. Neither script here
+# closes that gap (no gRPC/control-path probe is built for it, by design —
+# COMMON.md: never open a serial port, and the GS itself has no read-only
+# gamepad-registry query to the mapper either — main/HeadIntentDiagnosticsClient.js
+# is the only gRPC client this app has, and it is a different, one-way, W3
+# diagnostics-only channel).
+function Get-W17Ds4Devices {
+    $devices = @()
+    try {
+        $entities = Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop |
+            Where-Object { $_.PNPDeviceID -match 'VID_054C&PID_(05C4|09CC)' }
+        foreach ($e in $entities) {
+            $devices += [pscustomobject]@{
+                name = $e.Name
+                pnpDeviceId = $e.PNPDeviceID
+                status = $e.Status
+                generation = if ($e.PNPDeviceID -match 'PID_05C4') { 'CUH-ZCT1x (v1)' } else { 'CUH-ZCT2x (v2)' }
+            }
+        }
+        return @{ devices = $devices; error = $null }
+    } catch {
+        return @{ devices = @(); error = $_.Exception.Message }
+    }
+}
+
 # This file is dot-sourced (not imported as a .psm1 module), so every function
 # above is already in the caller's scope — no Export-ModuleMember here.
