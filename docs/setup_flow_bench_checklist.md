@@ -8,8 +8,8 @@ this checklist validates the real OS layer those fakes stand in for.
 Rules (repo validation guidance): one step at a time; capture evidence (console log
 lines, screenshots) per step; debug/validation setup only — any source change found
 necessary goes back through review first. W3 stays LOG-ONLY throughout; active
-pan/tilt is out of scope. When done, summarize results into `../CURRENT_STATUS.md`
-(the workspace status file), not into this document's rules.
+pan/tilt is out of scope. When done, summarize results into `../../CURRENT_STATUS.md`
+(the workspace status file, workspace root), not into this document's rules.
 
 **`W17_WIFI_SIM` must be UNSET for every item below.** The simulation backend is a
 dev preview against canned netsh output (the app shows a SIMULATED WIFI tag when it
@@ -19,11 +19,30 @@ Prereqs:
 - Windows GS host at the current `main` HEAD (`git rev-parse --short HEAD`; pull past the
   pre-hardware hardening pass — through E1, plus CB8 slices 3B/3C). Do not pin a floor
   hash here; it drifts — read the current HEAD and the current test count from CI/README.
-- `npm install`, then **`npm run setup`** (fetches the pinned `mediamtx` binary and repairs
-  the Electron binary if a script gate blocked the postinstall), then `npm test` green.
-- **mediamtx configured for the camera:** edit `mediamtx/mediamtx.yml` → `paths.cam.source`
-  to the real camera RTSP URL (see `SETUP.md` §2–§3) — without it the video checks below
-  can never pass.
+- **Two valid ways to get the app onto the host** — see `SETUP.md` "Two ways to run this
+  app": (a) **dev checkout** — `npm install`, then **`npm run setup`** (fetches the pinned
+  `mediamtx` binary and repairs the Electron binary if a script gate blocked the
+  postinstall), then `npm test` green; or (b) **the installed gift-kit app** — run the NSIS
+  installer (`npm run build` locally, or the `w17-ground-station-nsis-unsigned` artifact
+  from a green CI run) once on the target Windows account, launch it from the Start Menu.
+  Path (b) has no `npm`/source tree — every `⚙`-menu step below still applies; every
+  `npm run demo*` / env-var step is dev-checkout-only and does not apply to (b). Record
+  which path was used for each evidence box; `[win-TBD]` items specific to path (b)
+  (installed resources path, Start Menu shortcut, no-admin install) have never been run —
+  see `SETUP.md`.
+- **mediamtx configured for the camera:** edit `mediamtx/mediamtx.yml` (dev checkout:
+  `mediamtx/mediamtx.yml`; installed app: under its own resources directory, `[win-TBD]`
+  exact path — see `SETUP.md`) → `paths.cam.source` to the real camera RTSP URL (see
+  `SETUP.md` §2–§3) — without it the video checks below can never pass.
+- **RACE DAY prerequisites (§12 below):** a saved controller profile file must exist and
+  be reachable from the host (e.g. the mapper kit's `configs/w17-ds4.json` placeholder —
+  the real file ships with the `w17-mapper` release, not this repo) and the ⚙ **RACE DAY**
+  fields (drive-program path, saved-profile path) must be set once before §12's checks mean
+  anything; an unset profile is an expected, honest `FAIL` per `shared/raceDayView.mjs`,
+  not a bug.
+- The GCS box (RT5370 + ELRS TX + hub, pre-wired for the gift kit) is documented at
+  `../../w17-gcs-box-guide.md` (workspace root) — confirm its contents against that guide
+  before starting the network/hotspot steps (2–4) if this is a from-the-box bench pass.
 - RT5370 dongle on hand, iPhone with the HUD app for steps 8–10.
 
 For the full evidence ledger this checklist feeds, see the **authoritative
@@ -33,8 +52,10 @@ hardware-evidence matrix** in `docs/audits/2026-07-12-pre-hardware-hardening-aud
 ## 1. Baseline
 
 - [ ] `git rev-parse --short HEAD`; `npm test` green (current total — see README/CI, not a
-      frozen number; at time of writing the suite is 798 tests across 46 files);
-      `npm run smoke:electron` → 4/4 scenarios PASS.
+      frozen number; at time of writing (2026-09-03) the suite is 1447 tests across 67
+      files — re-read this from the current `npm test` summary or CI, it drifts every
+      wave); `npm run smoke:electron` → 4/4 scenarios PASS (`normal`, `corrupt-settings`,
+      `forced-failure`, `timeout` — `node scripts/electron-smoke.js --list`).
 - [ ] `npm start` boots to GARAGE; `⚙` menu opens; `settings.json` appears under
       `%APPDATA%/w17-ground-station/` after any change.
 - Evidence: console excerpt + screenshot of GARAGE.
@@ -126,12 +147,21 @@ hardware-evidence matrix** in `docs/audits/2026-07-12-pre-hardware-hardening-aud
 
 ## 10. Full flow + lights
 
-- [ ] Fresh `settings.json` (delete it): GARAGE → PIT WALL → SEAT FIT → GRID → all
-      green → START → five lights, lights out, HUD fades in over live video.
-- [ ] Relaunch: lands on GRID directly (returning-driver path); CHANGE SETUP walks
-      back; START ANYWAY works with a deliberately red check.
+- [ ] Fresh `settings.json` (delete it): GARAGE → PIT WALL → SEAT FIT → SETUP → GRID →
+      all green → START → **no** lights by default (START LIGHTS is OFF out of the box,
+      `shared/settings.js` `startLightsEnabled: false` — confirm SESSION LIVE fades straight
+      in); enable START LIGHTS in `⚙` → relaunch the flow → now five lights, lights out,
+      HUD fades in over live video.
+- [ ] Relaunch (settings.json already exists): the app lands on **GARAGE**, not GRID —
+      `boot()` always shows GARAGE (`renderer/setupFlow.js` `boot()`); a completed prior
+      session shows the **WELCOME BACK — LAST SESSION READY** card there with a
+      **STRAIGHT TO THE GRID ▸** button that opens GRID directly (re-running its checks) —
+      confirm the card appears and the button works, not that the app skips GARAGE
+      entirely. CHANGE SETUP (from GRID) walks back through the numbered steps; START
+      ANYWAY works with a deliberately red check.
 - [ ] Radio sounds: default silent; enable in `⚙` → cues audible; disable → silent.
-- Evidence: short screen recording of lights-out into the HUD.
+- Evidence: short screen recording of lights-out into the HUD (once with START LIGHTS on,
+  once with it off).
 
 ## 11. Hardening-pass bench items (batches A–E)
 
@@ -168,8 +198,87 @@ exercise. Verify these on the real OS; each maps to a matrix row in the audit.
       settings intact). With secure storage unavailable → session-only (lost on restart, no
       plaintext). Evidence: on-disk `settings.json` excerpt (redacted) + the re-enter/notes.
 
+## 12. RACE DAY — one-action bring-up (GARAGE)
+
+New wave, not covered by steps 1–11. See the README "RACE DAY" section for the full
+mechanism (`main/raceDayOrchestrator.js`, managed via `main/mapperRunner.js`). Requires the
+prereq above (a saved controller profile + the ⚙ RACE DAY paths set).
+
+- [ ] With a saved session and the ⚙ RACE DAY drive-program + profile paths **unset**:
+      GARAGE's RACE DAY card shows the DRIVE PROGRAM step failing with "its location is not
+      set — set it once in ⚙ (RACE DAY)" (or the profile-equivalent line) — confirm it fails
+      honestly rather than silently no-op'ing.
+- [ ] Set both ⚙ RACE DAY paths (a real drive-program `.exe` + an existing profile file) →
+      press **RACE DAY ▸ BRING EVERYTHING UP** → confirm, in order: CAR WI-FI switches on
+      (or shows "using your own Wi-Fi" if the saved network plan isn't the hotspot), DRIVE
+      PROGRAM shows "starting…" then "running" (`tasklist`/Task Manager confirms the process
+      exists), PHONE LINK shows "on — pick up the phone" (iPhone sessions with the checkbox
+      on) or "not needed this time" otherwise.
+- [ ] **`[fix-wave: SYN-2]`** — a "running" DRIVE PROGRAM step is **not** proof the radio
+      link to the car is up: with the GCS box's serial link deliberately unplugged, confirm
+      today's behavior is that the step still reports "running" (the process started; it
+      does not probe the link). This is a known, tracked gap (`SYN-2`, gift-blocking) — do
+      not treat a green RACE DAY card as proof the car will respond until that fix lands.
+      Record whether the process nonetheless exits/crashes on its own with the link absent
+      (a different, informative signal from the honest "running" one above).
+- [ ] Press RACE DAY again while everything is already up → idempotent re-run: each step
+      re-verifies/no-ops (hotspot re-verified, mapper shows "already running", bridge
+      re-applies) rather than restarting anything.
+- [ ] **STOP RACE DAY** (visible only while the managed process is running) → the process
+      exits (Task Manager confirms), the DRIVE PROGRAM step returns to "waiting…"; the
+      hotspot and phone link are **not** touched by this button (PIT WALL / the quit dialog
+      still own those, unchanged).
+- [ ] Launch the SAME drive-program executable from GRID's own **LAUNCH** button first
+      (the detached, launch-only path), then press RACE DAY → DRIVE PROGRAM shows "already
+      running (started outside RACE DAY)" and STOP RACE DAY does **not** appear for it (race
+      day never adopts or stops a process it did not start) — confirms the two launch paths
+      documented in the README don't collide.
+- [ ] Kill the race-day-managed process externally (Task Manager, not STOP RACE DAY) →
+      the card mirrors the death honestly ("stopped on its own — press RACE DAY to bring it
+      back"), without a button press.
+- Evidence: screenshots of each step state above + Task Manager before/after STOP.
+
+## 13. Low-battery banner + video profiles (real hardware)
+
+- [ ] `npm run demo:low-battery` (dev checkout only) exercises the ⚙ LOW BATTERY banner
+      against the replay backend — confirm this rehearsal still matches what a real sagging
+      pack produces: connect the real CRSF telemetry source (§8/`SETUP.md` §4) and, on the
+      bench with a genuinely low pack (supervised — do not over-discharge a LiPo to test
+      this), confirm BATTERY LOW then BATTERY CRITICAL appear at the ⚙-configured
+      thresholds with the hysteresis hold (no flicker at the boundary).
+- [ ] VIDEO STYLE — switch DRIVE ↔ SHOWPIECE from GARAGE and from ⚙ against the real camera
+      → confirm the restart-and-reconnect note appears, the picture returns, and SHOWPIECE
+      is visibly smoother/more buffered than DRIVE. `docs/video_profiles.md` "Bench-TBD
+      (CB5)" lists the specific knob values (RTSP/TCP ingest, write-queue size, playout
+      target) still unverified against the real camera's bitrate/GOP — confirm or correct
+      those once the camera is on the bench.
+
+## 14. Quit prompts (hotspot + RACE DAY drive program)
+
+Item 11.A already covers the hotspot's *STOP HOTSPOT AND QUIT / LEAVE HOTSPOT RUNNING /
+CANCEL* dialog. RACE DAY adds a second, independent quit prompt for its managed child:
+
+- [ ] With a race-day-managed drive program alive, quit the app → a
+      *QUIT AND STOP THE DRIVE PROGRAM / CANCEL* dialog appears first (before any hotspot
+      dialog), naming the drive program in plain language. CANCEL leaves everything running
+      and the app open. QUIT AND STOP THE DRIVE PROGRAM quits and the process is confirmed
+      gone in Task Manager.
+- [ ] With both a race-day-managed drive program AND an app-owned hotspot alive, quit → the
+      drive-program dialog appears first, then (if not cancelled) the hotspot dialog.
+- [ ] A drive program launched from GRID's detached LAUNCH button (not race-day-managed)
+      never triggers this dialog on quit — confirms the launch-only doctrine holds.
+- [ ] **`[fix-wave: SYN-1]`** — a known, tracked gift-blocking defect: if the main window is
+      already closed/destroyed when CANCEL is pressed (e.g. the window was closed by other
+      means while a quit was pending), the app can be left as a **windowless background
+      process** still holding the hotspot and/or the managed drive program, with no way to
+      bring the window back short of Task Manager. If this bench pass reproduces that shape
+      (no window, but the process list still shows `w17-ground-station.exe`), record it as
+      confirming `SYN-1` rather than as a new finding — do not attempt a source fix here
+      (debug/validation setup only, per the rules above).
+- Evidence: screenshots of each dialog + Task Manager after each quit path.
+
 ## Sign-off
 
-- [ ] Results + deviations summarized into `../CURRENT_STATUS.md` (checkpoint hash,
-      what passed, what's still open) and into the audit's hardware-evidence matrix. Any
-      needed source fix → new reviewed change, then re-run the affected steps.
+- [ ] Results + deviations summarized into `../../CURRENT_STATUS.md` (workspace root —
+      checkpoint hash, what passed, what's still open) and into the audit's hardware-evidence
+      matrix. Any needed source fix → new reviewed change, then re-run the affected steps.
