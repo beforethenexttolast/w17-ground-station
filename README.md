@@ -221,8 +221,9 @@ never persisted at all. The ⚙ menu (`RACE OPS · SETTINGS`, `renderer/index.ht
 
 - **RADIO SOUNDS** — off by default.
 - **START LIGHTS** — the five-red-lights countdown before the HUD. **Off by default**
-  (`shared/settings.js` `startLightsEnabled: false`) — the gift-day handover checklist is
-  what switches it on; off = straight into the HUD.
+  (`shared/settings.js` `startLightsEnabled: false`) — the gift-day handover checklist
+  (`w17-handover-checklist.md` at the workspace root; landing with the readiness program)
+  is what switches it on; off = straight into the HUD.
 - **HEAD-TRACK LOGGING** — diagnostic only, no camera control (W3, see above); off by
   default, an env badge shows when `W17_HEADTRACK` overrides it.
 - **ELRS PATH** — where the GRID's own convenience LAUNCH button finds the drive program
