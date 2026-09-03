@@ -255,10 +255,30 @@ function Invoke-W17Command {
 
 # Same locale-neutral technique as main/hotspot.js's PS_ELEV block (hotspot.js:
 # 144-156): the process token, never localized whoami/net.exe prose.
+# Returns $true / $false, or $null when the question cannot be answered on
+# this host. The WindowsIdentity/WindowsPrincipal API throws outright off
+# Windows ("Windows Principal functionality is not supported on this
+# platform" — observed running 00-inventory.ps1 under pwsh 7 on macOS), and an
+# UNCAUGHT throw here killed the whole script before it could write a single
+# W17VAL_RESULT envelope. Same rule as everywhere else in this suite: report
+# the unknown honestly, never crash silently and never invent an answer.
 function Test-W17IsAdministrator {
-    $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object System.Security.Principal.WindowsPrincipal($id)
-    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    try {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object System.Security.Principal.WindowsPrincipal($id)
+        return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $null
+    }
+}
+
+# Windows always sets TEMP; other hosts may not, and `Join-Path $env:TEMP …`
+# on a $null throws "Cannot bind argument to parameter 'Path' because it is
+# null" — which, again, killed a script before it could write its envelope.
+function Get-W17TempDir {
+    if ($env:TEMP) { return $env:TEMP }
+    if ($env:TMP) { return $env:TMP }
+    return ([System.IO.Path]::GetTempPath())
 }
 
 # Best-effort VMware guest detection (owner decision A4: VMware Fusion host).

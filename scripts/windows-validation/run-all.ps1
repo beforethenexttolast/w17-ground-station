@@ -1,10 +1,14 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
-  Run the W17 Windows-VM validation suite (00-40 automated; 50 automated but
-  expected-to-fail against today's confirmed mapper/GS defects; 60 opt-in and
+  Run the W17 Windows-VM validation suite (00-50 automated; 60 opt-in and
   human-in-the-loop) and print one PASS/FAIL table, plus a combined
   results/<timestamp>.json.
+
+  REQUIRES POWERSHELL 7 on the guest. Windows 11 does not ship it — install it
+  first with `winget install --id Microsoft.PowerShell --source winget`. This
+  driver refuses to fall back to powershell.exe and says so, rather than
+  letting each script fail separately with a .NET stack trace.
 
 .DESCRIPTION
   Each 0N-*.ps1 script is invoked as its OWN process (via pwsh/powershell,
@@ -19,9 +23,19 @@
   A script that needs a parameter this driver was not given (an installer
   path for 10, a hotspot password for 30, a mapper/profile pair for 20 and
   therefore 50) is SKIPPED, not failed — this driver never invents a value
-  COMMON.md would call a guess. 60 (R15) is skipped unless -IncludePadUnplug
-  is passed explicitly: it blocks for a human physically at the machine, and
-  should not silently hang an automated sweep.
+  COMMON.md would call a guess. 60 is skipped unless -IncludeHidTransition is
+  passed explicitly: it blocks for a human physically at the machine, and
+  should not silently hang an automated sweep. It is also the ONLY step that
+  involves an operator-started mapper with a live TX — read its safety
+  precondition (car unpowered / RX unbound) before passing that switch. It
+  measures Windows HID transitions and mapper-process continuity; it is NOT an
+  R15 test and NOTHING in this suite discharges R15, which remains NO-GO
+  (CURRENT_STATUS.md:1375).
+
+  50-race-day.ps1 is no longer expected to come back red. The structural
+  MAP-2/SYN-2 finding it reproduces on every run is recorded in its own
+  expectedFindings channel instead of its exit code, so a FAIL from 50 in this
+  table again means something the suite did NOT already know about.
 
   Each script keeps writing its own per-script JSON via -ResultsDir (a
   subdirectory of $ResultsRoot named for this run's timestamp); this script
@@ -50,13 +64,13 @@
 .PARAMETER MdnsTimeoutMs / .PARAMETER MapperWaitMs
   Passed through to 40 / 50.
 
-.PARAMETER IncludePadUnplug
-  Also run 60-r15-pad-unplug.ps1 (human-in-the-loop; see its own docs).
+.PARAMETER IncludeHidTransition
+  Also run 60-hid-transition.ps1 (human-in-the-loop; see its own docs).
 
-.PARAMETER PadUnplugNonInteractive
-  Passed through to 60 as -NonInteractive when -IncludePadUnplug is set.
+.PARAMETER HidTransitionNonInteractive
+  Passed through to 60 as -NonInteractive when -IncludeHidTransition is set.
 
-.PARAMETER MapperExeForPadUnplug
+.PARAMETER MapperExeForHidTransition
   -MapperExe value for 60, if different from the -MapperExe used to stage
   20 (60 tracks an ALREADY-RUNNING mapper by process name, which need not be
   the same build). Defaults to -MapperExe.
@@ -80,10 +94,10 @@ param(
     [string] $Password,
     [int] $MdnsTimeoutMs = 4000,
     [int] $MapperWaitMs = 8000,
-    [switch] $IncludePadUnplug,
-    [switch] $PadUnplugNonInteractive,
-    [string] $MapperExeForPadUnplug,
-    [ValidateSet('auto', 'pwsh', 'powershell')][string] $Shell = 'auto',
+    [switch] $IncludeHidTransition,
+    [switch] $HidTransitionNonInteractive,
+    [string] $MapperExeForHidTransition,
+    [ValidateSet('auto', 'pwsh')][string] $Shell = 'auto',
     [string] $ResultsRoot
 )
 
@@ -91,19 +105,47 @@ param(
 
 if (-not $ResultsRoot) { $ResultsRoot = Join-Path $PSScriptRoot 'results' }
 if (-not $UserDataDir) { $UserDataDir = Get-W17DefaultUserDataDir }
-if (-not $MapperExeForPadUnplug) { $MapperExeForPadUnplug = $MapperExe }
+if (-not $MapperExeForHidTransition) { $MapperExeForHidTransition = $MapperExe }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $runResultsDir = Join-Path $ResultsRoot $stamp
 New-Item -ItemType Directory -Force -Path $runResultsDir | Out-Null
 
-# --- pick a shell to re-invoke each script under ---------------------------
+# --- resolve the shell to re-invoke each script under ----------------------
+# FAILS LOUDLY; never falls back to powershell.exe (ruling 2026-09-03b, review
+# finding B3). Every script here carries `#Requires -Version 7.0` and means it:
+# ProcessStartInfo.ArgumentList — used by lib/common.ps1's Invoke-W17Command
+# and by 50-race-day.ps1 directly — is .NET Core 2.1+ / .NET 5+ only and does
+# not exist on the .NET Framework that Windows PowerShell 5.1 runs on. Windows
+# 11 does NOT ship PowerShell 7. The old code preferred pwsh but fell back to
+# powershell.exe, which on a fresh guest meant every script that shells out
+# died one at a time with .NET stack traces instead of one clear message here.
+# The version is checked too, not just the name: a `pwsh` on PATH that is
+# somehow 6.x would fail the same way.
 function Resolve-W17Shell {
     param([string] $Requested)
-    if ($Requested -eq 'pwsh') { return 'pwsh' }
-    if ($Requested -eq 'powershell') { return 'powershell' }
-    if (Get-Command 'pwsh' -ErrorAction SilentlyContinue) { return 'pwsh' }
-    return 'powershell'
+    $cmd = Get-Command 'pwsh' -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        throw @'
+PowerShell 7 (pwsh) was not found on PATH, and this suite REQUIRES it.
+
+Windows 11 ships only Windows PowerShell 5.1, which cannot run these scripts:
+they use System.Diagnostics.ProcessStartInfo.ArgumentList, which exists only
+on .NET Core 2.1+ / .NET 5+, not on the .NET Framework 5.1 runs on.
+
+Install it on the guest, then re-run:
+    winget install --id Microsoft.PowerShell --source winget
+(then open a NEW shell so PATH picks up pwsh)
+
+Refusing to fall back to powershell.exe: the fallback does not work, it just
+fails later and less clearly. See the workspace Windows-VM runbook.
+'@
+    }
+    $ver = & $cmd.Source -NoProfile -Command '$PSVersionTable.PSVersion.Major'
+    if ([int]$ver -lt 7) {
+        throw "pwsh was found at $($cmd.Source) but reports major version $ver; this suite requires 7.0 or later (winget install --id Microsoft.PowerShell --source winget)."
+    }
+    return $cmd.Source
 }
 $shellExe = Resolve-W17Shell -Requested $Shell
 Write-Host "[run-all] using shell: $shellExe"
@@ -202,13 +244,13 @@ if ($haveInstall -and $haveMapperStage) {
 }
 
 # --- 60: opt-in, human-in-the-loop ------------------------------------------
-if ($IncludePadUnplug) {
+if ($IncludeHidTransition) {
     $sixtyArgs = @()
-    if ($MapperExeForPadUnplug) { $sixtyArgs += @('-MapperExe', $MapperExeForPadUnplug) }
-    if ($PadUnplugNonInteractive) { $sixtyArgs += '-NonInteractive' }
-    Invoke-W17Script -Name '60-r15-pad-unplug' -ScriptArgs $sixtyArgs
+    if ($MapperExeForHidTransition) { $sixtyArgs += @('-MapperExe', $MapperExeForHidTransition) }
+    if ($HidTransitionNonInteractive) { $sixtyArgs += '-NonInteractive' }
+    Invoke-W17Script -Name '60-hid-transition' -ScriptArgs $sixtyArgs
 } else {
-    Invoke-W17Script -Name '60-r15-pad-unplug' -Skip -SkipReason 'not requested (-IncludePadUnplug not set) — physical unplug is human-in-the-loop, never run silently as part of an automated sweep'
+    Invoke-W17Script -Name '60-hid-transition' -Skip -SkipReason 'not requested (-IncludeHidTransition not set) — physical unplug is human-in-the-loop, never run silently as part of an automated sweep'
 }
 
 # --- combined result file + console table -----------------------------------
@@ -219,12 +261,15 @@ $combined = [ordered]@{
         installerPath = $InstallerPath; installDir = $InstallDir; userDataDir = $UserDataDir
         mapperExe = $MapperExe; profile = $Profile; ssid = $Ssid
         mdnsTimeoutMs = $MdnsTimeoutMs; mapperWaitMs = $MapperWaitMs
-        includePadUnplug = [bool]$IncludePadUnplug
+        includeHidTransition = [bool]$IncludeHidTransition
     }
     results   = $rows.ToArray()
 }
 $combinedPath = Join-Path $ResultsRoot "$stamp.json"
-($combined | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath $combinedPath -Encoding utf8
+# BOM-less UTF-8, explicitly, for the same reason Save-W17Result is
+# (lib/common.ps1): any JS/jq consumer of this file would choke on a BOM, and
+# `Set-Content -Encoding utf8` writes one on Windows PowerShell 5.1.
+[System.IO.File]::WriteAllText($combinedPath, ($combined | ConvertTo-Json -Depth 12) + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Host ''
 Write-Host '=== W17 Windows-VM validation — results ==='

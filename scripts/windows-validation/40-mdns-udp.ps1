@@ -109,15 +109,30 @@ if (-not $mdnsQueried) {
 }
 
 # --- 3. UDP 5601 receive probe (app's own demo/replay + bridge env) -------
-$scratchUserData = Join-Path $env:TEMP "w17-val-udp-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+$scratchUserData = Join-Path (Get-W17TempDir) "w17-val-udp-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 New-Item -ItemType Directory -Force -Path $scratchUserData | Out-Null
 $data.scratchUserDataDir = $scratchUserData
 
 $udpClient = $null
 $proc = $null
 $received = $null
+$bindError = $null
 try {
-    $udpClient = New-Object System.Net.Sockets.UdpClient(5601)
+    # Binding 5601 can legitimately FAIL: the ground station itself, an
+    # iPhone-HUD listener, or a leftover from an earlier run of this very step
+    # may already hold it. That is a clean FAIL with a name, not a crash. It
+    # used to propagate out of this try/finally (there is no catch on the outer
+    # block) and kill the script before any W17VAL_RESULT envelope was written
+    # — observed for real on this Mac, where another process held UDP 5601:
+    # "Exception calling \".ctor\" with \"1\" argument(s): Address already in
+    # use", no envelope, and run-all reporting only "no result JSON written".
+    try {
+        $udpClient = New-Object System.Net.Sockets.UdpClient(5601)
+    } catch {
+        $bindError = $_.Exception.Message
+        $failures.Add("could not bind UDP 5601 to listen for telemetry: $bindError — something else already holds the port (the ground station itself, an iPhone-HUD listener, or a leftover from an earlier run of this step). Close it, or check with: Get-NetUDPEndpoint -LocalPort 5601 | Select-Object LocalAddress,OwningProcess")
+    }
+    if ($udpClient) {
     $udpClient.Client.ReceiveTimeout = 8000
 
     # NAMED $childEnv, never $env — see 30-hotspot.ps1's B1 note. PowerShell
@@ -148,6 +163,7 @@ try {
     } catch [System.Net.Sockets.SocketException] {
         $received = $null
     }
+    }
 } finally {
     if ($udpClient) { $udpClient.Close() }
     if ($proc -and -not $proc.HasExited) {
@@ -159,9 +175,14 @@ try {
     Remove-Item -LiteralPath $scratchUserData -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$data.udp5601BindError = $bindError
 $data.udp5601Received = $received
 $frameOk = $false
-if ($received) {
+if ($bindError) {
+    # already reported above; do not also blame the app for a frame that could
+    # never have been received.
+    $data.udp5601FrameParsed = $null
+} elseif ($received) {
     try {
         $json = $received.text | ConvertFrom-Json
         $frameOk = $null -ne $json
