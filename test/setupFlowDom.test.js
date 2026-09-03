@@ -3006,3 +3006,29 @@ describe('GARAGE settings-recovery line (review correctness-2)', () => {
     expect(note.getAttribute('tabindex')).toBeNull();
   });
 });
+
+// Owner decision OD-13 #3(a). The GS and the phone each classify the pack from
+// their own copy of the thresholds, so this ⚙ row moves one screen and not the
+// other — which, unexplained, is exactly the surprise the operator model exists
+// to prevent.
+describe('⚙ LOW BATTERY — the note that says which screen it moves (OD-13 #3a)', () => {
+  it('sits with the row, and says the phone is not affected', async () => {
+    await loadRenderer(mockGs());
+    const note = el('lowBattPhoneNote');
+    expect(note).not.toBeNull();
+    expect(note.textContent)
+      .toBe('This setting does not affect the phone — the phone app has its own copy of these limits.');
+    // Immediately after the two inputs it describes, so it cannot drift away
+    // from them in a later layout edit.
+    const row = el('setLowBattCrit').closest('.setrow');
+    expect(row.nextElementSibling).toBe(note);
+  });
+
+  it('is a note, not a control: nothing to focus, nothing to press', async () => {
+    await loadRenderer(mockGs());
+    const note = el('lowBattPhoneNote');
+    expect(note.tagName).toBe('DIV');
+    expect(note.querySelector('input,button,select,a')).toBeNull();
+    expect(note.getAttribute('tabindex')).toBeNull();
+  });
+});

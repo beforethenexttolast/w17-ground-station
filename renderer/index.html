@@ -564,6 +564,15 @@
         <span class="setctl"><input id="setLowBattWarn" class="vnum" type="number" step="0.1" min="1" max="60" aria-label="low battery warn volts" /><small>warn V</small></span>
         <span class="setctl"><input id="setLowBattCrit" class="vnum" type="number" step="0.1" min="1" max="60" aria-label="low battery critical volts" /><small>critical V</small></span>
       </div>
+      <!-- Owner decision OD-13 #3(a). These two numbers are THIS SCREEN's
+           thresholds. The phone app carries its own copy of the same defaults
+           and classifies independently (its LowBatteryClassifier reads the
+           packet, not this setting), so changing them here moves the halo and
+           the banner on this laptop and nothing at all on the phone. Said out
+           loud because the two screens showing different warnings from the same
+           pack, with no explanation, is exactly the kind of surprise the
+           operator model exists to prevent. Pinned by test/setupFlowDom.test.js. -->
+      <div class="setnote" id="lowBattPhoneNote">This setting does not affect the phone — the phone app has its own copy of these limits.</div>
       <!-- VIDEO STYLE (vision decision 7): ⚙ twin of the GARAGE selector —
            reachable mid-session, same persisted {video:{profile}} subtree,
            same shared wording (options filled by setupFlow.js from
