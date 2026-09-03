@@ -253,6 +253,23 @@ describe('log sanitization and environment scrub', () => {
     expect(env.W17_SMOKE_HANG).toBe('1');
   });
 
+  it("the single-instance scenario's own W17_ flag survives the scrub that removes inherited ones", () => {
+    // The scrub deletes the whole W17_* class from the inherited environment,
+    // so a scenario flag only reaches the child because `extra` is applied
+    // AFTER it. Review finding 7 depends on that ordering holding.
+    const env = buildScenarioEnv({
+      base: { W17_SINGLE_INSTANCE: 'inherited-should-be-scrubbed', PATH: '/bin' },
+      userData: 'u',
+      mediamtxDir: 'm',
+      extra: SCENARIOS['single-instance'].env,
+    });
+    expect(env.W17_SINGLE_INSTANCE).toBe('1');
+    const inheritedOnly = buildScenarioEnv({
+      base: { W17_SINGLE_INSTANCE: '1' }, userData: 'u', mediamtxDir: 'm',
+    });
+    expect(inheritedOnly.W17_SINGLE_INSTANCE).toBeUndefined();
+  });
+
   it('the console-error allowlist tolerates ONLY the loopback WHEP endpoint', () => {
     expect(isAllowedConsoleError('Failed to load resource: net::ERR_CONNECTION_REFUSED [http://127.0.0.1:8889/cam/whep:0]')).toBe(true);
     expect(isAllowedConsoleError('Uncaught TypeError: x is not a function [file:///renderer/hud.js:12]')).toBe(false);
@@ -398,7 +415,8 @@ describe('smoke controller vs fake children', () => {
 
 describe('smoke scenario contracts', () => {
   it('the suite carries all four required scenarios and cannot silently drop the negative ones', () => {
-    expect(Object.keys(SCENARIOS).sort()).toEqual(['corrupt-settings', 'forced-failure', 'normal', 'timeout']);
+    expect(Object.keys(SCENARIOS).sort())
+      .toEqual(['corrupt-settings', 'forced-failure', 'normal', 'single-instance', 'timeout']);
     expect(SCENARIOS['forced-failure'].expect.childOk).toBe(false);
     expect(SCENARIOS['forced-failure'].env.W17_SMOKE_FAIL_STAGE).toBe('ipc-roundtrip');
     expect(SCENARIOS.timeout.expect.timedOut).toBe(true);
@@ -407,6 +425,31 @@ describe('smoke scenario contracts', () => {
 
   it('the normal scenario REQUIRES the missing-mediamtx soft-fail to be visible in the log', () => {
     expect(SCENARIOS.normal.expect.logMustMatch.some((re) => re.test('[mediamtx] binary not found at /x/mediamtx -- run'))).toBe(true);
+  });
+
+  // Review finding 7: the single-instance lock (SYN-1) is claimed before
+  // whenReady and, by default, only when packaged — so the boot smoke, which
+  // runs unpackaged, never touched it. This scenario is the proof the verdict
+  // named: a REAL Electron boot with the lock live must still reach readiness.
+  it('the single-instance scenario turns the lock ON and demands a complete, normal boot', () => {
+    const spec = SCENARIOS['single-instance'];
+    expect(spec.env).toEqual({ W17_SINGLE_INSTANCE: '1' });
+    expect(spec.expect.childOk).toBe(true);
+    // The value main.js actually reads (main/main.js installSingleInstance).
+    expect(read('../main/main.js')).toContain("process.env.W17_SINGLE_INSTANCE === '1'");
+    // The FIRST process must never log the loser's hand-over.
+    expect(spec.expect.logMustNotMatch.some((re) => re.test('[window] another ground station is already running — handing over to it'))).toBe(true);
+    expect(spec.expect.logMustNotMatch.some((re) => re.test('[mediamtx] binary not found'))).toBe(false);
+  });
+
+  it('logMustNotMatch is enforced: a forbidden line fails the run, its absence passes', () => {
+    const forbidden = [/another ground station is already running/];
+    const clean = { ...happyRun(), log: '[window] created\n[mediamtx] binary not found\n' };
+    expect(evaluateSmokeRun(clean, { childOk: true, logMustNotMatch: forbidden }).ok).toBe(true);
+    const dirty = { ...happyRun(), log: '[window] another ground station is already running — handing over to it\n' };
+    const verdict = evaluateSmokeRun(dirty, { childOk: true, logMustNotMatch: forbidden });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.failures.join(' ')).toContain('which this scenario forbids');
   });
 
   it('the corrupt-settings scenario seeds malformed JSON and requires the fallback log line', () => {

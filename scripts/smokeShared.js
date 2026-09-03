@@ -201,6 +201,11 @@ function evaluateSmokeRun(run, expect = {}) {
   for (const re of expect.logMustMatch || []) {
     if (!re.test(run.log)) failures.push(`application log did not match ${re}`);
   }
+  // The negative form: a line whose ABSENCE is the evidence (e.g. the
+  // single-instance loser's hand-over, which the FIRST process must never log).
+  for (const re of expect.logMustNotMatch || []) {
+    if (re.test(run.log)) failures.push(`application log matched ${re}, which this scenario forbids`);
+  }
 
   return { ok: failures.length === 0, failures, result, stages: [...stages] };
 }

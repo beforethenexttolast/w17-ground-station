@@ -213,6 +213,29 @@ const SCENARIOS = {
       logMustMatch: [/\[settings\] unreadable .*settings\.json/],
     },
   },
+  // Review finding 7. The single-instance lock (review SYN-1) is claimed BEFORE
+  // whenReady and, by default, only in packaged builds — so `smoke:electron`,
+  // which launches Electron directly and is unpackaged, never exercised it, and
+  // the verdict named a smoke scenario as this fix's proof. W17_SINGLE_INSTANCE=1
+  // is the dev opt-in that turns it on; this scenario boots the REAL app with it
+  // set and requires a normal, complete boot.
+  //
+  // What it proves is the thing unit tests structurally cannot: that claiming
+  // the lock against real Electron does not make the FIRST process quit itself
+  // before whenReady (it would show up as a missing readiness token and a hard
+  // timeout). Each scenario gets its own throwaway userData, which is what the
+  // lock is scoped to, so the scenarios cannot collide with one another.
+  'single-instance': {
+    description: 'the single-instance lock claimed against REAL Electron (W17_SINGLE_INSTANCE=1): the first process keeps its window and reaches readiness',
+    env: { W17_SINGLE_INSTANCE: '1' },
+    expect: {
+      childOk: true,
+      logMustMatch: [/\[mediamtx\] binary not found/],
+      // The primary must never take the loser's path — that line belongs to a
+      // SECOND launch, and there is no second launch here.
+      logMustNotMatch: [/another ground station is already running/],
+    },
+  },
   'forced-failure': {
     description: 'smoke-only fault injected at the ipc-roundtrip stage: the run must fail loudly, naming the stage, non-zero',
     env: { W17_SMOKE_FAIL_STAGE: 'ipc-roundtrip' },
