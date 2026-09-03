@@ -224,10 +224,17 @@ prereq above (a saved controller profile + the ⚙ RACE DAY paths set).
 - [ ] Press RACE DAY again while everything is already up → idempotent re-run: each step
       re-verifies/no-ops (hotspot re-verified, mapper shows "already running", bridge
       re-applies) rather than restarting anything.
-- [ ] **STOP RACE DAY** (visible only while the managed process is running) → the process
-      exits (Task Manager confirms), the DRIVE PROGRAM step returns to "waiting…"; the
-      hotspot and phone link are **not** touched by this button (PIT WALL / the quit dialog
-      still own those, unchanged).
+- [ ] **STOP RACE DAY** (visible while the managed process appears to be running) → press
+      it, confirm the process exits (Task Manager confirms) and the DRIVE PROGRAM step
+      returns to "waiting…"; the hotspot and phone link are **not** touched by this button
+      (PIT WALL / the quit dialog still own those, unchanged). `[fix-wave:
+      lifecycle-concurrency-3]` **Today's truth:** immediately after pressing it, expect the
+      button to possibly still be visible for a moment — `MapperRunner.stop()`
+      (`main/mapperRunner.js:162-172`) leaves `_proc` set until the child's own `exit` event
+      fires, and the orchestrator's liveness mirror (`main/raceDayOrchestrator.js:104-111`)
+      does not re-emit once its own step is already `idle`, so the stale "running" state can
+      linger in the renderer past the actual stop. Record how long the button visibly lags
+      the real process exit.
 - [ ] Launch the SAME drive-program executable from GRID's own **LAUNCH** button first
       (the detached, launch-only path), then press RACE DAY → DRIVE PROGRAM shows "already
       running (started outside RACE DAY)" and STOP RACE DAY does **not** appear for it (race
