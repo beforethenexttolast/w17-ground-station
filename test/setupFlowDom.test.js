@@ -499,6 +499,20 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     expect(rows[3].querySelector('span').textContent)
       .toBe('race day set CAR READINGS to the drive program (once) — you can change it in ⚙');
     expect(rows[3].className).toBe('rdrow muted');
+
+    // STOP winds every step back to idle, which normally collapses the card —
+    // but the setting is still changed, so the note keeps it open.
+    push({
+      ...snap,
+      seq: 4,
+      telemetrySelected: true,
+      mapper: { running: false },
+      steps: snap.steps.map((st) => ({ ...st, status: 'idle', kind: null })),
+    });
+    await tick();
+    expect(el('raceDaySteps').classList.contains('hidden')).toBe(false);
+    const idleRows = [...el('raceDaySteps').children];
+    expect(idleRows[idleRows.length - 1].querySelector('b').textContent).toBe('NOTE');
   });
 
   it('a stop that did not take puts STOP back and says the program is still running', async () => {

@@ -224,10 +224,16 @@ function renderRaceDay() {
   raceDayHeadlineEl.className = head ? `racedayheadline ${head.tone}` : 'racedayheadline hidden';
   raceDayHeadlineEl.textContent = head ? head.text : '';
   const lines = raceDayStepLines(raceDaySnap);
+  // OD-19: the one persisted change race day is allowed to make, stated on the
+  // screen where the setting lives. Informational and sticky for the session —
+  // a configuration that changed quietly is what the operator cannot diagnose.
+  const note = raceDaySettingsNote(raceDaySnap);
   // An idle card (never run this session) keeps the steps collapsed — the one
-  // button tells the whole story until it is pressed.
+  // button tells the whole story until it is pressed. The note is the one thing
+  // that keeps it open anyway: STOP winds every step back to idle, and the
+  // setting stays changed regardless.
   const allIdle = lines.every((l) => l.tone === 'muted' && l.text === 'waiting…');
-  raceDayStepsEl.classList.toggle('hidden', !lines.length || allIdle);
+  raceDayStepsEl.classList.toggle('hidden', (!lines.length || allIdle) && !note);
   const mkRow = ({ label, text, tone }) => {
     const row = document.createElement('div');
     row.className = `rdrow ${tone}`;
@@ -243,10 +249,6 @@ function renderRaceDay() {
   // it), so it is set as text — never markup — and it is the one row on this
   // card whose words the ground station did not choose.
   const said = raceDayMapperMessage(raceDaySnap);
-  // OD-19: the one persisted change race day is allowed to make, stated on the
-  // screen where the setting lives. Informational and sticky for the session —
-  // a configuration that changed quietly is what the operator cannot diagnose.
-  const note = raceDaySettingsNote(raceDaySnap);
   raceDayStepsEl.replaceChildren(
     ...lines.map(mkRow),
     ...(said ? [mkRow(said)] : []),
