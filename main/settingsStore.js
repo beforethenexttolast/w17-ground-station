@@ -44,6 +44,16 @@ const path = require('node:path');
 const { normalizeSettings } = require('../shared/settings.js');
 const { nullCredentialStore } = require('./credentialStore.js');
 
+// A settings file is a JSON OBJECT or it is not a settings file. Valid JSON
+// that parses to null / a number / a boolean / a string / an array is not a
+// shape normalizeSettings() (or any of the guards below) can merge against —
+// treating it as "ok" is what let review correctness-2's contrived tail
+// (settings.json = `null`/`0`/`[]`/`"corrupted"`) silently reset to defaults
+// AND overwrite a good .bak, with no GARAGE line.
+function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 // Copy of the current file for .bak, but a legacy plaintext password must never
 // ride into the backup — blank it first. Once migrated the file is already
 // ciphertext, so this is a no-op.
@@ -90,11 +100,16 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
             if (err.code === 'ENOENT') return { state: 'absent', data: null };
             return { state: 'unreadable', data: null, why: `${err.code || 'read-failed'}: ${err.message}` };
         }
+        let parsed;
         try {
-            return { state: 'ok', data: JSON.parse(text) };
+            parsed = JSON.parse(text);
         } catch (err) {
             return { state: 'unreadable', data: null, why: `parse: ${err.message}` };
         }
+        if (!isPlainObject(parsed)) {
+            return { state: 'unreadable', data: null, why: `parse: not a JSON object (got ${Array.isArray(parsed) ? 'array' : typeof parsed})` };
+        }
+        return { state: 'ok', data: parsed };
     }
 
     // Move the unreadable file aside so nothing can ever copy it over a good
@@ -125,6 +140,7 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
         } catch {
             return null; // no usable backup
         }
+        if (!isPlainObject(parsed)) return null; // .bak itself is not a settings object — not usable
         try {
             fs.mkdirSync(dir, { recursive: true });
             fs.writeFileSync(tmp, text, 'utf8');
@@ -228,10 +244,15 @@ function createSettingsStore({ dir, log = () => {}, credentialStore = nullCreden
         // become the backup. readRawRecovering() already moves a corrupt file
         // aside on load, but a save can also follow a load that never ran (or a
         // rename that failed), and one such copy destroys the only good config.
+        let parsed;
         try {
-            JSON.parse(cur);
+            parsed = JSON.parse(cur);
         } catch {
             log('[settings] current settings.json is not readable JSON — keeping the existing .bak untouched');
+            return;
+        }
+        if (!isPlainObject(parsed)) {
+            log('[settings] current settings.json is not a JSON object — keeping the existing .bak untouched');
             return;
         }
         fs.writeFileSync(bak, sanitizeForBackup(cur), 'utf8');

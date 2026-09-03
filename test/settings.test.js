@@ -353,6 +353,83 @@ describe('settingsStore — corruption recovery (review correctness-2)', () => {
   });
 });
 
+// review adffe40ca3aaab56c.md item 2: readRaw() used to accept ANY parseable
+// JSON — including a non-object — as 'ok'. settings.json = `null` / `0` / `[]`
+// / `"corrupted"` all parse cleanly, so the tri-state guard above never fired:
+// load() silently returned defaults with recoveryStatus() still 'ok' (no
+// GARAGE line, no log), and the next save's backupCurrent() (its own
+// `JSON.parse(cur)` "second belt") copied those bytes straight over a good
+// .bak. This is the contrived tail the finding names — realistic corruption
+// (truncation, NUL-fill) never parses at all and was already covered above.
+describe('settingsStore — valid-JSON-non-object is still corruption (review correctness-2 tail)', () => {
+  const freshDir = () => mkdtempSync(join(tmpdir(), 'w17-nonobj-'));
+  const bakOf = (store) => `${store.file}.bak`;
+  const quarantined = (dir) => readdirSync(dir).filter((f) => f.includes('.corrupt-'));
+
+  function configured(dir) {
+    const store = createSettingsStore({ dir });
+    store.save({ fpvMode: 'iphone-hud', iphoneAddr: '192.168.4.2', setupCompleted: true });
+    store.save({ elrsPath: 'C:/elrs/elrs-joystick-control.exe' }); // second save creates .bak
+    return store;
+  }
+
+  it.each([
+    ['null', 'null'],
+    ['the number 0', '0'],
+    ['an empty array', '[]'],
+    ['a bare string', '"corrupted"'],
+  ])('%s on disk is recovered from .bak, not silently defaulted', (_label, json) => {
+    const dir = freshDir();
+    const store = configured(dir);
+    const goodBak = readFileSync(bakOf(store), 'utf8');
+    writeFileSync(store.file, json, 'utf8');
+
+    const loaded = store.load();
+    // Recovered from .bak, never a silent reset to defaults.
+    expect(loaded.fpvMode).toBe('iphone-hud');
+    expect(loaded.setupCompleted).toBe(true);
+    expect(store.recoveryStatus()).toMatchObject({ state: 'restored-from-backup' });
+    expect(store.recoveryStatus().quarantinedAs).toMatch(/^settings\.json\.corrupt-/);
+    expect(quarantined(dir)).toHaveLength(1);
+    // The offending bytes are preserved for a bench session, not discarded.
+    expect(readFileSync(join(dir, quarantined(dir)[0]), 'utf8')).toBe(json);
+    // The GOOD .bak is untouched by this load (only a save rewrites .bak).
+    expect(readFileSync(bakOf(store), 'utf8')).toBe(goodBak);
+  });
+
+  it('a non-object save-then-corrupt never overwrites a good .bak (the destruction path, closed)', () => {
+    const dir = freshDir();
+    const store = configured(dir);
+    const goodBak = readFileSync(bakOf(store), 'utf8');
+    expect(JSON.parse(goodBak).fpvMode).toBe('iphone-hud');
+
+    writeFileSync(store.file, '[]', 'utf8');
+    const saved = store.save({ soundEnabled: true });
+
+    // save() merges onto the RESTORED configuration, not onto defaults.
+    expect(saved.fpvMode).toBe('iphone-hud');
+    expect(saved.setupCompleted).toBe(true);
+    expect(saved.soundEnabled).toBe(true);
+    // backupCurrent()'s second belt: the array never rode into .bak.
+    const bakNow = readFileSync(bakOf(store), 'utf8');
+    expect(JSON.parse(bakNow).fpvMode).toBe('iphone-hud');
+  });
+
+  it('a non-object .bak is not "usable" either — degrades to defaults, still quarantines', () => {
+    const dir = freshDir();
+    const log = vi.fn();
+    const store = createSettingsStore({ dir, log });
+    store.save({ fpvMode: 'iphone-hud', setupCompleted: true });
+    writeFileSync(bakOf(store), 'null', 'utf8');
+    writeFileSync(store.file, '"corrupted"', 'utf8');
+
+    expect(store.load()).toEqual(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)));
+    expect(store.recoveryStatus()).toMatchObject({ state: 'reset-to-defaults', restoredFrom: null });
+    expect(quarantined(dir)).toHaveLength(1);
+    expect(log.mock.calls[0][0]).toMatch(/no usable backup/);
+  });
+});
+
 describe('settingsStore — hotspot credential encryption (audit E1 / Q6)', () => {
   const freshDir = () => mkdtempSync(join(tmpdir(), 'w17-cred-'));
   const HS = { network: { kind: 'hotspot', hotspot: { password: 'grid p@ss & <ok> ünï' } } };
