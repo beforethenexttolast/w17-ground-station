@@ -45,7 +45,16 @@ const MESSAGE_LIMIT = 240; // chars
 // How many trailing non-empty lines the message may carry (review finding 4).
 // The refusal sentence is not always the LAST thing printed — the mapper runs
 // deferred teardown after it — so the message quotes the tail, not one line.
-const MESSAGE_LINES = 3;
+//
+// Residual (Opus re-verify, report a273a7cf1f0600542): six deferred Quit()
+// calls run on the way out, three of which can print
+// (pkg/config/controller.go:178, pkg/devices/controller.go:50,
+// pkg/http/controller.go:161), and pkg/server/controller.go:165 PANICS on a
+// Stop error — a full goroutine dump. Any of those could push the refusal
+// out of a 3-line tail. Raised to 8: this reduces the risk but does not
+// eliminate it (an unbounded dump can still outrun any fixed N) — see
+// _lastLine()'s longest-line preference for the other half of the mitigation.
+const MESSAGE_LINES = 8;
 
 // Stop escalation (review correctness-5). A polite termination request is not a
 // death: SIGTERM can be ignored, and on Windows the default signal only reaches
@@ -326,10 +335,9 @@ class MapperRunner {
     // Review finding 4: taking only the LAST non-empty line lost that sentence
     // to anything printed after it, and the mapper runs six deferred Quit()
     // calls on its way out ("they only print on error" was never verified). The
-    // last few lines cost nothing and cannot lose it. The cap is applied to the
-    // joined string, so a chatty tail truncates from the END — the earliest of
-    // the lines kept, which is the one most likely to carry the reason,
-    // survives.
+    // last MESSAGE_LINES lines cost nothing and cannot lose it — and among
+    // those, the longest line is featured first (see below) so the cap
+    // truncates teardown noise, not the reason.
     _lastLine() {
         const picked = [];
         for (let i = this._ring.length - 1; i >= 0 && picked.length < MESSAGE_LINES; i -= 1) {
@@ -344,7 +352,21 @@ class MapperRunner {
             if (text) picked.push(text);
         }
         if (!picked.length) return null;
-        return picked.reverse().join(' / ').slice(0, MESSAGE_LIMIT);
+        const ordered = picked.reverse(); // chronological order, oldest kept line first
+        // Residual (Opus re-verify, report a273a7cf1f0600542): a plain-
+        // English refusal sentence is almost always the LONGEST line in the
+        // tail — teardown noise (deferred Quit() chatter, a goroutine dump's
+        // stack fragments) runs short. Feature the longest line first so the
+        // MESSAGE_LIMIT cap below truncates the noise, not the reason; ties
+        // keep the earlier (chronologically first) line. The rest keep their
+        // original order behind it.
+        let longest = 0;
+        for (let i = 1; i < ordered.length; i += 1) {
+            if (ordered[i].length > ordered[longest].length) longest = i;
+        }
+        const featured = ordered[longest];
+        const rest = ordered.filter((_, i) => i !== longest);
+        return [featured, ...rest].join(' / ').slice(0, MESSAGE_LIMIT);
     }
 
     status() {

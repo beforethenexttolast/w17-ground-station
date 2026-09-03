@@ -483,14 +483,22 @@ describe('MapperRunner — the exit message the child itself printed', () => {
         expect(msg).toBe('this saved profile has not been matched to this computer yet / some trailing noise / and more');
     });
 
-    it('quotes at most the last few lines, oldest first, and caps the whole thing', async () => {
+    it('quotes at most the last MESSAGE_LINES lines, longest featured first, rest kept in order', async () => {
         const { runner, child } = harness();
+        expect(MESSAGE_LINES).toBe(8);
         runner.start({ binaryPath: '/opt/w17/mapper' });
-        child().stdout.emit('data', Buffer.from('one\ntwo\nthree\nfour\nfive\n'));
+        // 10 lines printed, only the last 8 non-empty ones survive the ring
+        // walk ('one' and 'two' fall off) — 'sixsixsix' is the longest of
+        // those eight and is featured first even though it is neither the
+        // oldest nor the newest of the kept lines; the rest keep their
+        // original chronological order behind it.
+        child().stdout.emit('data', Buffer.from(
+            'one\ntwo\nthree\nfour\nfive\nsixsixsix\nseven\neight\nnine\nten\n',
+        ));
         child().emit('exit', 1, null);
         await tick();
-        expect(runner.status().exitMessage).toBe('three / four / five');
-        expect(MESSAGE_LINES).toBe(3);
+        expect(runner.status().exitMessage)
+            .toBe('sixsixsix / three / four / five / seven / eight / nine / ten');
 
         runner.start({ binaryPath: '/opt/w17/mapper' });
         child().stdout.emit('data', Buffer.from(`${'x'.repeat(200)}\n${'y'.repeat(200)}\n`));
@@ -498,9 +506,40 @@ describe('MapperRunner — the exit message the child itself printed', () => {
         await tick();
         const capped = runner.status().exitMessage;
         expect(capped).toHaveLength(MESSAGE_LIMIT);
-        // Truncation eats the TAIL, so the earliest line kept — the one most
-        // likely to carry the reason — survives intact.
+        // The two lines tie in length; the featured (first-on-tie) one is the
+        // chronologically earlier 'x' line, so truncation still eats the tail.
         expect(capped.startsWith('x'.repeat(200))).toBe(true);
+    });
+
+    // Residual (Opus re-verify, report a273a7cf1f0600542): the review found
+    // the teardown can print through three of six deferred Quit()s
+    // (pkg/config/controller.go:178, pkg/devices/controller.go:50,
+    // pkg/http/controller.go:161) after the refusal, and
+    // pkg/server/controller.go:165 PANICS on a Stop error — a full goroutine
+    // dump. With the old MESSAGE_LINES=3 a dump this size would have pushed
+    // the refusal out of the tail entirely; at 8, it survives, and the
+    // longest-line preference puts it first regardless of where the dump
+    // truncates.
+    it('a refusal followed by a goroutine dump still leads the message (MESSAGE_LINES=8)', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from(
+            'this saved profile has not been matched to this computer yet\n',
+        ));
+        child().stderr.emit('data', Buffer.from(
+            'panic: stop called twice\n'
+            + 'goroutine 1 [running]:\n'
+            + 'main.(*Controller).Stop(...)\n'
+            + 'controller.go:165 +0x2a4\n'
+            + 'created by main.main\n',
+        ));
+        child().emit('exit', 2, null);
+        await tick();
+        const msg = runner.status().exitMessage;
+        // The old 3-line tail would have carried none of this sentence.
+        expect(msg.startsWith('this saved profile has not been matched to this computer yet')).toBe(true);
+        expect(msg).toContain('panic: stop called twice');
+        expect(msg).toContain('created by main.main');
     });
 
     it('a fresh start clears the previous run\'s message', async () => {
