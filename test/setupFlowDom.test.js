@@ -594,7 +594,15 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     const gs = mockGs({
       getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
       setSettings: vi.fn(async (patch) => { Object.assign(settings, patch); return settings; }),
-      raceDayStart: vi.fn(async () => ({ ok: true, snapshot: raceDayIdleSnap() })),
+      // A GENUINE positive link claim (mapper.kind === 'running') — this is
+      // the one case the OD-19 addendum's fix leaves armed (renderer/setupFlow.js).
+      raceDayStart: vi.fn(async () => ({
+        ok: true,
+        snapshot: {
+          ...raceDayIdleSnap(),
+          steps: raceDayIdleSnap().steps.map((s) => (s.id === 'mapper' ? { ...s, status: 'ok', kind: 'running' } : s)),
+        },
+      })),
     });
     await loadRenderer(gs);
     // The two REQUIRED checks in this mode: a live picture and a controller.
@@ -707,6 +715,183 @@ describe('race-day card on GARAGE (one-action race day)', () => {
     await tick();
     expect(persisted.racePrep.autoBridge).toBe(false);
     expect(persisted.racePrep.mapperPath).toBe('C:\\W17\\mapper.exe'); // carried, not reset
+  });
+});
+
+// OD-19 addendum (2026-09-04, from the GS branch B Opus re-verify): BLOCKING.
+// Before this fix, the raceDayBtn handler armed autoStartArmed on res.ok
+// alone (renderer/setupFlow.js ~:305-308). But 'link-not-yet' — a first
+// bring-up whose window closed before the radio answered — IS ok (review
+// blocking 2: it is a slow start, not a fault, and the sequence must not halt
+// on it). The GRID's own TELEMETRY check is the only other thing that could
+// have caught a dead radio, and shared/checklist.mjs never adds that row
+// while telemetry.source stays 'none' — exactly where every credential-skip
+// path (undecryptable / session-only, main/settingsStore.js
+// patchTelemetrySource()) leaves it. So a giftee whose saved Wi-Fi credential
+// cannot be decrypted on this computer (a restored settings.json, or a
+// changed Windows profile — the exact machine blocking-1's fix targets) got a
+// fully green checklist and an auto-started cockpit over a car nothing had
+// told to move, with no line anywhere saying why.
+//
+// These cases drive the REAL renderer/index.html + setupFlow.js + hud.js
+// under jsdom with the exact snapshot shape the real orchestrator produces
+// (main/raceDayOrchestrator.js `ok`/'link-not-yet' + `telemetry`:
+// skipped/'unavailable'), video playing and a gamepad plugged in — the two
+// checks that are genuinely green regardless of the radio.
+describe('auto-START must not fire on a dead radio (OD-19 addendum / re-verify blocking)', () => {
+  function deadRadioSnap(overrides = {}) {
+    return {
+      seq: 1,
+      running: false,
+      steps: [
+        { id: 'hotspot', status: 'skipped', kind: 'own-wifi' },
+        { id: 'mapper', status: 'ok', kind: 'link-not-yet' },
+        { id: 'telemetry', status: 'skipped', kind: 'unavailable' },
+        { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+      ],
+      mapper: { running: true, pid: 7, exitCode: null, stoppedByUs: false, logTail: [] },
+      link: { up: false },
+      ...overrides,
+    };
+  }
+
+  function plugControllerAndVideo() {
+    Object.defineProperty(window.navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [{
+        id: 'DualShock 4', index: 0, connected: true, mapping: 'standard',
+        axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })),
+      }],
+    });
+    el('feed').dispatchEvent(new Event('playing'));
+  }
+
+  const labelOf = (row) => row.querySelector('b')?.textContent;
+
+  // The real orchestrator pushes onRaceDayState as it goes and has emitted
+  // the terminal snapshot by the time raceday:start resolves (main/raceDayOrchestrator.js
+  // start()/_emit()) — this mock reproduces that ordering so the GARAGE/GRID
+  // mirror (renderer/setupFlow.js raceDaySnap) sees the same snapshot the
+  // resolved promise carries, exactly as the real IPC round-trip would.
+  function mockGsForDeadRadio(snapshot, overrides = {}) {
+    let push = () => {};
+    return mockGs({
+      onRaceDayState: vi.fn((cb) => { push = cb; return () => {}; }),
+      raceDayStart: vi.fn(async () => {
+        push(snapshot);
+        return { ok: true, snapshot };
+      }),
+      ...overrides,
+    });
+  }
+
+  // CASE A: the credential cannot be decrypted, so patchTelemetrySource()
+  // skips and applySession() reports the effective source unchanged at
+  // 'none' — no TELEMETRY row at all. No elrsPath configured either, so ELRS
+  // CONTROL is present but not required and reads 'skipped'. Nothing on this
+  // checklist CAN go red.
+  it('CASE A — credential undecryptable (source stays none): checklist goes genuinely all-green but must not auto-start', async () => {
+    const settings = {
+      ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', startLightsEnabled: false,
+    };
+    const gs = mockGsForDeadRadio(deadRadioSnap(), {
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      applySession: vi.fn(async () => ({ telemetry: 'none', w3: false })),
+    });
+    await loadRenderer(gs);
+    plugControllerAndVideo();
+
+    el('raceDayBtn').click();
+    await tick(); await tick(); await tick();
+
+    expect(activeStep()).toBe('grid');
+    // The dishonesty this fix prevents: the checklist is NOT red anywhere —
+    // there is no TELEMETRY row to fail, and the two required rows are green.
+    expect([...el('checkList').children].some((row) => labelOf(row) === 'TELEMETRY')).toBe(false);
+    expect(el('startBtn').disabled).toBe(false);
+    // The session must NOT have started itself: the setup gate is still up.
+    expect(activeStep()).toBe('grid');
+    expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(true);
+    // The plain line naming the radio is the one thing on this screen that
+    // says the car will not move.
+    const note = el('gridRadioNote');
+    expect(note.classList.contains('hidden')).toBe(false);
+    expect(note.textContent).toBe('the radio has not come up yet — the car will not move until it does');
+  });
+
+  // CASE C: same credential-skip, but elrsPath IS configured and the drive
+  // program is detected — ELRS CONTROL is now REQUIRED, and green too. Still
+  // no TELEMETRY row (the source is still 'none'): the checklist has nothing
+  // left that could ever turn red.
+  it('CASE C — credential undecryptable + elrsPath configured (drive program detected): still must not auto-start', async () => {
+    const settings = {
+      ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', startLightsEnabled: false,
+      elrsPath: 'C:\\W17\\elrs-joystick-control.exe',
+    };
+    const gs = mockGsForDeadRadio(deadRadioSnap(), {
+      getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+      applySession: vi.fn(async () => ({ telemetry: 'none', w3: false })),
+      elrsStatus: vi.fn(async () => ({ configured: true, detected: true })),
+    });
+    await loadRenderer(gs);
+    plugControllerAndVideo();
+
+    el('raceDayBtn').click();
+    await tick(); await tick(); await tick();
+
+    expect(activeStep()).toBe('grid');
+    const elrsRow = [...el('checkList').children].find((row) => labelOf(row) === 'ELRS CONTROL');
+    expect(elrsRow.className).toBe('checkrow ok');
+    expect(el('startBtn').disabled).toBe(false); // every row genuinely green
+    expect(activeStep()).toBe('grid');
+    expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(true);
+    expect(el('gridRadioNote').classList.contains('hidden')).toBe(false);
+  });
+
+  // Positive control B: the write DID land (telemetry.source === 'mapper-grpc'),
+  // so the TELEMETRY row exists this time — and it is red, because no live
+  // data has arrived in this test. This is the mechanism a prior review round
+  // believed would already catch a dead radio; it demonstrates that mechanism
+  // working exactly as designed WHEN a source is configured — which is
+  // precisely what cases A and C never have. This case's mapper step is a
+  // genuine 'running' claim, so the fix leaves it armed; TELEMETRY:fail is
+  // what actually withholds the session, same as the pre-existing "a red
+  // check does NOT start itself" behaviour.
+  it('CASE B (positive control) — source is mapper-grpc: the TELEMETRY row is red, so no auto-start either (unaffected by the fix)', async () => {
+    const settings = {
+      ...defaultSettings(), setupCompleted: true, fpvMode: 'solo', startLightsEnabled: false,
+    };
+    const gs = mockGsForDeadRadio(
+      deadRadioSnap({
+        steps: [
+          { id: 'hotspot', status: 'skipped', kind: 'own-wifi' },
+          { id: 'mapper', status: 'ok', kind: 'running' },
+          { id: 'telemetry', status: 'ok', kind: 'waiting' },
+          { id: 'bridge', status: 'skipped', kind: 'desktop-session' },
+        ],
+        link: { up: true },
+      }),
+      {
+        getSettings: vi.fn(async () => ({ settings, envOverridden: {} })),
+        applySession: vi.fn(async () => ({ telemetry: 'mapper-grpc', w3: false })),
+      },
+    );
+    await loadRenderer(gs);
+    plugControllerAndVideo();
+
+    el('raceDayBtn').click();
+    await tick(); await tick(); await tick();
+
+    expect(activeStep()).toBe('grid');
+    const telemetryRow = [...el('checkList').children].find((row) => labelOf(row) === 'TELEMETRY');
+    expect(telemetryRow.className).toBe('checkrow fail'); // no live data ever pushed in this test
+    expect(el('startBtn').disabled).toBe(true);
+    expect(activeStep()).toBe('grid');
+    expect(document.querySelector('.demoToggle').classList.contains('hidden')).toBe(true);
+    // This is the dead-radio line, not a telemetry line — it must stay
+    // hidden here (the mapper step is a genuine 'running' claim).
+    expect(el('gridRadioNote').classList.contains('hidden')).toBe(true);
   });
 });
 

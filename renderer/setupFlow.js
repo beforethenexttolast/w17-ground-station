@@ -303,7 +303,21 @@ if (raceDayBtn) {
     // that FAILED does nothing of the sort: the card is showing what went wrong
     // and the operator is needed there.
     if (res.ok) {
-      autoStartArmed = true;
+      // Owner ruling OD-19 addendum (2026-09-04, from the Opus re-verify):
+      // res.ok === true only means the sequence did not halt — a first
+      // bring-up whose window closes before the radio answers is ALSO ok
+      // (review blocking 2, 'link-not-yet'), and so is one this computer
+      // could not check at all ('link-unknown'). Neither is a claim the
+      // radio is up. That matters here because the GRID's TELEMETRY row —
+      // the only other thing that could catch a dead radio — does not exist
+      // while telemetry.source stays 'none' (every credential-skip path
+      // lands there), so arming on anything short of a confirmed link would
+      // auto-start a live cockpit over a car that cannot move, with no line
+      // anywhere saying why. Walk to the GRID either way — one press still
+      // gets there — but only auto-fire the last press on the positive claim.
+      const mapperStep = (res.snapshot && Array.isArray(res.snapshot.steps))
+        ? res.snapshot.steps.find((s) => s.id === 'mapper') : null;
+      autoStartArmed = !!mapperStep && mapperStep.kind === 'running';
       showStep('grid');
     }
   });
@@ -1741,6 +1755,27 @@ const announced = new Set();
 // real evidence. No new preflight packet type — this is the existing W2 sender.
 const GRID_W2_NOTE = 'The iPhone HUD begins receiving telemetry on GRID so you can verify it before START. Ping proves the network path only — live data visible on the iPhone is the final evidence.';
 
+// Owner ruling OD-19 addendum (2026-09-04, from the Opus re-verify). A first
+// bring-up whose window closes before the radio has come up is a pass, not a
+// fault (review blocking 2) — race day still walks the operator here. But the
+// GRID's own TELEMETRY row only exists once telemetry.source is something
+// other than 'none' (every credential-skip path leaves it there), so a dead
+// radio can otherwise show an all-green checklist with no line anywhere
+// saying the car will not move. This is that line, driven by the live
+// race-day snapshot (not the checklist), so it tracks the mapper step even
+// while GRID's own checks have nothing to say about it.
+const GRID_RADIO_NOTE = 'the radio has not come up yet — the car will not move until it does';
+
+function updateGridRadioNote() {
+  const note = el('gridRadioNote');
+  if (!note) return;
+  const mapperStep = (raceDaySnap && Array.isArray(raceDaySnap.steps))
+    ? raceDaySnap.steps.find((s) => s.id === 'mapper') : null;
+  const show = !!mapperStep && mapperStep.kind === 'link-not-yet';
+  note.textContent = show ? GRID_RADIO_NOTE : '';
+  note.classList.toggle('hidden', !show);
+}
+
 async function enterGrid() {
   gridEpoch += 1;
   const epoch = gridEpoch;
@@ -1753,6 +1788,7 @@ async function enterGrid() {
   const gridNote = el('gridNote');
   gridNote.textContent = mode === 'iphone-hud' ? GRID_W2_NOTE : '';
   gridNote.classList.toggle('hidden', mode !== 'iphone-hud');
+  updateGridRadioNote();
   const applied = gs ? await ipc(gs.applySession(), null, 'session:apply') : { telemetry: 'none' };
   // Left GRID while the session apply was in flight (audit D2): main has
   // applied the session (idempotent), but the checklist DOM and the 1 s poll
@@ -1798,6 +1834,10 @@ async function gridTick() {
   if (probing || !gs) return;
   probing = true;
   try {
+    // The radio can come up WHILE the operator is looking at this screen (the
+    // mirror upgrades the mapper step the moment the link answers) — the note
+    // has to follow that, not just the snapshot GRID entry saw.
+    updateGridRadioNote();
     const hud = hudStatus();
     const results = {
       'video-lock': hud.videoPlaying,

@@ -201,6 +201,30 @@ describe('raceDayHeadline / raceDayControls', () => {
     expect(raceDayHeadline(null)).toBeNull();
   });
 
+  // Owner ruling OD-19 addendum (2026-09-04). A first bring-up whose window
+  // closed before the radio answered is 'ok' (review blocking 2) — this must
+  // NOT read as the generic green headline (auto-START (renderer/setupFlow.js)
+  // relies on this line not lying), and must not read as a failure either.
+  it("a first-bring-up dead radio gets its own headline, in 'run' tone — never the green one", () => {
+    const deadRadio = [
+      step('hotspot', 'ok', 'verified'),
+      step('mapper', 'ok', 'link-not-yet'),
+      step('bridge', 'skipped', 'desktop-session'),
+    ];
+    expect(raceDayHeadline(snap(deadRadio)))
+      .toEqual({ text: 'ALMOST — THE RADIO IS STILL COMING UP; THE GRID WAITS FOR YOU', tone: 'run' });
+    // Once the mirror upgrades the mapper step (the radio answered this
+    // session), the ordinary green headline resumes.
+    const radioUp = deadRadio.map((s) => (s.id === 'mapper' ? step('mapper', 'ok', 'running') : s));
+    expect(raceDayHeadline(snap(radioUp)))
+      .toEqual({ text: 'EVERYTHING IS UP — STRAIGHT TO THE GRID when ready', tone: 'ok' });
+    // 'link-unknown' (no probe on this computer) is a DIFFERENT honest gap —
+    // still the ordinary green headline, unchanged by this addendum.
+    const unknownLink = deadRadio.map((s) => (s.id === 'mapper' ? step('mapper', 'ok', 'link-unknown') : s));
+    expect(raceDayHeadline(snap(unknownLink)))
+      .toEqual({ text: 'EVERYTHING IS UP — STRAIGHT TO THE GRID when ready', tone: 'ok' });
+  });
+
   it('START disables only while the bring-up runs; STOP shows only with a managed drive program alive', () => {
     expect(raceDayControls(snap(allIdle))).toEqual({ startDisabled: false, stopVisible: false });
     expect(raceDayControls(snap(allIdle, { running: true }))).toEqual({ startDisabled: true, stopVisible: false });

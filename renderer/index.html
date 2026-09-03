@@ -521,6 +521,12 @@
            telemetry on GRID entry so the operator can confirm live data on the
            phone before START. Ping proves the path only. -->
       <div class="hint hidden" id="gridNote"></div>
+      <!-- Owner ruling OD-19 addendum (2026-09-04): a first bring-up whose
+           radio has not come up yet still walks the operator here (one press
+           still gets there), but nothing else on this screen says why the car
+           will not move — the TELEMETRY row does not exist while
+           telemetry.source stays 'none'. This line is the one that does. -->
+      <div class="hint hidden" id="gridRadioNote"></div>
       <div class="checklist" id="checkList"></div>
       <div class="gridbtns">
         <button class="startbtn" id="startBtn">START</button>

@@ -245,6 +245,17 @@ export function raceDayHeadline(snap) {
     const statuses = snap.steps.map((s) => s.status);
     if (snap.running) return { text: 'BRINGING EVERYTHING UP…', tone: 'run' };
     if (statuses.includes('fail')) return { text: 'SOMETHING NEEDS ATTENTION — see below', tone: 'fail' };
+    // Owner ruling OD-19 addendum (2026-09-04). A first bring-up whose window
+    // closed before the radio answered is 'ok' (review blocking 2) — nothing
+    // failed — but "EVERYTHING IS UP" is not true yet either, and this
+    // headline is the only thing on the GARAGE that speaks before the
+    // operator opens the step rows. Checked before the generic 'ok' line so a
+    // dead radio never reads as a green light. Tone stays 'run': the mirror
+    // above still upgrades this the moment the radio answers this session.
+    const mapper = snap.steps.find((s) => s.id === 'mapper');
+    if (mapper && mapper.status === 'ok' && mapper.kind === 'link-not-yet') {
+        return { text: 'ALMOST — THE RADIO IS STILL COMING UP; THE GRID WAITS FOR YOU', tone: 'run' };
+    }
     if (statuses.includes('ok')) return { text: 'EVERYTHING IS UP — STRAIGHT TO THE GRID when ready', tone: 'ok' };
     return null; // all idle/pending-never-run: no claim to make
 }
