@@ -199,29 +199,52 @@ function Invoke-W17Command {
     }
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
-    $stdout = New-Object System.Text.StringBuilder
-    $stderr = New-Object System.Text.StringBuilder
-    # KNOWN-UNCERTAIN (not yet observed on a real guest): -Action script blocks
-    # run on the PowerShell event queue, which this function then blocks on in
-    # WaitForExit. If a runspace-scheduling stall ever swallows output, the
-    # worst case is an EMPTY stdout -> a false FAIL that the caller reports
-    # cleanly, never a crash or a false PASS. 50-race-day.ps1's post-exit flush
-    # sleep exists for the same reason. [win-TBD] until a real run confirms it.
-    $outEvt = Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action { if ($EventArgs.Data -ne $null) { $Event.MessageData.AppendLine($EventArgs.Data) | Out-Null } } -MessageData $stdout
-    $errEvt = Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action { if ($EventArgs.Data -ne $null) { $Event.MessageData.AppendLine($EventArgs.Data) | Out-Null } } -MessageData $stderr
+    # Output capture uses .NET's OWN async readers (StandardOutput
+    # .ReadToEndAsync, started BEFORE WaitForExit so the pipes drain
+    # concurrently and a chatty child can never deadlock on a full pipe
+    # buffer). It deliberately does NOT use Register-ObjectEvent -Action +
+    # BeginOutputReadLine, which is what this function used to do.
+    #
+    # That is not a style preference. -Action script blocks are dispatched by
+    # the PowerShell EVENT QUEUE, and this function then blocks the pipeline
+    # thread inside WaitForExit — so the queue never pumps while the child is
+    # alive, and WaitForExit(int) (unlike the parameterless overload) does not
+    # wait for the async readers to drain either. Measured, three ways, under
+    # pwsh 7.7.0-preview.4 against a child that printed two lines:
+    #   (a) the old code                          -> 0 chars captured
+    #   (b) old code + a 1 s post-exit flush sleep -> 18 chars, but ORDER
+    #       SCRAMBLED ("LINE_TWO|LINE_ONE") — the handler runspaces append to
+    #       the StringBuilder out of order
+    #   (c) this code (ReadToEndAsync)             -> 18 chars, correct order
+    # (a) is what shipped: EVERY Invoke-W17Command returned an empty stdout, so
+    # every probe wrapper in this suite saw `no-result-line` and every script
+    # FAILed for the wrong reason. This was recorded as non-blocking N13
+    # ("worst case is an empty stdout"); executing it showed the worst case was
+    # the ONLY case. (b) is the shape 50-race-day.ps1's flush sleep was
+    # reaching for, and it corrupts line order. Hence (c).
     try {
         $proc.Start() | Out-Null
-        $proc.BeginOutputReadLine()
-        $proc.BeginErrorReadLine()
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
         $finished = $proc.WaitForExit($TimeoutSec * 1000)
         if (-not $finished) {
+            # Tree-kill, the argv the app itself uses at main/runCommand.js:14
+            # (`winTreeKillArgs` -> `/pid <pid> /t /f`). Kill($true) is the
+            # backstop: taskkill.exe does not exist off Windows, and if it
+            # fails for any reason an orphaned child would block run-all.
             try { Start-Process -FilePath 'taskkill' -ArgumentList @('/pid', "$($proc.Id)", '/t', '/f') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue } catch {}
-            return [pscustomobject]@{ ok = $false; exitCode = $null; stdout = $stdout.ToString(); stderr = $stderr.ToString(); timedOut = $true }
+            try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch {}
         }
-        return [pscustomobject]@{ ok = ($proc.ExitCode -eq 0); exitCode = $proc.ExitCode; stdout = $stdout.ToString(); stderr = $stderr.ToString(); timedOut = $false }
+        # Whatever the child managed to write before it exited or was killed is
+        # still worth reporting, so both tasks are given a bounded wait and an
+        # incomplete one yields '' rather than blocking on .Result forever.
+        $outText = if ($outTask.Wait(5000)) { $outTask.Result } else { '' }
+        $errText = if ($errTask.Wait(5000)) { $errTask.Result } else { '' }
+        if (-not $finished) {
+            return [pscustomobject]@{ ok = $false; exitCode = $null; stdout = $outText; stderr = $errText; timedOut = $true }
+        }
+        return [pscustomobject]@{ ok = ($proc.ExitCode -eq 0); exitCode = $proc.ExitCode; stdout = $outText; stderr = $errText; timedOut = $false }
     } finally {
-        Unregister-Event -SourceIdentifier $outEvt.Name -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $errEvt.Name -ErrorAction SilentlyContinue
         $proc.Dispose()
     }
 }
