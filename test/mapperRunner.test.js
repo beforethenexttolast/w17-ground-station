@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { MapperRunner, RING_LIMIT, LINE_LIMIT } = require('../main/mapperRunner.js');
+const { MapperRunner, RING_LIMIT, LINE_LIMIT, MESSAGE_LIMIT } = require('../main/mapperRunner.js');
 
 // Fake child seam: no real process is ever spawned in this suite (workspace
 // rule — race-day tests run everywhere, including CI containers).
@@ -270,5 +270,187 @@ describe('MapperRunner — bounded diagnostics ring', () => {
         child().stdout.emit('data', Buffer.from('a\n'));
         runner.logTail().push('injected');
         expect(runner.logTail()).toEqual(['[out] a']);
+    });
+});
+
+// --- Review correctness-5 + lifecycle-concurrency-3: stop TRUTH -------------
+// Two defects with one shape: the runner said things about the stop that were
+// not so. kill() returns FALSE when the signal was not delivered (ESRCH/EPERM)
+// and the boolean was discarded, so a kill that never landed read as a clean
+// stop; and the card was told nothing until the child's 'exit' arrived, so the
+// red STOP button survived its own press.
+//
+// A manual clock: no timer in this suite is real, so escalation is exercised
+// deterministically and `taskkill` is a spy — nothing is ever spawned.
+function clockHarness({ deliver = true, platform = 'linux' } = {}) {
+    const timers = new Map();
+    let nextId = 1;
+    let child = null;
+    const killTree = vi.fn(() => Promise.resolve({ ok: true }));
+    const logs = [];
+    const runner = new MapperRunner({
+        spawnFn: () => {
+            child = new EventEmitter();
+            child.pid = 4242;
+            child.stdout = new EventEmitter();
+            child.stderr = new EventEmitter();
+            // Deliberately does NOT exit: this harness drives the stop clock.
+            child.kill = vi.fn(() => deliver);
+            return child;
+        },
+        existsSync: () => true,
+        platform,
+        killTree,
+        schedule: (fn, ms) => { const id = nextId++; timers.set(id, { fn, ms }); return id; },
+        cancelTimer: (id) => timers.delete(id),
+        log: (m) => logs.push(m),
+    });
+    // Fire every timer currently pending (one generation at a time, so an
+    // escalation that arms the next timer does not run away).
+    const fire = () => {
+        const due = [...timers.entries()];
+        timers.clear();
+        for (const [, t] of due) t.fn();
+    };
+    return {
+        runner, killTree, logs, fire, child: () => child, pending: () => timers.size,
+    };
+}
+
+describe('MapperRunner — stop truth (review correctness-5 / lifecycle-concurrency-3)', () => {
+    it('lifecycle-concurrency-3: a requested stop reports running:false ON THE PRESS, not on the exit', () => {
+        const { runner, child } = clockHarness();
+        const seen = [];
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.onChange((st) => seen.push(st));
+        expect(runner.status().running).toBe(true);
+        const res = runner.stop();
+        expect(res).toEqual({ ok: true, stopped: true });
+        // The child has NOT exited yet (no 'exit' emitted) …
+        expect(child().kill).toHaveBeenCalledTimes(1);
+        // … and the card is already told, which is what makes the red STOP
+        // button disappear on the press instead of on the next one.
+        expect(runner.status()).toMatchObject({ running: false, stopping: true, stopFailed: false });
+        expect(seen).toHaveLength(1);
+        expect(seen[0].running).toBe(false);
+    });
+
+    it('a second stop while one is in flight does not re-signal the child', () => {
+        const { runner, child } = clockHarness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.stop();
+        expect(runner.stop()).toEqual({ ok: true, stopped: true, pending: true });
+        expect(child().kill).toHaveBeenCalledTimes(1);
+    });
+
+    it('correctness-5: kill() returning FALSE is a FAILED stop, not a clean one', () => {
+        const { runner } = clockHarness({ deliver: false });
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        const res = runner.stop();
+        expect(res.ok).toBe(false);
+        expect(res.kind).toBe('stop-failed');
+        // …and it escalates at once rather than waiting out the polite window.
+        expect(runner.status().stopping).toBe(true);
+    });
+
+    it('correctness-5: a stop the child ignores escalates to SIGKILL, then says so instead of lying', () => {
+        const { runner, child, fire } = clockHarness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.stop();
+        expect(child().kill).toHaveBeenCalledTimes(1);
+        fire(); // ESCALATE_MS
+        expect(child().kill).toHaveBeenCalledTimes(2);
+        expect(child().kill).toHaveBeenLastCalledWith('SIGKILL');
+        // Still no exit: the give-up window closes and the runner reports the
+        // program as ALIVE again — the card must never show a stopped state
+        // over a live drive program.
+        fire(); // GIVE_UP_MS
+        expect(runner.status()).toMatchObject({ running: true, stopping: false, stopFailed: true });
+    });
+
+    it('on Windows the escalation is a process-TREE kill, never a bare signal', () => {
+        const { runner, killTree, child, fire } = clockHarness({ platform: 'win32' });
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.stop();
+        fire();
+        expect(killTree).toHaveBeenCalledWith(4242);
+        // The bare kill() was the polite request only — no second signal.
+        expect(child().kill).toHaveBeenCalledTimes(1);
+    });
+
+    it('an exit that lands first cancels the escalation (a reused pid is never signalled)', () => {
+        const { runner, child, killTree, pending } = clockHarness({ platform: 'win32' });
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.stop();
+        expect(pending()).toBe(1);
+        child().emit('exit', null, 'SIGTERM');
+        expect(pending()).toBe(0);
+        expect(killTree).not.toHaveBeenCalled();
+        expect(runner.status()).toMatchObject({ running: false, stopping: false, stopFailed: false, stoppedByUs: true });
+    });
+
+    it('a stop-failed runner recovers honestly if the child does finally die', () => {
+        const { runner, child, fire } = clockHarness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        runner.stop();
+        fire();
+        fire();
+        expect(runner.status().stopFailed).toBe(true);
+        child().emit('exit', null, 'SIGKILL');
+        expect(runner.status()).toMatchObject({ running: false, stopFailed: false, stopping: false });
+    });
+});
+
+// --- The child's own last word (orchestrator addition, mapper branch A) -----
+// The mapper now exits 1 with ONE plain sentence when the saved profile still
+// carries its REPLACE-WITH-* placeholders. Race day must be able to show that
+// sentence: "stopped on its own — press RACE DAY to bring it back" would send
+// the operator round a loop that can never succeed.
+describe('MapperRunner — the exit message the child itself printed', () => {
+    it('carries the last line of a self-death, cleaned of stream tag and control characters', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from(
+            '\x1b[31mthis saved profile has not been matched to this computer yet\x1b[0m\n',
+        ));
+        child().emit('exit', 1, null);
+        await tick();
+        expect(runner.status().exitMessage)
+            .toBe('this saved profile has not been matched to this computer yet');
+        expect(runner.status().exitCode).toBe(1);
+    });
+
+    it('a stop WE asked for carries no message (there is nothing to explain)', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from('listening\n'));
+        runner.stop();
+        await tick();
+        expect(runner.status().exitMessage).toBeNull();
+    });
+
+    it('a silent death carries null, and a long line is capped', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().emit('exit', 1, null);
+        await tick();
+        expect(runner.status().exitMessage).toBeNull();
+
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from(`${'x'.repeat(1000)}\n`));
+        child().emit('exit', 1, null);
+        await tick();
+        expect(runner.status().exitMessage).toHaveLength(MESSAGE_LIMIT);
+    });
+
+    it('a fresh start clears the previous run\'s message', async () => {
+        const { runner, child } = harness();
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        child().stdout.emit('data', Buffer.from('bad profile\n'));
+        child().emit('exit', 1, null);
+        await tick();
+        expect(runner.status().exitMessage).toBe('bad profile');
+        runner.start({ binaryPath: '/opt/w17/mapper' });
+        expect(runner.status().exitMessage).toBeNull();
     });
 });
