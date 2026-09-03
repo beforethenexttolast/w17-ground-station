@@ -38,7 +38,15 @@ they do:
   (WHEP/HTTP, what the HUD's video element actually connects to), and UDP `8189` (WebRTC
   ICE). This is what makes the video pipeline work at all — if this prompt is dismissed
   with "Cancel" instead of "Allow access," the picture will not appear (a soft-fail, not a
-  crash — the HUD, controller, and telemetry keep working).
+  crash — the HUD, controller, and telemetry keep working). `[fix-wave: correctness-4]`
+  **Today's truth, a narrower case than the firewall prompt above:** that soft-fail only
+  covers a *missing* binary (`main/mediamtx.js` checks `existsSync` before spawning) or one
+  that spawns and later exits (auto-restarted). A binary that is *present but cannot run at
+  all* — e.g. quarantined by antivirus/SmartScreen without being deleted — hits a spawn
+  that fails asynchronously with an `'error'` event, and `MediamtxSupervisor._spawn()`
+  (`main/mediamtx.js:52-58`) attaches `stdout`/`stderr`/`exit` handlers but no `'error'`
+  handler. That is an uncaught exception in the main process today, not the soft-fail
+  described above — do not assume this shape degrades gracefully until that fix lands.
 
 **Tell the giftee in advance:** click **Allow access** (Private networks is enough — the
 gift's use case is a private/hotspot network, never a public one) for both prompts if they
