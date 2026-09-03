@@ -11,9 +11,8 @@
 > This copy supersedes the earlier camelCase/port-48017 draft that previously
 > lived in this file (W1); that draft is obsolete.
 >
-> **Sync record:** mirrored 2026-09-03 from canonical revision
-> `61ad68f7ebe4706fdb9e5732c8598ff1e0abac2c` ("docs(windows-bridge-contract):
-> drop stale PROTOCOL_CONTRACT.md from canonical file's own list", `iPhone_rc`
+> **Sync record:** mirrored 2026-09-04 from canonical revision
+> `7aaf2cf13501b38c9d5d70fee9d9d225c7821fd0` ("test(gate): flag raw BSD sockets at creation and at every send-shaped call, not by descriptor name", `iPhone_rc`
 > branch `main`). That revision removes one stale line from this document's
 > own Related-documents list — a stale entry pointing at
 > `docs/PROTOCOL_CONTRACT.md`, now a redirect stub superseded by this
