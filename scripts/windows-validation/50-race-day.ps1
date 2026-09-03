@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
   W17 Windows-VM validation, step 50: exercise race day's mapper step end to
@@ -7,16 +7,25 @@
   (w17-mapper.v2report.json's MAP-1/MAP-2/MAP-8, and
   w17-ground-station.v2report.json's own SYN-2/boundaries-3/boundaries-4/
   boundaries-5 — several of these are the SAME underlying defect confirmed
-  independently from each repo's own review pass) — this step is EXPECTED
-  TO FAIL against today's code; that failure IS the finding being exposed,
-  not a bug in this script.
+  independently from each repo's own review pass).
+
+  HOW TO READ THIS STEP'S PASS/FAIL (review finding N3). The structural
+  findings below reproduce on EVERY run until the fix wave lands, so they no
+  longer set the exit code: they are recorded in data.expectedFindingsReproduced
+  and in the result's `findings` list, and the step still reports ok. Only an
+  UNEXPECTED result — a mapper crash, an argv/whitelist shape that no longer
+  matches the orchestrator's own exported constant, a stop() that leaves the
+  mapper running, an orphaned pid, a probe that refuses — turns this step red.
+  Before this change every run was red, which made the "ran clean" branch dead
+  code and, worse, made a genuine new regression indistinguishable from the
+  finding the suite already knows about.
 
 .DESCRIPTION
   MAP-1 (blocker, mapper repo) — `-config-file-path` double-wraps the
   committed profile: grpc_client.go:57-62 puts the WHOLE staged file into
   SetConfigReq.Config; server_grpc.go:103-104 re-marshals that into
   {"config": <file>}; configs/w17-ds4.json already carries that wrapper;
-  pkg/config/schema.yaml then rejects the doubled document; grpc_client.go:63
+  pkg/config/schema.yaml then rejects the doubled document; grpc_client.go:64
   panics. The mapper race day spawns is therefore expected to crash shortly
   after launch.
 
@@ -35,7 +44,21 @@
   MAP-8 (high, mapper repo) / boundaries-3 (medium, GS repo) — mapper gRPC
   :10000 (reflection on) and the grpc-web UI :3000 bind all interfaces,
   unauthenticated, reachable from the hotspot the ground station itself
-  creates. This script is the one place in the suite that can observe those
+  creates.
+
+  WHAT THAT EXPOSURE MEANS WHILE THIS SCRIPT RUNS (stated plainly rather than
+  left implicit, per the B4 review's safety note): for the seconds the mapper
+  is alive here, an unauthenticated gRPC server is listening on all
+  interfaces, and StartLink — the ONE RPC that opens the COM port and starts
+  transmitting CRSF (pkg/serial/port.go Open() is reachable only from
+  pkg/server/server_grpc.go's StartLink handler) — is among the RPCs it
+  exposes, with reflection on. NOTHING in this suite calls it, and nothing in
+  the ground station has a client that could: main/HeadIntentDiagnosticsClient
+  .js is this app's only gRPC client and speaks a different, one-way, W3
+  diagnostics-only channel. So the suite's "no serial port is ever opened"
+  claim holds by construction. But the window is real, it is what MAP-8
+  describes, and it is a reason to run this step on a NAT'd VM with the car
+  unpowered and the RX unbound — not on a shared network with a live car. This script is the one place in the suite that can observe those
   ports LIVE, because 20-mapper-stage.ps1 never starts the mapper (it only
   stages settings) and this script's own probe stops the mapper again before
   returning control — so port evidence is gathered by POLLING
@@ -115,6 +138,10 @@ if (-not $UserDataDir) { $UserDataDir = Get-W17DefaultUserDataDir }
 $data = [ordered]@{ installDir = $InstallDir; userDataDir = $UserDataDir; mapperWaitMs = $MapperWaitMs }
 $findings = New-Object System.Collections.Generic.List[string]
 $failures = New-Object System.Collections.Generic.List[string]
+# N3: findings this suite EXPECTS to reproduce until the fix wave lands. They
+# are recorded and printed, but they do NOT set ok=$false — otherwise a real
+# regression looks exactly like the known one.
+$expected = New-Object System.Collections.Generic.List[string]
 
 $exePath = Join-Path $InstallDir 'W17 Ground Station.exe'
 $asarPath = Join-Path $InstallDir 'resources\app.asar'
@@ -155,14 +182,26 @@ if (-not $prepMapperPath -or -not $prepProfilePath) {
 }
 
 # --- GRID-launch env-scrub gap: documented as a code fact, not live-exercised
-# (see .DESCRIPTION for why). CONFIRMED findings boundaries-4 (the gap itself)
-# and boundaries-5 (the scrub is ALSO case-sensitive, which Windows env names
-# are not) from w17-ground-station.v2report.json. ---------------------------
+# (see .DESCRIPTION for why). boundaries-4 (the gap itself) is CONFIRMED in
+# w17-ground-station.v2report.json; boundaries-5 (the scrub is ALSO
+# case-sensitive, which Windows env names are not) is UNVERIFIED-LOW there,
+# NOT confirmed — review finding N4. Its own residual says why: the Windows
+# case-insensitivity of os.LookupEnv on the mapper side
+# (w17-mapper/cmd/elrs-joystick-control/main.go:30-36) was reasoned from the
+# platform, not observed. THIS SUITE IS WHERE THAT COULD BE SETTLED: on the
+# guest, `setx w17_headtrack_ingest 1`, open a new shell, and re-run this step
+# — if the mapper picks the flag up, boundaries-5 is confirmed. That is a
+# deliberate one-line env experiment for a supervised run, not something this
+# script does on its own (it would leave a persistent user-environment
+# variable behind on the guest), so it stays [win-TBD] and is written up in
+# the workspace runbook rather than automated here. -------------------------
 $findings.Add('boundaries-4')
 $findings.Add('boundaries-5')
 $data.gridLaunchEnvScrubGap = [ordered]@{
     claim                  = 'GRID launch (main/elrsLauncher.js launchDetached()) inherits this app''s FULL, unscrubbed process.env; race day''s managed launch (main/mapperRunner.js _childEnv()) strips the entire W17_* class first — and even that strip is CASE-SENSITIVE (boundaries-5) while Windows environment-variable names are not, so a mixed-case w17_headtrack_ingest could survive race day''s own scrub too.'
-    evidenceGridLaunch     = 'main/elrsLauncher.js:26-31 — spawn(elrsPath, [], {detached:true, stdio:"ignore", cwd:path.dirname(elrsPath), windowsHide:false}) — no env key at all, so Node child_process defaults to inheriting process.env verbatim, and no argv either (nothing here is even whitelisted, unlike race day). boundaries-4.'
+    boundaries4Status      = 'CONFIRMED (w17-ground-station.v2report.json)'
+    boundaries5Status      = 'UNVERIFIED-LOW (w17-ground-station.v2report.json) — NOT confirmed. The case-sensitivity of the JS-side scrub is plain in the code; what is unobserved is whether the mapper''s Go-side os.LookupEnv is case-insensitive on Windows. Settling it needs `setx w17_headtrack_ingest 1` on the guest and a re-run — a supervised experiment, not part of this automated step. [win-TBD]'
+    evidenceGridLaunch     = 'main/elrsLauncher.js:30-35 — spawn(elrsPath, [], {detached:true, stdio:"ignore", cwd:path.dirname(elrsPath), windowsHide:false}) — no env key at all, so Node child_process defaults to inheriting process.env verbatim, and no argv either (nothing here is even whitelisted, unlike race day). boundaries-4.'
     evidenceRaceDay        = 'main/mapperRunner.js _childEnv() — copies process.env but skips only keys whose name STARTS WITH the literal, uppercase "W17_" (ordinal StartsWith) before spawning — boundaries-5: a "w17_headtrack_ingest" would not match that check and would ride through even race day''s own scrub.'
     onlyKnownAffectedFlag  = 'w17-mapper cmd/elrs-joystick-control/main.go — the -headtrack-ingest flag defaults from env W17_HEADTRACK_INGEST (envTruthy helper) when no CLI flag is given; GRID launch passes NO CLI flags at all, so an ambient W17_HEADTRACK_INGEST on this machine silently changes GRID''s launch in a way race day''s launch never can (LOG-ONLY receiver, CLAUDE.md safety boundary 5 — enabling it changes nothing control-relevant, but the SILENT, ambient-environment nature of the toggle is the gap being flagged).'
     exercisedLive          = $false
@@ -207,17 +246,37 @@ foreach ($k in $scrubbedEnv.Keys) { $psi.EnvironmentVariables[$k] = $scrubbedEnv
 
 $proc = New-Object System.Diagnostics.Process
 $proc.StartInfo = $psi
-$stdoutBuf = New-Object System.Text.StringBuilder
-$stderrBuf = New-Object System.Text.StringBuilder
-$outEvt = Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action { if ($null -ne $EventArgs.Data) { $Event.MessageData.AppendLine($EventArgs.Data) | Out-Null } } -MessageData $stdoutBuf
-$errEvt = Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action { if ($null -ne $EventArgs.Data) { $Event.MessageData.AppendLine($EventArgs.Data) | Out-Null } } -MessageData $stderrBuf
 
 $hardTimeoutSec = [math]::Ceiling($MapperWaitMs / 1000) + 30
+# NOTE on List[object] and @(): this is a List[object], and `@($portSamples)`
+# THROWS "Argument types do not match" on pwsh 7.7.0-preview.4 (measured; the
+# same expression is fine for List[string] and List[int], and .ToArray(),
+# foreach, the pipeline and an [object[]] cast all work on the very same
+# List[object] — so it is a regression in the array-subexpression operator in
+# that preview build, not a defect in this logic). Whether it reproduces on
+# the 7.4/7.5 a guest gets from `winget install Microsoft.PowerShell` is
+# [win-TBD]. .ToArray() is used below instead: it is version-independent,
+# costs nothing, and keeps the suite off a construct that has proven
+# version-sensitive in at least one shipping PowerShell 7.
 $portSamples = New-Object System.Collections.Generic.List[object]
 
 $proc.Start() | Out-Null
-$proc.BeginOutputReadLine()
-$proc.BeginErrorReadLine()
+# B7 — .NET's own async readers, started immediately after Start() and BEFORE
+# any blocking wait, exactly as in lib/common.ps1's Invoke-W17Command. This
+# file used to do its own Register-ObjectEvent -Action + BeginOutputReadLine
+# capture, which measurably captures NOTHING while the pipeline thread is
+# blocked (the -Action blocks are dispatched by the PowerShell event queue,
+# which cannot pump then): with a child printing two lines it returned 0
+# characters, and with a post-exit flush sleep it returned both lines in the
+# WRONG ORDER. The 200 ms "let the async output events flush" sleep below was
+# reaching for that second, still-broken behaviour and is gone. An empty
+# stdout here would have meant no RACEDAY_PROBE_RESULT line and therefore a
+# wrong FAIL on every single run of this step, whatever the mapper actually
+# did. Reading concurrently also removes the pipe-buffer deadlock risk, which
+# matters more here than anywhere else in the suite: this child prints the
+# mapper's own log tail.
+$outTask = $proc.StandardOutput.ReadToEndAsync()
+$errTask = $proc.StandardError.ReadToEndAsync()
 
 # Concurrent host-side port observation (MAP-8 evidence) while the mapper is
 # (potentially) alive.
@@ -238,12 +297,10 @@ while (-not $proc.HasExited -and (Get-Date) -lt $pollDeadline) {
 $finished = $proc.WaitForExit($hardTimeoutSec * 1000)
 if (-not $finished) {
     try { Start-Process -FilePath 'taskkill' -ArgumentList @('/pid', "$($proc.Id)", '/t', '/f') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue } catch {}
+    try { if (-not $proc.HasExited) { $proc.Kill($true) } } catch {}
 }
-Start-Sleep -Milliseconds 200 # let the async output events flush
-Unregister-Event -SourceIdentifier $outEvt.Name -ErrorAction SilentlyContinue
-Unregister-Event -SourceIdentifier $errEvt.Name -ErrorAction SilentlyContinue
 
-$data.portListenersObservedWhileRunning = @($portSamples)
+$data.portListenersObservedWhileRunning = $portSamples.ToArray()
 if ($portSamples.Count -gt 0) {
     $findings.Add('MAP-8')
     $findings.Add('boundaries-3')
@@ -252,8 +309,10 @@ if ($portSamples.Count -gt 0) {
     $data.portObservationNote = 'no LISTENING socket seen on 10000/3000 during the poll window — either the mapper crashed before binding them (consistent with MAP-1) or the poll missed a narrow window; NOT itself proof the ports are unreachable when the mapper does survive long enough to bind them.'
 }
 
-$probeOut = $stdoutBuf.ToString()
-$probeErr = $stderrBuf.ToString()
+# Bounded waits, then whatever the child managed to write: an incomplete task
+# yields '' rather than blocking on .Result forever.
+$probeOut = if ($outTask.Wait(5000)) { $outTask.Result } else { '' }
+$probeErr = if ($errTask.Wait(5000)) { $errTask.Result } else { '' }
 $data.probeTimedOut = -not $finished
 $data.probeExitCode = if ($finished) { $proc.ExitCode } else { $null }
 $data.probeStderrTail = (($probeErr -split "`r`n|`n") | Select-Object -Last 40) -join "`n"
@@ -264,16 +323,27 @@ if ($resultLine) {
     try { $probe = ($resultLine -replace '^RACEDAY_PROBE_RESULT:\s*', '') | ConvertFrom-Json } catch { }
 }
 
-if (-not $probe) {
-    $failures.Add("race-day-probe.js produced no parseable result (timed out: $(-not $finished); exit code: $($data.probeExitCode)) — see probeStderrTail")
+# B2 — the guard is `-not $probe -OR -not $probe.ok`, and every dereference
+# below goes through Get-W17Prop. lib/race-day-probe.js's refusal path emits a
+# PARSEABLE `RACEDAY_PROBE_RESULT: {"ok":false,"kind":…,"error":…}` line with
+# no `crashSuspected` key, so `if (-not $probe)` was FALSE for it and the very
+# next line dereferenced a property that does not exist — which throws under
+# `Set-StrictMode -Version Latest` (measured). The result was a raw PowerShell
+# stack trace with no W17VAL_RESULT envelope and no Save-W17Result, and
+# run-all reporting "no result JSON written" instead of the reason. This fired
+# on the MOST LIKELY outcomes: not-staged, module-load-failed, and both
+# out-of-scope guards.
+$data.probe = $probe
+if (-not $probe -or -not (Get-W17Prop $probe 'ok' $false)) {
+    $failures.Add("race-day-probe.js did not return a usable result: $(Get-W17ProbeReason $probe) (timed out: $(-not $finished); exit code: $($data.probeExitCode)) — see probeStderrTail")
 } else {
-    $data.probe = $probe
 
-    if ($probe.crashSuspected) {
+    if (Get-W17Prop $probe 'crashSuspected' $false) {
         $findings.Add('MAP-1')
-        $tail = @($probe.mapperLogTail) | Select-Object -Last 5
-        $failures.Add("the mapper CRASHED after race day launched it with the staged profile (MAP-1: -config-file-path double-wraps the profile against pkg/config/schema.yaml, SetConfig is rejected, grpc_client.go panics) — exitCode=$($probe.mapperStatusAfterWait.exitCode); log tail: $($tail -join ' | ')")
-    } elseif (-not $probe.mapperSurvivedWaitWindow) {
+        $tail = @(Get-W17Prop $probe 'mapperLogTail' @()) | Select-Object -Last 5
+        $exitCode = Get-W17Prop (Get-W17Prop $probe 'mapperStatusAfterWait') 'exitCode' '(not reported)'
+        $failures.Add("the mapper CRASHED after race day launched it with the staged profile (MAP-1: -config-file-path double-wraps the profile against pkg/config/schema.yaml, SetConfig is rejected, grpc_client.go panics) — exitCode=$exitCode; log tail: $($tail -join ' | ')")
+    } elseif (-not (Get-W17Prop $probe 'mapperSurvivedWaitWindow' $false)) {
         # Exited, but stoppedByUs / clean — not itself MAP-1, still worth a note.
         $data.mapperExitedCleanNote = 'mapper exited during the wait window but not flagged as a crash (stoppedByUs or exitCode 0) — see probe.mapperStatusAfterWait'
     }
@@ -281,19 +351,32 @@ if (-not $probe) {
     # MAP-2: a STRUCTURAL fact, checked every run via the orchestrator's own
     # exported constant + pure builder (captured by the probe, not
     # re-derived here) — true regardless of whether MAP-1 reproduced above.
-    $whitelistIsExactlyConfigFlag = @($probe.mapperArgWhitelist).Count -eq 1 -and $probe.mapperArgWhitelist[0] -eq '-config-file-path'
-    $argvMatchesExpected = $probe.argvCheck.ok -and (@($probe.argvCheck.argv) -join '|') -eq "-config-file-path|$prepProfilePath"
+    $whitelist = @(Get-W17Prop $probe 'mapperArgWhitelist' @())
+    $argvCheck = Get-W17Prop $probe 'argvCheck'
+    $whitelistIsExactlyConfigFlag = $whitelist.Count -eq 1 -and $whitelist[0] -eq '-config-file-path'
+    $argvMatchesExpected = (Get-W17Prop $argvCheck 'ok' $false) -and ((@(Get-W17Prop $argvCheck 'argv' @()) -join '|') -eq "-config-file-path|$prepProfilePath")
     $data.mapperArgvIsWhitelistOnly = ($whitelistIsExactlyConfigFlag -and $argvMatchesExpected)
     if (-not $data.mapperArgvIsWhitelistOnly) {
-        $failures.Add("unexpected: the captured argv/whitelist did not match the expected shape (whitelist=$($probe.mapperArgWhitelist -join ','); argvCheck=$($probe.argvCheck | ConvertTo-Json -Compress)) — re-check this script against raceDayOrchestrator.js, something moved")
+        $failures.Add("unexpected: the captured argv/whitelist did not match the expected shape (whitelist=$($whitelist -join ','); argvCheck=$(if ($argvCheck) { $argvCheck | ConvertTo-Json -Compress -Depth 6 } else { '(absent)' })) — re-check this script against raceDayOrchestrator.js, something moved")
     }
+    # N3 — MAP-2/SYN-2 is a STRUCTURAL fact that reproduces on EVERY run until
+    # the fix wave lands. It used to go into $failures unconditionally, which
+    # made three things wrong at once: this script could never report ok, the
+    # "ran clean" summary below was dead code, and — worst — a genuine NEW
+    # regression was indistinguishable from the expected structural finding,
+    # because both showed up as the same red [FAIL] line. It now goes into a
+    # separate expectedFindings channel that does NOT set the exit code, so a
+    # red line from this step again means "something is wrong that we did not
+    # already know about".
     $findings.Add('MAP-2')
     $findings.Add('SYN-2')
-    $failures.Add('MAP-2/SYN-2 (structural, every run): MAPPER_ARG_WHITELIST is exactly ["-config-file-path"] (raceDayOrchestrator.js) and no GS code path ever calls the mapper''s StartLink RPC (main/*.js has no JoystickControl gRPC client) — so even a mapper that survives race day''s launch never drives the RF link, and the COM port is never opened by race day either. This will keep failing until the mapper/GS fix wave (owner decision D1 first, per the review) lands the remediation.')
+    $expected.Add('MAP-2/SYN-2 (structural, reproduces every run until the fix wave lands): MAPPER_ARG_WHITELIST is exactly ["-config-file-path"] (raceDayOrchestrator.js:44) and no GS code path ever calls the mapper''s StartLink RPC (main/*.js has no JoystickControl gRPC client) — so even a mapper that survives race day''s launch never drives the RF link, and the COM port is never opened by race day either. Owner decision D1 first, per the review.')
 
-    if ($null -ne $probe.stopResult) {
-        $data.stopResult = $probe.stopResult
-        if (-not ($probe.finalMapperStatus -and -not $probe.finalMapperStatus.running)) {
+    $stopResult = Get-W17Prop $probe 'stopResult'
+    if ($null -ne $stopResult) {
+        $data.stopResult = $stopResult
+        $finalStatus = Get-W17Prop $probe 'finalMapperStatus'
+        if (-not ($finalStatus -and -not (Get-W17Prop $finalStatus 'running' $false))) {
             $failures.Add('race day stop()/dispose() did not leave the mapper stopped per its own status() — possible stop-failed / orphan risk')
         }
     }
@@ -301,23 +384,29 @@ if (-not $probe) {
     # Orphan check: whatever pid the probe reports must be gone from the OS
     # process table by the time we look, independent of what the app itself
     # claims about it.
-    if ($probe.mapperPidAtStart) {
+    $mapperPid = Get-W17Prop $probe 'mapperPidAtStart'
+    if ($mapperPid) {
         Start-Sleep -Milliseconds 500
-        $still = Get-Process -Id $probe.mapperPidAtStart -ErrorAction SilentlyContinue
-        $data.mapperOrphanCheck = [ordered]@{ pid = $probe.mapperPidAtStart; stillRunning = [bool]$still }
+        $still = Get-Process -Id $mapperPid -ErrorAction SilentlyContinue
+        $data.mapperOrphanCheck = [ordered]@{ pid = $mapperPid; stillRunning = [bool]$still }
         if ($still) {
-            $failures.Add("mapper pid $($probe.mapperPidAtStart) is STILL RUNNING at the OS level after this script finished — orphan; clean up by hand: taskkill /pid $($probe.mapperPidAtStart) /t /f")
+            $failures.Add("mapper pid $mapperPid is STILL RUNNING at the OS level after this script finished — orphan; clean up by hand: taskkill /pid $mapperPid /t /f")
         }
     }
 }
 
+$data.expectedFindingsReproduced = @($expected)
 $ok = $failures.Count -eq 0
 $summary = if ($ok) {
-    "race day's mapper step ran clean, no crash, no orphan — UNEXPECTED against MAP-1/MAP-2's CONFIRMED status; re-verify against w17-mapper.v2report.json before trusting this (either the code changed, or this run's evidence is incomplete)"
+    if ($expected.Count -gt 0) {
+        "no UNEXPECTED failure: the only findings reproduced are the ones this suite already knows about ($($expected.Count)) — see data.expectedFindingsReproduced. A red line from this step means something NEW."
+    } else {
+        "race day's mapper step ran clean, no crash, no orphan, and not even the expected structural findings reproduced — UNEXPECTED against MAP-1/MAP-2's CONFIRMED status; re-verify against w17-mapper.v2report.json before trusting this (either the code changed, or this run's evidence is incomplete)"
+    }
 } else {
     ($failures -join '; ')
 }
 
-$result = New-W17Result -Script '50-race-day' -Ok $ok -Summary $summary -Data $data -Findings ($findings | Select-Object -Unique)
+$result = New-W17Result -Script '50-race-day' -Ok $ok -Summary $summary -Data $data -Findings @($findings | Select-Object -Unique)
 Save-W17Result -Result $result -ResultsDir $ResultsDir
 exit (Write-W17Result $result)

@@ -12,7 +12,7 @@
 //   (grpc_client.go:57-62 puts the WHOLE file into SetConfigReq.Config;
 //   server_grpc.go:103-104 re-marshals to {"config": <file>};
 //   configs/w17-ds4.json already carries that wrapper; schema.yaml then
-//   rejects the doubled document; grpc_client.go:63 panics) — so the mapper
+//   rejects the doubled document; grpc_client.go:64 panics) — so the mapper
 //   the orchestrator spawns is expected to crash shortly after launch, EVERY
 //   time, against today's code.
 //
