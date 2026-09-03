@@ -11,19 +11,15 @@
 > This copy supersedes the earlier camelCase/port-48017 draft that previously
 > lived in this file (W1); that draft is obsolete.
 >
-> **Sync record:** mirrored 2026-08-20 from canonical revision
-> `862aeb07eac8be73005f5c2889d3549bb4559afa` ("docs(contract): record the
-> deliberate loss-display divergence (owner, 2026-08-20)", `iPhone_rc` branch
-> `main`). That revision adds the ratified cross-client divergence-on-loss
-> paragraph; the acceptance-policy content below is unchanged from `9d0d8d7a`.
-> The previous mirror was the 2026-07-14 canonical (`84532ed8`); this revision
-> brings in the Discovery section's explicit receiver acceptance policy (TXT
-> `v` required and exactly `1`; `role`/`tport` optional but must match — `hud`
-> case-insensitive, SRV port — when present; unknown `feat` tokens ignored,
-> known tokens `w2`/`w3`; `dev` advisory, clampable to 32 printable ASCII),
-> the TXT table's new Required column, and the corrected `role` row (a non-`hud`
-> role is declined, not ignored). Receiver policy only; no advertiser, service,
-> or wire change.
+> **Sync record:** mirrored 2026-09-03 from canonical revision
+> `61ad68f7ebe4706fdb9e5732c8598ff1e0abac2c` ("docs(windows-bridge-contract):
+> drop stale PROTOCOL_CONTRACT.md from canonical file's own list", `iPhone_rc`
+> branch `main`). That revision removes one stale line from this document's
+> own Related-documents list (a `docs/PROTOCOL_CONTRACT.md` entry that never
+> corresponded to a real file); no other content changed. The previous mirror
+> was the 2026-08-20 canonical (`862aeb07`); the ratified cross-client
+> divergence-on-loss paragraph and the Discovery section's explicit receiver
+> acceptance policy brought in by that and earlier mirrors are unchanged.
 
 # W17 iPhone <-> Windows Bridge Contract
 
@@ -51,7 +47,6 @@ Hard boundaries:
 
 Related documents:
 
-- `docs/PROTOCOL_CONTRACT.md`
 - `schemas/telemetry_snapshot.schema.json`
 - `schemas/head_tracking_packet.schema.json`
 - `examples/telemetry_snapshot.example.json`
