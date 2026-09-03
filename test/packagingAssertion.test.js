@@ -157,6 +157,58 @@ describe('assert-packaged — every gap is loud (the regressions it exists to ca
   });
 });
 
+// Review adffe40ca3aaab56c.md item 6: checkResources({fsImpl}) used to control
+// only the asar branch — nonEmptyFile() closed over the module-level `fs`
+// directly, so an injected fs had no effect on the mediamtx executable,
+// mediamtx.yml, or the plain app/ path. Latent (nothing injected an fsImpl
+// before this test), but a half-wired seam is worse than no seam: it looks
+// covered. These prove fsImpl now genuinely controls every branch, not just
+// the asar one, by disagreeing with the real filesystem on purpose. Each fake
+// wraps the REAL fs (via node:fs directly, not the mocked module) and only
+// lies about the one path under test, via a basename check that is agnostic
+// to path.sep.
+const realFs = require('node:fs');
+function fakeFsLyingAbout(basename, { asEmpty = false, asPresent = false } = {}) {
+  return {
+    ...realFs,
+    statSync: (p) => {
+      const isTarget = String(p).split(/[\\/]/).pop() === basename;
+      if (isTarget && asEmpty) return { isFile: () => true, size: 0 };
+      if (isTarget && asPresent) return { isFile: () => true, size: 999 };
+      if (isTarget) throw Object.assign(new Error('ENOENT (fake)'), { code: 'ENOENT' });
+      return realFs.statSync(p);
+    },
+  };
+}
+
+describe('checkResources({ fsImpl }) — the injected fs controls EVERY branch, not just asar', () => {
+  it('the mediamtx executable check reads through fsImpl: a real, good file still FAILS when fsImpl says empty', async () => {
+    const res = await makePackage(); // real mediamtx.exe on disk, real content
+    const { failures } = checkResources(res, { fsImpl: fakeFsLyingAbout('mediamtx.exe', { asEmpty: true }) });
+    expect(failures.join('\n')).toMatch(/no mediamtx executable/);
+  });
+
+  it('the mediamtx.yml check reads through fsImpl: a real, present file still FAILS when fsImpl says missing', async () => {
+    const res = await makePackage(); // real mediamtx.yml on disk
+    const { failures } = checkResources(res, { fsImpl: fakeFsLyingAbout('mediamtx.yml') }); // default: ENOENT
+    expect(failures.join('\n')).toMatch(/no mediamtx\.yml/);
+  });
+
+  it('the plain app/ path check reads through fsImpl too: a real, present proto file still FAILS when fsImpl says empty', async () => {
+    const res = await makePackage({ layout: 'plain' }); // real proto file on disk under app/
+    const basename = REQUIRED_APP_FILES[0].split('/').pop();
+    const { failures } = checkResources(res, { fsImpl: fakeFsLyingAbout(basename, { asEmpty: true }) });
+    expect(failures.join('\n')).toMatch(/missing from/);
+  });
+
+  it('conversely: fsImpl saying a real, missing mediamtx binary IS present flips the check to pass', async () => {
+    const res = await makePackage({ mediamtx: null }); // NO mediamtx.exe on real disk
+    const { failures, notes } = checkResources(res, { fsImpl: fakeFsLyingAbout('mediamtx.exe', { asPresent: true }) });
+    expect(failures.join('\n')).not.toMatch(/no mediamtx executable/);
+    expect(notes.join('\n')).toMatch(/mediamtx: mediamtx\.exe/);
+  });
+});
+
 describe('asar header reader', () => {
   it('lists real archive entries and distinguishes files from directories', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'w17-asar-'));

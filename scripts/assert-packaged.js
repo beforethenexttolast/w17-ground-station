@@ -95,9 +95,14 @@ function resourcesDirFor(buildDir) {
     return direct; // report the expected location in the failure message
 }
 
-function nonEmptyFile(p) {
+// fsImpl defaults to the real fs so every call site works unchanged when no
+// fake is injected; a test that injects {fsImpl} controls EVERY check below,
+// not just the asar branch (review item 6 — before this, nonEmptyFile() closed
+// over the module-level `fs` directly, so an injected fs silently had no
+// effect on the mediamtx executable, mediamtx.yml, or the plain app/ checks).
+function nonEmptyFile(p, fsImpl = fs) {
     try {
-        const st = fs.statSync(p);
+        const st = fsImpl.statSync(p);
         return st.isFile() && st.size > 0;
     } catch {
         return false;
@@ -111,7 +116,7 @@ function checkResources(resourcesDir, { fsImpl = fs } = {}) {
 
     const mediamtxDir = path.join(resourcesDir, 'mediamtx');
     const exeNames = ['mediamtx.exe', 'mediamtx'];
-    const found = exeNames.find((n) => nonEmptyFile(path.join(mediamtxDir, n)));
+    const found = exeNames.find((n) => nonEmptyFile(path.join(mediamtxDir, n), fsImpl));
     if (!found) {
         failures.push(
             `no mediamtx executable in ${mediamtxDir} — the packaged app has NO video relay. `
@@ -123,7 +128,7 @@ function checkResources(resourcesDir, { fsImpl = fs } = {}) {
     }
 
     const yml = path.join(mediamtxDir, 'mediamtx.yml');
-    if (!nonEmptyFile(yml)) failures.push(`no mediamtx.yml in ${mediamtxDir} — the supervisor spawns mediamtx with this config by absolute path`);
+    if (!nonEmptyFile(yml, fsImpl)) failures.push(`no mediamtx.yml in ${mediamtxDir} — the supervisor spawns mediamtx with this config by absolute path`);
     else notes.push('mediamtx.yml: present');
 
     // The app bundle: asar (the default) or an unpacked app/ directory.
@@ -147,7 +152,7 @@ function checkResources(resourcesDir, { fsImpl = fs } = {}) {
         }
     } else if (fsImpl.existsSync(plain)) {
         for (const rel of REQUIRED_APP_FILES) {
-            if (!nonEmptyFile(path.join(plain, ...rel.split('/')))) failures.push(`${rel} missing from ${plain}`);
+            if (!nonEmptyFile(path.join(plain, ...rel.split('/')), fsImpl)) failures.push(`${rel} missing from ${plain}`);
             else notes.push(`app/: ${rel}`);
         }
     } else {
