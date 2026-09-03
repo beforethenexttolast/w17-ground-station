@@ -300,9 +300,12 @@ describe('no-control-path directory sweep (audit D1 — no enumerated list)', ()
 
   it('the sweep actually found the runtime tree (a broken walk must not silently pass)', () => {
     const { runtime } = sweepRepo();
-    // 46 runtime modules today (34 .js + 11 .mjs + 1 .cjs); a comfortably low
-    // floor guards against a discovery bug that finds nothing and vacuously
-    // passes the inertness assertion.
+    // A comfortably low FLOOR guards against a discovery bug that finds nothing
+    // and vacuously passes the inertness assertion. Deliberately not an exact
+    // count: the previous comment claimed 46 modules while the sweep was
+    // finding 68, i.e. the kind of counted number that drifts every commit and
+    // then reads as a fact (grand verdict cluster-5). The floor is the contract;
+    // the failure message prints the real list.
     expect(runtime.length).toBeGreaterThan(30);
   });
 
