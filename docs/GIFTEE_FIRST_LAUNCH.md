@@ -49,6 +49,15 @@ they do:
   and re-tries every 2 s. Before that handler existed it was an uncaught exception in the
   main process — the whole viewer died — so this is the shape to re-check on the bench if
   the app ever disappears at launch (`test/mediamtxSupervisor.test.js` pins it).
+  **The phone uses this same prompt.** Under owner adjudication OD-16 the phone's cockpit
+  view pulls WHEP from *this* process over the car Wi-Fi hotspot, so the answer has to
+  cover the hotspot adapter, not only the laptop's own loopback: **Allow access** with
+  **Private networks** ticked. `mediamtx/mediamtx.yml` already binds `:8889` on every
+  interface (a bare `:port` is all interfaces), and now advertises `192.168.137.1` — the
+  Windows ICS gateway address the hotspot always takes — as an ICE host candidate beside
+  `127.0.0.1`, so the phone is offered an address it can actually reach. If this prompt is
+  declined, the laptop's own picture still works and the PHONE's does not, which is the
+  confusing failure to watch for. `[win-TBD]` not yet observed on real Windows.
 - **the drive program** (`elrs-joystick-control.exe` — the one that actually drives the
   car) — started either by the GRID's **LAUNCH** button or by **RACE DAY**, and it opens
   two listeners of its own: a gRPC port and an HTTP/grpc-web port. `[fix-wave: MAP-8]`

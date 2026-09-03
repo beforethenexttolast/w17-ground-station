@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -129,5 +130,37 @@ describe("MediamtxSupervisor 'error' handling (review correctness-4)", () => {
     sup.start();
     expect(spawnFn).not.toHaveBeenCalled();
     expect(logs.join('\n')).toMatch(/binary not found/);
+  });
+});
+
+// --- the config the phone depends on (owner adjudication OD-16 / Q8) --------
+// The phone's cockpit view pulls WHEP from THIS process over the car Wi-Fi
+// hotspot. Two things have to hold, and both live in the checked-in config
+// rather than in code, so they are asserted from the file itself.
+describe('mediamtx.yml — reachable from the hotspot, not only from loopback', () => {
+  const yml = readFileSync(new URL('../mediamtx/mediamtx.yml', import.meta.url), 'utf8');
+  const value = (key) => {
+    const line = yml.split('\n').find((l) => l.startsWith(`${key}:`));
+    return line ? line.slice(key.length + 1).trim() : null;
+  };
+
+  it('the WHEP endpoint binds EVERY interface (a bare :port), which it always did', () => {
+    expect(value('webrtcAddress')).toBe(':8889');
+    expect(value('webrtcLocalUDPAddress')).toBe(':8189');
+  });
+
+  it('the ICE host candidates include the hotspot address the phone sees, and still loopback', () => {
+    const hosts = value('webrtcAdditionalHosts');
+    // 127.0.0.1 serves the laptop's own renderer; 192.168.137.1 is the Windows
+    // ICS gateway address the hotspot always takes — the same /24
+    // main/hotspot.js icsHostIp() looks for. Without it the phone can complete
+    // signalling and then receive nothing.
+    expect(hosts).toContain('127.0.0.1');
+    expect(hosts).toContain('192.168.137.1');
+  });
+
+  it('the ICS address the config advertises is the one this app itself looks for', () => {
+    const hotspotSrc = readFileSync(new URL('../main/hotspot.js', import.meta.url), 'utf8');
+    expect(hotspotSrc).toContain('192.168.137.');
   });
 });

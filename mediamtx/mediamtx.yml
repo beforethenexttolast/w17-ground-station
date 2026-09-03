@@ -10,13 +10,27 @@
 logLevel: info
 logDestinations: [stdout]
 
-# WebRTC / WHEP server. The renderer POSTs its SDP offer to
-# http://127.0.0.1:8889/<path>/whep.
+# WebRTC / WHEP server. The laptop's renderer POSTs its SDP offer to
+# http://127.0.0.1:8889/<path>/whep; the PHONE pulls the SAME endpoint over the
+# car Wi-Fi hotspot (owner adjudication OD-16 / design Q8: transport (a), WHEP
+# into a bundled web view, chosen for latency).
 webrtc: yes
+# TODAY'S TRUTH, unchanged: a bare `:8889` already binds EVERY interface, so the
+# signalling endpoint was always reachable from the hotspot -- there is nothing
+# to widen here, and nothing is widened.
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
-# Localhost only -- this is a local ground-station bridge, not a public server.
-webrtcAdditionalHosts: [127.0.0.1]
+# ICE HOST CANDIDATES. This list is what mediamtx ADVERTISES as reachable
+# addresses; a viewer that cannot reach any advertised candidate gets signalling
+# and then silence. 127.0.0.1 serves the laptop's own renderer. 192.168.137.1 is
+# the Windows ICS gateway address the hotspot always takes (main/hotspot.js
+# icsHostIp() looks for exactly that /24, and main/hotspotVerify.js checks the
+# same interface), so it is the address the phone sees this laptop at -- listed
+# explicitly rather than trusting interface auto-detection to have enumerated an
+# ICS adapter that may have appeared after mediamtx started.
+# Harmless with no hotspot up: an unreachable candidate simply loses the ICE
+# race, and the loopback one still wins for the local renderer.
+webrtcAdditionalHosts: [127.0.0.1, 192.168.137.1]
 
 # RTSP server stays available too (so VLC/the fallback can hit mediamtx, and
 # for the offline demo re-publish).
