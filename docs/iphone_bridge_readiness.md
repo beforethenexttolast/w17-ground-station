@@ -90,9 +90,17 @@ dimmed, never a silent fall-back to simulation). `armed`/`failsafe` are demo-onl
 Camera RTSP (`paths.cam.source`, `mediamtx/mediamtx.yml`) → bundled mediamtx v1.9.3
 (spawned by `MediamtxSupervisor`) → WebRTC/WHEP at `http://127.0.0.1:8889/cam/whep`
 (`W17_WHEP_URL` overridable, `main/main.js:30`) → `renderer/whep.js` → full-screen
-`<video>`. mediamtx is deliberately **localhost-only** (`webrtcAdditionalHosts:
-[127.0.0.1]`, `mediamtx.yml:19`); its RTSP re-serve on `:8554` stays up for the VLC
-fallback. Known bench gate: camera must emit H.264 for Chromium WebRTC (`docs/SETUP.md` §1).
+`<video>`. **Superseded by OD-16:** mediamtx's ICE host-candidate list now advertises both
+`127.0.0.1` and `192.168.137.1` (`webrtcAdditionalHosts: [127.0.0.1, 192.168.137.1]`,
+`mediamtx.yml:41`) so the phone can pull the same WHEP endpoint over the car's hotspot
+(design Q8 transport (a), a bundled `WKWebView` — see `iPhone_rc/FPVHUDApp/Video/
+WhepVideoView.swift`). This did not require widening a bind address: a bare `:8889`
+already binds every interface (`mediamtx.yml:18-21`), so nothing was opened that was not
+already reachable — only the *advertised* candidate list changed. The `192.168.137.1`
+address is Windows ICS convention, not something this repo asserts or has verified on
+real Windows; `[win-TBD]`, settled at WS3 (`mediamtx.yml:27-28`). Its RTSP re-serve on
+`:8554` stays up for the VLC fallback. Known bench gate: camera must emit H.264 for
+Chromium WebRTC (`docs/SETUP.md` §1).
 
 ### 1.6 Tests [C]
 
@@ -249,8 +257,15 @@ Structural, not aspirational:
 1. The receiver module **exports no data accessor** used by any other runtime module —
    `main.js` constructs it, `start()`s it, `stop()`s it; nothing consumes it.
 2. It never touches `TelemetrySource`, `ipcMain`/`webContents.send`, `serialport`,
-   or the mediamtx supervisor. (Today the repo has no control path at all to touch —
-   §4 — keep it that way.)
+   or the mediamtx supervisor. (Stale wording, superseded: this predates the repo's own
+   mapper-management and telemetry work. The repo now runs two read-only gRPC consumers
+   against the mapper — `getTelemetryStream` (`main/mapperTelemetryGrpcConnect.js:20`) and
+   the link-state stream (`main/MapperLinkStateClient.js`) — and manages the mapper
+   **process** (start/liveness/stop, `main/mapperRunner.js`), though it still sends the
+   mapper no commands. `CLAUDE.md`'s guardrail sentence is the accurate formulation now:
+   "Read-only stream subscriptions are viewer consumers, not a control path," pinned
+   structurally by `test/noControlPath.test.js:125-170`, not by this file's older claim
+   that there was nothing here to touch at all.)
 3. A **regression test** (see §6) asserts the module graph: nothing in `main/` or
    `shared/` imports the head-tracking module except `main.js` and its own tests, and the
    module's public surface is `{start, stop, getDiagnostics}` only.
@@ -303,9 +318,12 @@ Structural, not aspirational:
   advertise `{ whepUrl, rtspUrl, codec }` so the phone auto-discovers the stream instead
   of hardcoding IPs. Design in W1; implement only when the mirrored-video decision (A/B
   from the onboarding report) is made.
-- **Do not change yet:** `mediamtx.yml` stays localhost-only (`webrtcAdditionalHosts`);
-  no LAN exposure, no transcode entries, no second path. Opening mediamtx to the LAN is a
-  deliberate, reviewed step in the video phase — not a side effect of the bridge phase.
+- **Landed (OD-16), superseding "do not change yet":** `mediamtx.yml`'s
+  `webrtcAdditionalHosts` now advertises `192.168.137.1` alongside `127.0.0.1`
+  (`mediamtx.yml:41`) so the phone can pull the laptop's own WHEP endpoint over the car's
+  hotspot — no LAN exposure beyond that, no transcode entries, no second path; the bind
+  address itself did not change (`:8889` already bound every interface). This was the
+  deliberate, reviewed step in the video phase this section used to defer.
 
 ---
 
