@@ -48,8 +48,13 @@ approved baseline without measured evidence and an owner decision.
   either consumer. The Codex handoff item for this is H1 in
   `../../_handoff/2026-07-14_codex_handoff_vr_fpv_cross_review.md`.
 - **Windows side (this repo):** with the camera in the baseline configuration, confirm
-  the existing RTSP → MediaMTX → WHEP path still plays (no code change expected;
-  `mediamtx.yml` stays localhost-only per `docs/iphone_bridge_readiness.md` §5).
+  the existing RTSP → MediaMTX → WHEP path still plays. **Superseded by OD-16:**
+  `mediamtx.yml` is no longer localhost-only in its advertised ICE candidates — it now
+  lists `192.168.137.1` alongside `127.0.0.1` (`mediamtx.yml:41`) so the phone can pull
+  the same WHEP endpoint over the car's hotspot, per `docs/iphone_bridge_readiness.md`
+  §1.5/§5. The bind address itself was never narrowed (`:8889` always bound every
+  interface), so this confirmation step is unaffected — only the referenced claim about
+  the candidate list was stale.
 
 Cross-links: `docs/SETUP.md` (codec gate, stream URL, WHEP),
 `w17-control-fw/project-review/head_tracking_unlock_plan.md` (unlock sequencing),
